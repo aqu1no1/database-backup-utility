@@ -5,7 +5,7 @@
 | Linguagem principal | Rust estável / Cargo Workspace | Base criada |
 | CLI | Clap, Tokio, rpassword | `info` e `test-connection` |
 | Conexão PostgreSQL | tokio-postgres, rustls (ring) + certificados do sistema | Teste de conexão implementado |
-| Motor PostgreSQL | Ferramentas oficiais `pg_dump`, `pg_restore` | Planejado |
+| Motor PostgreSQL | Ferramentas oficiais `pg_dump`, `pg_restore` (runner native ou Docker) | Executor implementado |
 | Histórico | SQLite (rusqlite, bundled) + rusqlite_migration | Crate `history` com schema inicial |
 | Desenvolvimento | Docker Compose com PostgreSQL 17 | Arquivo criado |
 | Integração | Testcontainers para Rust (PostgreSQL efêmero) | Harness, fixtures e testes de conexão |

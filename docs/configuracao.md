@@ -68,3 +68,24 @@ O arquivo `history.sqlite3` fica no diretório de dados do usuário:
 
 As migrations rodam ao abrir o histórico e só aplicam o que falta (versão em `PRAGMA user_version`).
 O schema está em `docs/diagramas/modelo-de-dados.md`.
+
+## Ferramentas `pg_dump` / `pg_restore`
+
+O backup usa as ferramentas oficiais do PostgreSQL, executadas de dois jeitos:
+
+| Runner | Quando usar | Como funciona |
+| --- | --- | --- |
+| `native` | Cliente PostgreSQL instalado na máquina | Usa `pg_dump`/`pg_restore` do `PATH`. A major do cliente precisa ser maior ou igual à do servidor. |
+| `docker` | Sem cliente instalado, ou cliente antigo | Roda `postgres:<major do servidor>` com `docker run --rm`; a versão sempre bate com a do servidor. |
+| `auto` (padrão) | — | `native` se existir e for compatível; senão `docker`. |
+
+- **Senha:** gravada num `.pgpass` temporário com permissão `0600`, apontado por `PGPASSFILE` e
+  apagado no fim, inclusive em falha ou cancelamento. No modo Docker o arquivo é montado só para
+  leitura. A senha nunca aparece nos argumentos do processo nem nas mensagens de erro.
+- **TLS:** segue a mesma regra do `test-connection` (`PGSSLMODE=disable` em `localhost`,
+  `verify-full` nos demais). No Docker, os certificados do sistema são montados no container.
+- **Rede no Docker:** para `localhost` o container usa `--network host`, porque o Compose publica
+  o PostgreSQL só em `127.0.0.1`. No macOS e no Windows isso exige o host networking do
+  Docker Desktop habilitado. Para hosts remotos é usada a rede padrão.
+- **Cancelamento:** o container recebe um nome `dbu-pg-<id>` e é removido com
+  `docker rm --force` ao cancelar.

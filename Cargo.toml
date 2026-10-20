@@ -20,7 +20,7 @@ tempfile = "3.27"
 testcontainers = "0.28"
 thiserror = "2.0"
 time = { version = "0.3", features = ["formatting", "parsing"] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+tokio = { version = "1", features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "signal", "time"] }
 tokio-postgres = "0.7"
 tokio-postgres-rustls = { version = "0.14", features = ["ring"] }
 uuid = { version = "1.28", features = ["v7"] }
