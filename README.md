@@ -4,8 +4,7 @@ Ferramenta multiplataforma de backup e restauração de bancos de dados. O produ
 **CLI independente em Rust** e, futuramente, um **desktop Tauri + Angular + Tailwind v4**,
 ambos utilizando as mesmas crates de negócio.
 
-> **Estado atual:** bootstrap do monorepo, testes de infraestrutura PostgreSQL,
-> Docker Compose, documentação e pipelines. **Ainda não executa backups nem restaurações.**
+> **Estado atual:** teste de conexão PostgreSQL pela CLI, testes de integração, Docker Compose e pipelines. **Ainda não executa backups nem restaurações.**
 > As entregas funcionais estão organizadas nas issues do Linear.
 
 ## Stack
@@ -29,6 +28,26 @@ ambos utilizando as mesmas crates de negócio.
 cargo run -p database-backup-cli -- --help
 cargo run -p database-backup-cli -- info
 ```
+
+Testar a conexão com um PostgreSQL (a senha nunca é passada por argumento):
+
+```bash
+DBU_PG_PASSWORD='...' cargo run -p database-backup-cli -- test-connection \
+  --host localhost --port 5432 --database my_database --user postgres
+```
+
+Sem `DBU_PG_PASSWORD`, a CLI pede a senha em um prompt sem eco. Hosts fora de `localhost`
+exigem TLS com certificado validado (`--tls verify-full`, padrão em `--tls auto`).
+
+| Exit code | Significado |
+| --- | --- |
+| 0 | Conexão OK |
+| 1 | Erro não classificado |
+| 2 | Parâmetro inválido ou senha ausente |
+| 3 | Autenticação recusada |
+| 4 | Banco inexistente |
+| 5 | Servidor inacessível ou tempo esgotado |
+| 6 | Falha de TLS |
 
 ## PostgreSQL para desenvolvimento
 

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::collections::hash_map::RandomState;
 use std::error::Error;
 use std::hash::{BuildHasher, Hasher};
@@ -26,7 +28,9 @@ pub type TestResult<T = ()> = Result<T, Box<dyn Error + Send + Sync>>;
 pub struct PostgresTestDb {
     client: Client,
     connection_task: JoinHandle<()>,
+    host: String,
     port: u16,
+    password: String,
     _container: ContainerAsync<GenericImage>,
 }
 
@@ -67,7 +71,9 @@ impl PostgresTestDb {
         Ok(Self {
             client,
             connection_task,
+            host: host.to_string(),
             port,
+            password,
             _container: container,
         })
     }
@@ -85,8 +91,24 @@ impl PostgresTestDb {
         &self.client
     }
 
+    pub fn host(&self) -> &str {
+        &self.host
+    }
+
     pub fn port(&self) -> u16 {
         self.port
+    }
+
+    pub fn user(&self) -> &str {
+        USER
+    }
+
+    pub fn database(&self) -> &str {
+        DATABASE
+    }
+
+    pub fn password(&self) -> &str {
+        &self.password
     }
 }
 

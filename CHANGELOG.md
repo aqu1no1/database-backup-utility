@@ -12,6 +12,7 @@ versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ### Added
 - CLI `database-backup` com o comando `info`, que mostra o estado atual do projeto.
+- Comando `test-connection` para validar parâmetros e testar a conexão PostgreSQL, com senha por prompt sem eco ou `DBU_PG_PASSWORD`, TLS verificado para hosts remotos e exit codes por tipo de falha.
 
 <!-- Ao concluir uma funcionalidade relevante, registre-a aqui usando:
 ### Added

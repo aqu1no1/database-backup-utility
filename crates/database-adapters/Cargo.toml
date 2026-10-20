@@ -3,7 +3,14 @@ name = "database-backup-adapters"
 version.workspace = true
 edition.workspace = true
 
-[dev-dependencies]
-testcontainers.workspace = true
+[dependencies]
+database-backup-core.workspace = true
+rustls.workspace = true
+rustls-native-certs.workspace = true
+thiserror.workspace = true
 tokio.workspace = true
 tokio-postgres.workspace = true
+tokio-postgres-rustls.workspace = true
+
+[dev-dependencies]
+testcontainers.workspace = true

@@ -8,7 +8,13 @@ edition = "2024"
 
 [workspace.dependencies]
 database-backup-core = { path = "crates/core" }
+database-backup-adapters = { path = "crates/database-adapters" }
 clap = { version = "4.5", features = ["derive"] }
+rpassword = "7.5"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls-native-certs = "0.8"
 testcontainers = "0.28"
+thiserror = "2.0"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 tokio-postgres = "0.7"
+tokio-postgres-rustls = { version = "0.14", features = ["ring"] }

@@ -9,4 +9,11 @@ path = "src/main.rs"
 
 [dependencies]
 clap.workspace = true
+database-backup-adapters.workspace = true
 database-backup-core.workspace = true
+rpassword.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+testcontainers.workspace = true
+tokio-postgres.workspace = true
