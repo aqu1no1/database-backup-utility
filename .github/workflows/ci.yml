@@ -53,28 +53,36 @@ jobs:
 
   angular:
     name: Angular / Lint, Test & Build
-    if: ${{ hashFiles('apps/desktop/package.json') != '' && hashFiles('pnpm-lock.yaml') != '' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7
         with:
           persist-credentials: false
+      - name: Detectar aplicação Angular
+        id: desktop
+        run: echo "present=${{ hashFiles('apps/desktop/package.json') != '' && hashFiles('pnpm-lock.yaml') != '' }}" >> "$GITHUB_OUTPUT"
       - name: Configurar PNPM
+        if: steps.desktop.outputs.present == 'true'
         uses: pnpm/action-setup@v6
         with:
           version: 10
       - name: Configurar Node.js
+        if: steps.desktop.outputs.present == 'true'
         uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - name: Dependências
+        if: steps.desktop.outputs.present == 'true'
         run: pnpm install --frozen-lockfile
       - name: Lint
+        if: steps.desktop.outputs.present == 'true'
         run: pnpm --dir apps/desktop run lint
       - name: Testes Angular
+        if: steps.desktop.outputs.present == 'true'
         run: pnpm --dir apps/desktop run test:ci
       - name: Build Angular
+        if: steps.desktop.outputs.present == 'true'
         run: pnpm --dir apps/desktop run build
