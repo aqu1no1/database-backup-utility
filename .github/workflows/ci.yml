@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust-quality:
+    name: Rust / Quality & Unit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Configurar toolchain Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - name: Formatação
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Testes unitários
+        run: cargo test --workspace --lib --bins
+      - name: Compilação
+        run: cargo build --workspace
+
+  postgres-integration:
+    name: Rust / PostgreSQL Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Configurar toolchain Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Docker disponível
+        run: docker info
+      - name: Testcontainers PostgreSQL
+        run: cargo test --workspace --tests -- --nocapture
+
+  angular:
+    name: Angular / Lint, Test & Build
+    if: ${{ hashFiles('apps/desktop/package.json') != '' && hashFiles('pnpm-lock.yaml') != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Configurar PNPM
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10
+      - name: Configurar Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Dependências
+        run: pnpm install --frozen-lockfile
+      - name: Lint
+        run: pnpm --dir apps/desktop run lint
+      - name: Testes Angular
+        run: pnpm --dir apps/desktop run test:ci
+      - name: Build Angular
+        run: pnpm --dir apps/desktop run build

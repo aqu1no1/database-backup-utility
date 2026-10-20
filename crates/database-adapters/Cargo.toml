@@ -1,0 +1,9 @@
+[package]
+name = "database-backup-adapters"
+version.workspace = true
+edition.workspace = true
+
+[dev-dependencies]
+testcontainers.workspace = true
+tokio.workspace = true
+tokio-postgres.workspace = true

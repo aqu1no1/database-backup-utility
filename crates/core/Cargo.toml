@@ -1,0 +1,4 @@
+[package]
+name = "database-backup-core"
+version.workspace = true
+edition.workspace = true
