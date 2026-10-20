@@ -506,11 +506,13 @@ dependencies = [
  "database-backup-core",
  "rustls",
  "rustls-native-certs",
+ "tempfile",
  "testcontainers",
  "thiserror",
  "tokio",
  "tokio-postgres",
  "tokio-postgres-rustls",
+ "uuid",
 ]
 
 [[package]]

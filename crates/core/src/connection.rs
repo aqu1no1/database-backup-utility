@@ -109,6 +109,11 @@ impl PostgresConnectionConfig {
     pub fn tls(&self) -> TlsRequirement {
         self.tls
     }
+
+    #[must_use]
+    pub fn is_local(&self) -> bool {
+        is_local_host(&self.host)
+    }
 }
 
 impl fmt::Display for PostgresConnectionConfig {
@@ -180,6 +185,7 @@ mod tests {
     fn accepts_local_config_without_tls() {
         let config = config("localhost", TlsMode::Auto).expect("configuração válida");
         assert_eq!(config.tls(), TlsRequirement::Plain);
+        assert!(config.is_local());
         assert_eq!(config.to_string(), "postgres@localhost:5432/my_database");
     }
 

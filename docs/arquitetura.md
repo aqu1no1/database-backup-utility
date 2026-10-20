@@ -15,7 +15,9 @@ flowchart TD
 - Adaptadores lidam com capacidades específicas por SGBD, sem prometer uma função universal.
 - `core/`, `shared/`, `features/` e `layout/` são pastas do frontend **quando ele for criado**.
 - `crates/` Rust são compartilhadas entre interfaces. A pasta `libs/` TS não será criada sem uso.
-- Modo Docker é para desenvolvimento e um executor opcional; distribuição nativa será avaliada por SO.
+- `crates/database-adapters/src/postgres/tools.rs` executa `pg_dump`/`pg_restore` em modo `native`
+  ou `docker`, sempre com argumentos estruturados e a senha num `.pgpass` temporário.
+  Distribuição nativa das ferramentas será avaliada por SO.
 - SQLite interno será usado para histórico; não confundir com suporte futuro a backup de bancos SQLite.
 - Agendamento invoca a CLI com mecanismo independente da janela desktop, não incluído no MVP.
 
