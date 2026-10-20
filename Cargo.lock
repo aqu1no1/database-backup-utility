@@ -522,8 +522,15 @@ dependencies = [
  "clap",
  "database-backup-adapters",
  "database-backup-core",
+ "database-backup-history",
+ "database-backup-storage",
  "rpassword",
+ "rusqlite",
+ "serde_json",
+ "sha2",
+ "tempfile",
  "testcontainers",
+ "time",
  "tokio",
  "tokio-postgres",
 ]
@@ -546,6 +553,19 @@ dependencies = [
  "thiserror",
  "time",
  "uuid",
+]
+
+[[package]]
+name = "database-backup-storage"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror",
+ "time",
+ "tokio",
 ]
 
 [[package]]

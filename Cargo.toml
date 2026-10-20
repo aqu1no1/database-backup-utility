@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["apps/cli", "crates/core", "crates/database-adapters", "crates/history"]
+members = ["apps/cli", "crates/core", "crates/database-adapters", "crates/history", "crates/storage"]
 
 [workspace.package]
 version = "0.1.0"
@@ -9,6 +9,8 @@ edition = "2024"
 [workspace.dependencies]
 database-backup-core = { path = "crates/core" }
 database-backup-adapters = { path = "crates/database-adapters" }
+database-backup-history = { path = "crates/history" }
+database-backup-storage = { path = "crates/storage" }
 clap = { version = "4.5", features = ["derive"] }
 directories = "6.0"
 rpassword = "7.5"
@@ -16,10 +18,13 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 rusqlite_migration = "2.6"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 rustls-native-certs = "0.8"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.11"
 tempfile = "3.27"
 testcontainers = "0.28"
 thiserror = "2.0"
-time = { version = "0.3", features = ["formatting", "parsing"] }
+time = { version = "0.3", features = ["formatting", "macros", "parsing"] }
 tokio = { version = "1", features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "signal", "time"] }
 tokio-postgres = "0.7"
 tokio-postgres-rustls = { version = "0.14", features = ["ring"] }
