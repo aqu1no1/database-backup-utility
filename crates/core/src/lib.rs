@@ -1,3 +1,7 @@
+pub mod connection;
+
+pub use connection::{ConfigError, Password, PostgresConnectionConfig, TlsMode, TlsRequirement};
+
 pub const PROJECT_NAME: &str = "Database Backup Utility";
 
 #[cfg(test)]

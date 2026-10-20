@@ -15,7 +15,11 @@ docker info                                                      # Docker Engine
 ```bash
 cargo run -p database-backup-cli -- --help
 cargo run -p database-backup-cli -- info
+DBU_PG_PASSWORD='...' cargo run -p database-backup-cli -- test-connection --database my_database --user postgres
 ```
+
+Sem `DBU_PG_PASSWORD` a senha é pedida sem eco. Exit codes: 0 ok, 2 parâmetro inválido,
+3 autenticação, 4 banco inexistente, 5 inacessível/timeout, 6 TLS.
 
 ## PostgreSQL de desenvolvimento
 
@@ -34,6 +38,7 @@ docker compose --env-file .env -f infra/docker/compose.yml down
 cargo test --workspace --lib --bins                                   # unitários, sem Docker
 cargo test --workspace --tests                                        # tudo, inclui Testcontainers (Docker)
 cargo test -p database-backup-adapters --test postgres_container      # só a integração PostgreSQL
+cargo test -p database-backup-adapters --test postgres_connection     # teste de conexão
 cargo test -p database-backup-adapters --test postgres_container -- seed_fixture_is_applied
 ```
 

@@ -33,3 +33,25 @@ docker compose --env-file .env -f infra/docker/compose.yml \
 - Testcontainers usa credenciais efêmeras de teste e não lê esse `.env`.
 - Em produção, segredos serão tratados por provedores apropriados a CLI interativa,
   agendamento sem sessão gráfica e Tauri; `.env` não equivale a um cofre.
+
+## Variáveis da CLI
+
+| Variável | Finalidade |
+| --- | --- |
+| `DBU_PG_PASSWORD` | Senha usada pelo `test-connection` em scripts e agendamentos. Sem ela, a CLI pede a senha sem eco no terminal. |
+
+- A CLI não lê o `.env`; exporte as variáveis no shell ou no agendador.
+- A senha nunca é aceita como argumento, porque argumentos ficam visíveis em `ps` e no histórico do shell.
+- Variáveis de ambiente ficam visíveis para o próprio usuário e o root (`/proc/<pid>/environ`).
+  Um provedor via keyring do sistema está previsto para uma issue futura.
+
+## TLS no teste de conexão
+
+| `--tls` | `localhost` / `127.0.0.1` / `::1` | Outros hosts |
+| --- | --- | --- |
+| `auto` (padrão) | Sem TLS | TLS com certificado validado |
+| `disable` | Sem TLS | Recusado antes de conectar |
+| `verify-full` | TLS com certificado validado | TLS com certificado validado |
+
+A validação usa os certificados raiz do sistema operacional.
+

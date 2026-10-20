@@ -334,21 +334,42 @@ Estratégia de testes:
 - Prefira testes de comportamento com o padrão Arrange–Act–Assert. Não faça mock do próprio
   sistema cujo comportamento você pretende validar em um teste de integração.
 
-Verificações Rust recomendadas, a partir da raiz do repositório **quando o workspace existir**:
+### Verificação obrigatória após cada implementação
+
+Ao terminar **cada** implementação (issue, correção ou ajuste), antes de mostrar o resultado,
+commitar ou abrir PR, rode formatação, lint, build e testes de **todas** as partes existentes
+do monorepo, não só das que foram alteradas. Se algum passo falhar, corrija e rode de novo.
+
+Rust, a partir da raiz do repositório:
 
 ```bash
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
+cargo build --workspace
 cargo test --workspace
-cargo check --workspace
 ```
 
-Verificações do desktop, **após a criação da aplicação Angular e instalação das dependências**:
+Angular, **após a criação da aplicação** em `apps/desktop` (enquanto ela não existir, registre
+que a etapa não se aplica):
 
 ```bash
-pnpm --dir apps/desktop exec ng test --watch=false
-pnpm --dir apps/desktop exec ng build
+pnpm --dir apps/desktop run lint
+pnpm --dir apps/desktop run build
+pnpm --dir apps/desktop run test:ci
 ```
+
+São os mesmos scripts usados pela CI; inclua também o script de formatação quando ele existir
+no `package.json`.
+
+Scripts de release (quando alterados ou antes de um release):
+
+```bash
+python3 -m unittest discover -s .github/scripts -p 'test_*.py'
+```
+
+Workflows do GitHub Actions, quando alterados: valide com `actionlint`.
+
+No resumo final, liste cada comando executado e o resultado real.
 
 Execute também os scripts configurados para formatação, lint e checagem de tipos quando
 existirem. Confirme os nomes reais no `package.json`; não invente comandos.
@@ -385,7 +406,7 @@ existirem. Confirme os nomes reais no `package.json`; não invente comandos.
 1. Confirme que a alteração atende diretamente à solicitação.
 2. Verifique se não existem mudanças em arquivos não relacionados nem código de debug restante.
 3. Revise entradas/saídas sensíveis e caminhos destrutivos de backup/restauração.
-4. Formate os arquivos alterados e execute lint, build e testes relevantes.
+4. Execute a verificação obrigatória da seção 8 (formatação, lint, build e testes de Rust e Angular).
 5. Atualize os testes e a documentação específicos quando necessário.
 6. Avalie se o `CHANGELOG.md` precisa receber uma entrada em `Unreleased`.
 7. Resuma os arquivos alterados, os resultados observados, os comandos realmente executados,
