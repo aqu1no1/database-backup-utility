@@ -1,0 +1,39 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Ambiente, segredos e dados locais
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+*.age
+backups/
+*.dump
+*.backup
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+
+# Frontend (futuro Angular)
+node_modules/
+dist/
+.angular/
+.turbo/
+
+# Desktop / bundlers
+*.AppImage
+*.deb
+*.dmg
+*.msi
+*.exe
+
+# Editors & system
+.idea/
+.vscode/
+.DS_Store
+*.log

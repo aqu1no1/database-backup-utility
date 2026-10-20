@@ -1,0 +1,12 @@
+[package]
+name = "database-backup-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "database-backup"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+database-backup-core.workspace = true

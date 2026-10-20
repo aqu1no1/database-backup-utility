@@ -1,0 +1,85 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Versão SemVer (ex.: v0.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: manual-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Validar, compilar e publicar
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Configurar Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Validar versão, Cargo e CHANGELOG
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          test -f Cargo.lock || { echo 'Cargo.lock deve estar versionado.' >&2; exit 1; }
+          python3 .github/scripts/release_notes.py \
+            --version "$RELEASE_VERSION" --output release-notes.md
+          if git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_VERSION"; then
+            echo "Tag já existe: $RELEASE_VERSION" >&2
+            exit 1
+          fi
+          if gh release view "$RELEASE_VERSION" >/dev/null 2>&1; then
+            echo "GitHub Release já existe: $RELEASE_VERSION" >&2
+            exit 1
+          fi
+
+      - name: Rustfmt
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Testes unitários
+        run: cargo test --workspace --lib --bins --locked
+      - name: Testes integração / Docker
+        run: cargo test --workspace --tests --locked
+      - name: Build release Linux x86_64
+        run: cargo build --locked --release -p database-backup-cli --bin database-backup
+
+      - name: Empacotar e gerar checksums
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          mkdir -p dist
+          tar -C target/release -czf "dist/database-backup-linux-x86_64-${RELEASE_VERSION}.tar.gz" database-backup
+          (cd dist && sha256sum *.tar.gz > SHA256SUMS.txt)
+
+      - name: Criar tag e publicar GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -a "$RELEASE_VERSION" -m "Release $RELEASE_VERSION" "${GITHUB_SHA}"
+          git push origin "refs/tags/$RELEASE_VERSION"
+          gh release create "$RELEASE_VERSION" dist/* \
+            --verify-tag \
+            --title "$RELEASE_VERSION" \
+            --notes-file release-notes.md
