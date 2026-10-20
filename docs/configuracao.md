@@ -89,3 +89,10 @@ O backup usa as ferramentas oficiais do PostgreSQL, executadas de dois jeitos:
   Docker Desktop habilitado. Para hosts remotos é usada a rede padrão.
 - **Cancelamento:** o container recebe um nome `dbu-pg-<id>` e é removido com
   `docker rm --force` ao cancelar.
+
+## Pasta dos backups
+
+- Padrão: `backups/` dentro da pasta de dados (ao lado de `history.sqlite3`); `--output-dir`
+  escolhe outra. Se `DBU_DATA_DIR` estiver definido, o padrão vira `$DBU_DATA_DIR/backups`.
+- Quando a CLI cria a pasta, ela fica com permissão `0700`; dumps e metadados ficam com `0600`.
+- Um backup nunca sobrescreve um arquivo existente.

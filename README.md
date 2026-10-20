@@ -4,8 +4,8 @@ Ferramenta multiplataforma de backup e restauração de bancos de dados. O produ
 **CLI independente em Rust** e, futuramente, um **desktop Tauri + Angular + Tailwind v4**,
 ambos utilizando as mesmas crates de negócio.
 
-> **Estado atual:** teste de conexão PostgreSQL pela CLI, histórico interno em SQLite,
-> testes de integração, Docker Compose e pipelines. **Ainda não executa backups nem restaurações.**
+> **Estado atual:** teste de conexão e backup full PostgreSQL pela CLI, histórico interno em
+> SQLite, testes de integração, Docker Compose e pipelines. **Ainda não executa restaurações.**
 > As entregas funcionais estão organizadas nas issues do Linear.
 
 ## Stack
@@ -23,7 +23,7 @@ ambos utilizando as mesmas crates de negócio.
 - Python 3.11+ somente para scripts de release.
 - PNPM e Node.js serão necessários quando a aplicação Angular for implementada.
 
-## Executar a CLI inicial
+## Executar a CLI
 
 ```bash
 cargo run -p database-backup-cli -- --help
@@ -40,15 +40,32 @@ DBU_PG_PASSWORD='...' cargo run -p database-backup-cli -- test-connection \
 Sem `DBU_PG_PASSWORD`, a CLI pede a senha em um prompt sem eco. Hosts fora de `localhost`
 exigem TLS com certificado validado (`--tls verify-full`, padrão em `--tls auto`).
 
+Gerar um backup completo (`pg_dump` em formato custom, já comprimido):
+
+```bash
+DBU_PG_PASSWORD='...' cargo run -p database-backup-cli -- backup \
+  --database my_database --user postgres [--output-dir DIR] [--runner auto|native|docker]
+```
+
+- O dump é gravado em streaming num arquivo `.partial`, conferido com `pg_restore --list` e só
+  então renomeado para `<database>-<AAAAMMDDTHHMMSSZ>.dump`. Arquivo parcial nunca vira backup.
+- Ao lado do dump fica `<arquivo>.dump.meta.json`, com SHA-256, tamanho, versões e runner.
+- Cada execução (sucesso, falha ou cancelamento) é registrada no histórico SQLite.
+- Destino padrão: `backups/` na pasta de dados do aplicativo (`~/.local/share/database-backup-utility/backups/` no Linux).
+- `--runner auto` usa o `pg_dump` instalado se for compatível; senão, o Docker.
+
 | Exit code | Significado |
 | --- | --- |
-| 0 | Conexão OK |
-| 1 | Erro não classificado |
+| 0 | Sucesso |
+| 1 | Erro não classificado (ex.: histórico ou pasta de destino inacessível) |
 | 2 | Parâmetro inválido ou senha ausente |
 | 3 | Autenticação recusada |
 | 4 | Banco inexistente |
 | 5 | Servidor inacessível ou tempo esgotado |
 | 6 | Falha de TLS |
+| 7 | `pg_dump`/`pg_restore` ausente ou incompatível (e Docker indisponível) |
+| 8 | O backup falhou |
+| 9 | Backup cancelado (Ctrl+C) |
 
 ## PostgreSQL para desenvolvimento
 

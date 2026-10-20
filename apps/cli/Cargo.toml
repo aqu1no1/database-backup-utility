@@ -11,9 +11,16 @@ path = "src/main.rs"
 clap.workspace = true
 database-backup-adapters.workspace = true
 database-backup-core.workspace = true
+database-backup-history.workspace = true
+database-backup-storage.workspace = true
 rpassword.workspace = true
+time.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
+rusqlite.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
 testcontainers.workspace = true
 tokio-postgres.workspace = true

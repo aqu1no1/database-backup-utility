@@ -18,6 +18,9 @@ flowchart TD
 - `crates/database-adapters/src/postgres/tools.rs` executa `pg_dump`/`pg_restore` em modo `native`
   ou `docker`, sempre com argumentos estruturados e a senha num `.pgpass` temporário.
   Distribuição nativa das ferramentas será avaliada por SO.
+- `crates/storage` grava o backup localmente: arquivo `.partial`, SHA-256 em streaming,
+  `fsync` e `rename` atômico, além do arquivo `.meta.json`. Destinos em nuvem entram nessa crate.
+- O comando `backup` da CLI monta as peças: conexão → runner → storage → histórico.
 - SQLite interno será usado para histórico; não confundir com suporte futuro a backup de bancos SQLite.
 - Agendamento invoca a CLI com mecanismo independente da janela desktop, não incluído no MVP.
 
