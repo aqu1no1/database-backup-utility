@@ -401,6 +401,35 @@ existirem. Confirme os nomes reais no `package.json`; não invente comandos.
 - Prefira commits pequenos e descritivos. Não inclua segredos, builds gerados, dumps
   de bancos ou arquivos locais de ambiente.
 
+### Branches, commits e Pull Requests
+
+- **Sempre comece da `main` atualizada.** Nunca crie uma branch a partir de outra branch de
+  trabalho, exceto no caso de branch empilhada descrito abaixo:
+
+  ```bash
+  git switch main && git pull --ff-only
+  git switch -c feat/db-9-pg-dump-runner
+  ```
+
+- **Nome da branch**, sempre em inglês e em `kebab-case`:
+  `<tipo>/<id-linear>-<descrição-curta>`, por exemplo `feat/db-9-pg-dump-runner` ou
+  `fix/db-12-exit-code-on-timeout`. Sem issue no Linear: `<tipo>/<descrição-curta>`, por
+  exemplo `docs/branch-and-commit-conventions`.
+- **Tipos:** `feat`, `fix`, `docs`, `test`, `chore`, `ci`, `refactor`, `perf`.
+- **Uma branch e um PR por issue.** Não misture issues no mesmo PR.
+- **Branch empilhada:** só quando a issue depende de outra ainda não mergeada. Crie a branch a
+  partir da branch da dependência, abra o PR contra a `main` (a CI só roda em PRs para a `main`)
+  e avise no PR qual deve ser mergeado primeiro.
+- **Mensagens de commit** em inglês, no padrão [Conventional Commits](https://www.conventionalcommits.org/):
+  `<tipo>(<escopo opcional>): <resumo no imperativo>`, com no máximo ~72 caracteres no resumo,
+  por exemplo `feat(cli): add backup command` ou `fix(ci): check for the angular app inside a step`.
+  Use o corpo da mensagem para explicar o porquê da mudança.
+- **Título do PR** em inglês, no mesmo formato, com o ID da issue no final:
+  `feat(cli): add backup command (DB-10)`. O corpo segue `.github/pull_request_template.md` e
+  inclui `Closes DB-N` para vincular e fechar a issue do Linear no merge.
+- **Merge** com Squash & Merge depois da CI verde. Depois de um merge, a próxima branch volta
+  a partir da `main` atualizada.
+
 ## 10. Antes de concluir qualquer tarefa
 
 1. Confirme que a alteração atende diretamente à solicitação.

@@ -3,7 +3,11 @@
 ## Branches e Pull Requests
 
 - Branch principal `main` protegida; não commitar diretamente, exceto setup inicial se preciso.
-- Padrão: `feat/*`, `fix/*`, `test/*`, `docs/*`, `chore/*`, `ci/*`.
+- Sempre criar a branch a partir da `main` atualizada (`git switch main && git pull --ff-only`).
+- Padrão `<tipo>/<id-linear>-<descrição>` em inglês, por exemplo `feat/db-9-pg-dump-runner`;
+  tipos `feat`, `fix`, `docs`, `test`, `chore`, `ci`, `refactor`, `perf`.
+- Commits e títulos de PR em inglês no padrão Conventional Commits. Detalhes na seção
+  "Branches, commits e Pull Requests" do `AGENTS.md`.
 - Abra PR vinculando a issue Linear e preencha `.github/pull_request_template.md`.
 - Após todos os checks relevantes passarem, usar **Squash & Merge**.
 - Não exigir revisão externa se o projeto tiver apenas um mantenedor, mas exigir checks na main.
