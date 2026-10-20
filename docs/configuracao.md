@@ -39,6 +39,7 @@ docker compose --env-file .env -f infra/docker/compose.yml \
 | Variável | Finalidade |
 | --- | --- |
 | `DBU_PG_PASSWORD` | Senha usada pelo `test-connection` em scripts e agendamentos. Sem ela, a CLI pede a senha sem eco no terminal. |
+| `DBU_DATA_DIR` | Diretório do histórico SQLite, no lugar do padrão do sistema. Útil para testes e uso portátil. |
 
 - A CLI não lê o `.env`; exporte as variáveis no shell ou no agendador.
 - A senha nunca é aceita como argumento, porque argumentos ficam visíveis em `ps` e no histórico do shell.
@@ -55,3 +56,15 @@ docker compose --env-file .env -f infra/docker/compose.yml \
 
 A validação usa os certificados raiz do sistema operacional.
 
+## Histórico local (SQLite)
+
+O arquivo `history.sqlite3` fica no diretório de dados do usuário:
+
+| Sistema | Caminho padrão |
+| --- | --- |
+| Linux | `~/.local/share/database-backup-utility/` |
+| macOS | `~/Library/Application Support/dev.aqu1no1.database-backup-utility/` |
+| Windows | `%APPDATA%\aqu1no1\database-backup-utility\data\` |
+
+As migrations rodam ao abrir o histórico e só aplicam o que falta (versão em `PRAGMA user_version`).
+O schema está em `docs/diagramas/modelo-de-dados.md`.

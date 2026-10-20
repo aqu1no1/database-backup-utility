@@ -4,7 +4,8 @@ Ferramenta multiplataforma de backup e restauração de bancos de dados. O produ
 **CLI independente em Rust** e, futuramente, um **desktop Tauri + Angular + Tailwind v4**,
 ambos utilizando as mesmas crates de negócio.
 
-> **Estado atual:** teste de conexão PostgreSQL pela CLI, testes de integração, Docker Compose e pipelines. **Ainda não executa backups nem restaurações.**
+> **Estado atual:** teste de conexão PostgreSQL pela CLI, histórico interno em SQLite,
+> testes de integração, Docker Compose e pipelines. **Ainda não executa backups nem restaurações.**
 > As entregas funcionais estão organizadas nas issues do Linear.
 
 ## Stack
@@ -12,7 +13,7 @@ ambos utilizando as mesmas crates de negócio.
 - CLI: Rust + Clap; bibliotecas compartilhadas no Cargo Workspace.
 - Desktop (planejado): Tauri + Angular standalone + TypeScript + Tailwind v4.
 - i18n desktop: Transloco, `pt-BR` e `en-US`.
-- Desenvolvimento: PostgreSQL no Docker Compose; MySQL/MongoDB opcionais; SQLite embutido futuramente.
+- Desenvolvimento: PostgreSQL no Docker Compose; MySQL/MongoDB opcionais; histórico interno em SQLite embutido.
 - Testes: Rust `cargo test`, integração com Testcontainers, Vitest futuramente no Angular.
 - GitHub Actions: CI em PRs/main, auditoria e releases **somente manuais** (`workflow_dispatch`).
 
