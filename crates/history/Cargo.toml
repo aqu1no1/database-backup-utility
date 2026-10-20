@@ -1,0 +1,15 @@
+[package]
+name = "database-backup-history"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+directories.workspace = true
+rusqlite.workspace = true
+rusqlite_migration.workspace = true
+thiserror.workspace = true
+time.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

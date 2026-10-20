@@ -39,6 +39,7 @@ cargo test --workspace --lib --bins                                   # unitári
 cargo test --workspace --tests                                        # tudo, inclui Testcontainers (Docker)
 cargo test -p database-backup-adapters --test postgres_container      # só a integração PostgreSQL
 cargo test -p database-backup-adapters --test postgres_connection     # teste de conexão
+cargo test -p database-backup-history                                 # histórico SQLite
 cargo test -p database-backup-adapters --test postgres_container -- seed_fixture_is_applied
 ```
 
