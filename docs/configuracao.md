@@ -96,3 +96,18 @@ O backup usa as ferramentas oficiais do PostgreSQL, executadas de dois jeitos:
   escolhe outra. Se `DBU_DATA_DIR` estiver definido, o padrão vira `$DBU_DATA_DIR/backups`.
 - Quando a CLI cria a pasta, ela fica com permissão `0700`; dumps e metadados ficam com `0600`.
 - Um backup nunca sobrescreve um arquivo existente.
+
+## Restore e permissões
+
+- O usuário do restore precisa de `CREATEDB` (o restore sempre cria um banco, novo ou temporário).
+- Para substituir um banco existente, o usuário precisa poder renomeá-lo e encerrar as conexões
+  dele (ser dono do banco ou superusuário).
+- O banco anterior fica como `<destino>__previous_<AAAAMMDDTHHMMSSZ>`. Depois de conferir o
+  restore, apague-o manualmente:
+
+  ```sql
+  DROP DATABASE "my_database__previous_20261020T190509Z";
+  ```
+
+- O restore usa `--no-owner --no-privileges`: os objetos ficam com o usuário do restore como dono
+  e as permissões (GRANTs) do banco de origem não são reaplicadas.

@@ -13,7 +13,10 @@ use uuid::Uuid;
 pub const DATA_DIR_ENV: &str = "DBU_DATA_DIR";
 pub const DATABASE_FILE: &str = "history.sqlite3";
 
-const MIGRATIONS: &[M<'static>] = &[M::up(include_str!("../migrations/0001_initial.sql"))];
+const MIGRATIONS: &[M<'static>] = &[
+    M::up(include_str!("../migrations/0001_initial.sql")),
+    M::up(include_str!("../migrations/0002_restores.sql")),
+];
 
 #[derive(Debug, Error)]
 pub enum HistoryError {
@@ -97,6 +100,46 @@ pub struct NewArtifact<'a> {
     pub size_bytes: u64,
     pub checksum_sha256: Option<&'a str>,
     pub tool_version: Option<&'a str>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RestoreMode {
+    Create,
+    Overwrite,
+}
+
+impl RestoreMode {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Create => "create",
+            Self::Overwrite => "overwrite",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct NewRestore<'a> {
+    pub artifact_id: Option<&'a str>,
+    pub source_location: &'a str,
+    pub source_sha256: Option<&'a str>,
+    pub target_host: &'a str,
+    pub target_port: u16,
+    pub target_database: &'a str,
+    pub mode: RestoreMode,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RestoreRecord {
+    pub id: String,
+    pub artifact_id: Option<String>,
+    pub source_location: String,
+    pub target_database: String,
+    pub mode: String,
+    pub previous_database: Option<String>,
+    pub status: ExecutionStatus,
+    pub duration_ms: Option<i64>,
+    pub error_message: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -240,8 +283,7 @@ impl History {
         };
 
         let finished_at = OffsetDateTime::now_utc();
-        let elapsed = finished_at - parse_time(&started_at)?;
-        let duration_ms = i64::try_from(elapsed.whole_milliseconds().max(0)).unwrap_or(i64::MAX);
+        let duration_ms = elapsed_ms(&started_at, finished_at)?;
         self.conn.execute(
             "UPDATE backup_executions
              SET status = ?2, finished_at = ?3, duration_ms = ?4, error_message = ?5
@@ -303,6 +345,129 @@ impl History {
         )?;
         let rows = statement.query_map([execution_id], raw_artifact)?;
         rows.map(|row| row?.try_into()).collect()
+    }
+
+    pub fn find_artifact_by_location(
+        &self,
+        location: &str,
+    ) -> Result<Option<ArtifactRecord>, HistoryError> {
+        let raw = self
+            .conn
+            .query_row(
+                "SELECT id, execution_id, location, format, size_bytes, checksum_sha256, tool_version, created_at
+                 FROM backup_artifacts WHERE location = ?1 ORDER BY created_at DESC LIMIT 1",
+                [location],
+                raw_artifact,
+            )
+            .optional()?;
+        raw.map(TryInto::try_into).transpose()
+    }
+
+    pub fn start_restore(&self, restore: &NewRestore<'_>) -> Result<String, HistoryError> {
+        let id = new_id();
+        self.conn.execute(
+            "INSERT INTO restore_executions
+                 (id, artifact_id, source_location, source_sha256, target_host, target_port,
+                  target_database, mode, status, started_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'running', ?9)",
+            params![
+                id,
+                restore.artifact_id,
+                restore.source_location,
+                restore.source_sha256,
+                restore.target_host,
+                restore.target_port,
+                restore.target_database,
+                restore.mode.as_str(),
+                now()?,
+            ],
+        )?;
+        Ok(id)
+    }
+
+    pub fn finish_restore(
+        &self,
+        id: &str,
+        status: ExecutionStatus,
+        previous_database: Option<&str>,
+        error_message: Option<&str>,
+    ) -> Result<(), HistoryError> {
+        if status == ExecutionStatus::Running {
+            return Err(HistoryError::FinishWithRunning);
+        }
+        let started_at: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT started_at FROM restore_executions WHERE id = ?1 AND status = 'running'",
+                [id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let Some(started_at) = started_at else {
+            return Err(HistoryError::ExecutionNotRunning { id: id.to_owned() });
+        };
+        let finished_at = OffsetDateTime::now_utc();
+        self.conn.execute(
+            "UPDATE restore_executions
+             SET status = ?2, finished_at = ?3, duration_ms = ?4, previous_database = ?5,
+                 error_message = ?6
+             WHERE id = ?1",
+            params![
+                id,
+                status.as_str(),
+                format_time(finished_at)?,
+                elapsed_ms(&started_at, finished_at)?,
+                previous_database,
+                error_message
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_restores(&self, limit: u32) -> Result<Vec<RestoreRecord>, HistoryError> {
+        let mut statement = self.conn.prepare(
+            "SELECT id, artifact_id, source_location, target_database, mode, previous_database,
+                    status, duration_ms, error_message
+             FROM restore_executions ORDER BY started_at DESC, id DESC LIMIT ?1",
+        )?;
+        let rows = statement.query_map([limit], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, Option<String>>(5)?,
+                row.get::<_, String>(6)?,
+                row.get::<_, Option<i64>>(7)?,
+                row.get::<_, Option<String>>(8)?,
+            ))
+        })?;
+        rows.map(|row| {
+            let (
+                id,
+                artifact_id,
+                source_location,
+                target_database,
+                mode,
+                previous_database,
+                status,
+                duration_ms,
+                error_message,
+            ) = row?;
+            Ok(RestoreRecord {
+                id,
+                artifact_id,
+                source_location,
+                target_database,
+                mode,
+                previous_database,
+                status: status.parse()?,
+                duration_ms,
+                error_message,
+            })
+        })
+        .collect()
     }
 }
 
@@ -383,6 +548,11 @@ impl TryFrom<RawArtifact> for ArtifactRecord {
             created_at: parse_time(&raw.created_at)?,
         })
     }
+}
+
+fn elapsed_ms(started_at: &str, finished_at: OffsetDateTime) -> Result<i64, HistoryError> {
+    let elapsed = finished_at - parse_time(started_at)?;
+    Ok(i64::try_from(elapsed.whole_milliseconds().max(0)).unwrap_or(i64::MAX))
 }
 
 fn new_id() -> String {
@@ -526,6 +696,92 @@ mod tests {
             Some("pg_dump saiu com código 1")
         );
         assert!(matches!(error, HistoryError::ExecutionNotRunning { .. }));
+    }
+
+    #[test]
+    fn upgrading_from_first_schema_keeps_backups_and_adds_restores() {
+        let dir = TempDir::new().expect("diretório temporário");
+        let path = dir.path().join(DATABASE_FILE);
+        let first = History::open_with(&path, &Migrations::from_slice(&MIGRATIONS[..1]))
+            .expect("schema 0001");
+        let connection_id = first
+            .upsert_connection(&sample_connection())
+            .expect("conexão");
+        assert_eq!(first.schema_version().expect("versão"), 1);
+        drop(first);
+
+        let upgraded = History::open(&path).expect("schema atual");
+        let again = upgraded
+            .upsert_connection(&sample_connection())
+            .expect("conexão");
+
+        assert_eq!(upgraded.schema_version().expect("versão"), 2);
+        assert_eq!(again, connection_id);
+        assert!(upgraded.list_restores(10).expect("restores").is_empty());
+    }
+
+    #[test]
+    fn records_restore_linked_to_artifact() {
+        let (_dir, _path, history) = temp_history();
+        let connection_id = history
+            .upsert_connection(&sample_connection())
+            .expect("conexão");
+        let job_id = history.create_job(&connection_id, "diario").expect("job");
+        let execution_id = history.start_execution(&job_id).expect("início");
+        let checksum = "b".repeat(64);
+        let artifact_id = history
+            .add_artifact(
+                &execution_id,
+                &NewArtifact {
+                    location: "/backups/db.dump",
+                    format: "pg_dump-custom",
+                    size_bytes: 10,
+                    checksum_sha256: Some(&checksum),
+                    tool_version: None,
+                },
+            )
+            .expect("artefato");
+
+        let found = history
+            .find_artifact_by_location("/backups/db.dump")
+            .expect("busca")
+            .expect("artefato encontrado");
+        let restore_id = history
+            .start_restore(&NewRestore {
+                artifact_id: Some(&found.id),
+                source_location: &found.location,
+                source_sha256: found.checksum_sha256.as_deref(),
+                target_host: "localhost",
+                target_port: 5432,
+                target_database: "db",
+                mode: RestoreMode::Overwrite,
+            })
+            .expect("início do restore");
+        history
+            .finish_restore(
+                &restore_id,
+                ExecutionStatus::Succeeded,
+                Some("db__previous_20261020T190000Z"),
+                None,
+            )
+            .expect("fim do restore");
+
+        let restores = history.list_restores(10).expect("restores");
+        assert_eq!(found.id, artifact_id);
+        assert_eq!(restores.len(), 1);
+        assert_eq!(restores[0].status, ExecutionStatus::Succeeded);
+        assert_eq!(restores[0].mode, "overwrite");
+        assert_eq!(
+            restores[0].previous_database.as_deref(),
+            Some("db__previous_20261020T190000Z")
+        );
+        assert!(restores[0].duration_ms.is_some());
+        assert!(
+            history
+                .find_artifact_by_location("/outro.dump")
+                .expect("busca")
+                .is_none()
+        );
     }
 
     #[test]

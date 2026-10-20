@@ -62,7 +62,7 @@ async fn docker_runner_dumps_and_lists_archive() -> TestResult {
     let archive = dir.path().join("seed.dump");
 
     let (bytes, container) = dump_to_file(&tools, &db, &archive).await?;
-    let entries = tools.restore_list(&archive).await?;
+    let entries = tools.restore_list(&archive).await?.entries;
     let container = container.ok_or("o modo docker deve nomear o container")?;
 
     assert_eq!(tools.kind(), RunnerKind::Docker);
@@ -93,7 +93,7 @@ async fn native_runner_dumps_when_client_is_installed() -> TestResult {
     assert_eq!(tools.kind(), RunnerKind::Native);
     assert_eq!(container, None);
     assert!(bytes.starts_with(b"PGDMP"));
-    assert!(tools.restore_list(&archive).await? >= 4);
+    assert!(tools.restore_list(&archive).await?.entries >= 4);
     Ok(())
 }
 

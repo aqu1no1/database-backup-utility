@@ -1,11 +1,15 @@
 mod backup;
+mod restore;
 
+use std::error::Error;
 use std::io::IsTerminal;
 use std::process::ExitCode;
 use std::time::Duration;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use database_backup_adapters::postgres::{ConnectionError, Timeouts, test_connection};
+use database_backup_adapters::postgres::{
+    ConnectionError, RunnerChoice, Timeouts, test_connection,
+};
 use database_backup_core::{PROJECT_NAME, Password, PostgresConnectionConfig, TlsMode};
 
 const PASSWORD_ENV: &str = "DBU_PG_PASSWORD";
@@ -35,6 +39,11 @@ enum Commands {
         after_help = "A senha é lida de DBU_PG_PASSWORD ou, sem a variável, por um prompt sem eco."
     )]
     Backup(backup::BackupArgs),
+    #[command(
+        about = "Restaura um backup PostgreSQL validado em um banco de destino.",
+        after_help = "Por padrão só cria um banco novo. Sobrescrever um banco com dados exige --overwrite e confirmação;\no banco anterior é mantido como <destino>__previous_<data>.\nA senha é lida de DBU_PG_PASSWORD ou, sem a variável, por um prompt sem eco."
+    )]
+    Restore(restore::RestoreArgs),
 }
 
 #[derive(Debug, Args)]
@@ -78,6 +87,23 @@ struct TestConnectionArgs {
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
+enum RunnerArg {
+    Auto,
+    Native,
+    Docker,
+}
+
+impl From<RunnerArg> for RunnerChoice {
+    fn from(value: RunnerArg) -> Self {
+        match value {
+            RunnerArg::Auto => Self::Auto,
+            RunnerArg::Native => Self::Native,
+            RunnerArg::Docker => Self::Docker,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
 enum TlsArg {
     Auto,
     Disable,
@@ -104,6 +130,9 @@ mod exit {
     pub const TOOLS: u8 = 7;
     pub const BACKUP_FAILED: u8 = 8;
     pub const CANCELED: u8 = 9;
+    pub const INVALID_ARCHIVE: u8 = 10;
+    pub const RESTORE_FAILED: u8 = 11;
+    pub const CONFIRMATION_REQUIRED: u8 = 12;
 }
 
 #[tokio::main]
@@ -118,6 +147,7 @@ async fn main() -> ExitCode {
         }
         Some(Commands::TestConnection(args)) => run_test_connection(args).await,
         Some(Commands::Backup(args)) => backup::run(args).await,
+        Some(Commands::Restore(args)) => restore::run(args).await,
     }
 }
 
@@ -176,4 +206,15 @@ fn exit_code_for(error: &ConnectionError) -> u8 {
 fn fail(code: u8, message: &str) -> ExitCode {
     eprintln!("Erro: {message}");
     ExitCode::from(code)
+}
+
+fn describe(error: &dyn Error) -> String {
+    let mut message = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        message.push_str(": ");
+        message.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    message
 }

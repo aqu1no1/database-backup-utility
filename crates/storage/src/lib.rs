@@ -2,7 +2,7 @@ use std::fmt::Write as _;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use time::OffsetDateTime;
@@ -50,6 +50,16 @@ pub struct ArtifactMetadata<'a> {
     pub runner: &'a str,
     pub created_at: &'a str,
     pub execution_id: &'a str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct StoredMetadata {
+    pub format: String,
+    pub sha256: String,
+    pub size_bytes: u64,
+    pub database: String,
+    pub server_version: String,
+    pub pg_dump_version: String,
 }
 
 #[derive(Debug, Clone)]
@@ -179,9 +189,7 @@ pub async fn write_metadata(
 ) -> Result<PathBuf, StorageError> {
     let mut json = serde_json::to_vec_pretty(metadata).map_err(StorageError::Metadata)?;
     json.push(b'\n');
-    let mut final_path = artifact.as_os_str().to_owned();
-    final_path.push(METADATA_SUFFIX);
-    let final_path = PathBuf::from(final_path);
+    let final_path = metadata_path(artifact);
     let mut partial_path = final_path.as_os_str().to_owned();
     partial_path.push(PARTIAL_SUFFIX);
     let partial_path = PathBuf::from(partial_path);
@@ -204,6 +212,39 @@ pub async fn write_metadata(
         .map_err(io_error(&final_path))?;
     sync_dir(&final_path).await?;
     Ok(final_path)
+}
+
+pub fn metadata_path(artifact: &Path) -> PathBuf {
+    let mut path = artifact.as_os_str().to_owned();
+    path.push(METADATA_SUFFIX);
+    PathBuf::from(path)
+}
+
+pub async fn read_metadata(artifact: &Path) -> Result<Option<StoredMetadata>, StorageError> {
+    let path = metadata_path(artifact);
+    match fs::read(&path).await {
+        Ok(bytes) => serde_json::from_slice(&bytes)
+            .map(Some)
+            .map_err(StorageError::Metadata),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(source) => Err(StorageError::Io { path, source }),
+    }
+}
+
+pub async fn sha256_file(path: &Path) -> Result<(u64, String), StorageError> {
+    let mut file = File::open(path).await.map_err(io_error(path))?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0_u8; BUFFER_SIZE];
+    let mut size = 0_u64;
+    loop {
+        let read = file.read(&mut buffer).await.map_err(io_error(path))?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+        size += read as u64;
+    }
+    Ok((size, to_hex(&hasher.finalize())))
 }
 
 #[must_use]
@@ -384,6 +425,49 @@ mod tests {
         assert!(
             keys.iter()
                 .all(|key| !key.contains("password") && !key.contains("secret"))
+        );
+    }
+
+    #[tokio::test]
+    async fn metadata_and_checksum_round_trip() {
+        let (_dir, target) = target().await;
+        let mut pending = target.begin("db.dump").await.expect("início");
+        pending
+            .copy_from(&mut &b"hello world"[..])
+            .await
+            .expect("cópia");
+        let stored = pending.commit().await.expect("commit");
+        let metadata = ArtifactMetadata {
+            format: "pg_dump-custom",
+            sha256: &stored.sha256,
+            size_bytes: stored.size_bytes,
+            database: "db",
+            host: "localhost",
+            port: 5432,
+            server_version: "17.11",
+            pg_dump_version: "17.11",
+            runner: "docker",
+            created_at: "2026-10-20T19:00:00Z",
+            execution_id: "exec-1",
+        };
+        write_metadata(&stored.path, &metadata)
+            .await
+            .expect("metadados");
+
+        let read = read_metadata(&stored.path)
+            .await
+            .expect("leitura")
+            .expect("metadados presentes");
+        let (size, sha256) = sha256_file(&stored.path).await.expect("checksum");
+
+        assert_eq!(read.sha256, stored.sha256);
+        assert_eq!(read.database, "db");
+        assert_eq!((size, sha256), (stored.size_bytes, stored.sha256));
+        assert_eq!(
+            read_metadata(&target.dir().join("outro.dump"))
+                .await
+                .expect("leitura"),
+            None
         );
     }
 
