@@ -24,7 +24,7 @@ flowchart TD
   estado "Created" não é removido pelo `--rm`).
   Distribuição nativa das ferramentas será avaliada por SO.
 - `crates/storage` grava o backup localmente: arquivo `.partial`, SHA-256 em streaming,
-  `fsync` e `rename` atômico, além do arquivo `.meta.json`. Destinos em nuvem entram nessa crate.
+  `fsync` e `rename` atômico, além do manifesto versionado `.meta.json` ([`manifesto.md`](manifesto.md)). Destinos em nuvem entram nessa crate.
 - O comando `backup run` da CLI monta as peças: conexão → runner → storage → histórico.
 - O comando `restore run` faz o caminho inverso: checksum (storage/histórico) → `pg_restore --list` →
   estado do destino (`postgres/admin.rs`) → `pg_restore` em um banco novo ou temporário → troca de nomes.
@@ -52,9 +52,9 @@ Regras da saída:
   ficam em `warn`.
 
 `backup verify` precisa escolher um `pg_restore` compatível sem conectar a um servidor. Ele usa a
-versão do PostgreSQL de origem gravada no `.meta.json` ou, na falta dele, a versão registrada no
-histórico. Sem nenhuma das duas, o arquivo é recusado (código 10). O manifesto versionado do DB-19 vai
-substituir essa fonte.
+versão do PostgreSQL de origem gravada no manifesto (`.meta.json`) ou, na falta dele, a versão
+registrada no histórico. Sem nenhuma das duas, o arquivo é recusado (código 10). Com o manifesto,
+verify e restore não dependem do histórico SQLite. As checagens estão em [`manifesto.md`](manifesto.md).
 
 ## Fluxo alvo de backup
 

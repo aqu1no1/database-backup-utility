@@ -20,6 +20,7 @@ use crate::output::{fail, success};
 use crate::{ConnectionArgs, RunnerArg, describe, exit, exit_code_for, read_password};
 
 const FORMAT: &str = "pg_dump-custom";
+pub const ENGINE: &str = "postgresql";
 
 #[derive(Debug, Args)]
 pub struct BackupArgs {
@@ -256,6 +257,9 @@ async fn execute(
         .unwrap_or_default();
     let pg_dump_version = tools.version().to_string();
     let metadata = ArtifactMetadata {
+        tool_name: env!("CARGO_BIN_NAME"),
+        tool_version: env!("CARGO_PKG_VERSION"),
+        engine: ENGINE,
         format: FORMAT,
         sha256: &artifact.sha256,
         size_bytes: artifact.size_bytes,

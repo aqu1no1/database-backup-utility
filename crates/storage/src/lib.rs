@@ -13,6 +13,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 const BUFFER_SIZE: usize = 64 * 1024;
 const PARTIAL_SUFFIX: &str = ".partial";
 pub const METADATA_SUFFIX: &str = ".meta.json";
+pub const MANIFEST_VERSION: u32 = 1;
 
 #[derive(Debug, Error)]
 pub enum StorageError {
@@ -32,6 +33,19 @@ pub enum StorageError {
     SourceNotFound(PathBuf),
     #[error("arquivo recusado ({reason}): {path}")]
     UnsafeSource { path: PathBuf, reason: &'static str },
+    #[error("{}", unsupported_manifest(*.found))]
+    UnsupportedManifest { found: Option<u32> },
+}
+
+fn unsupported_manifest(found: Option<u32>) -> String {
+    match found {
+        None => format!(
+            "o manifesto não informa manifest_version (esperado {MANIFEST_VERSION}); gere o backup de novo ou use --allow-unverified"
+        ),
+        Some(version) => format!(
+            "versão {version} do manifesto não é suportada por esta versão do utilitário (suporta {MANIFEST_VERSION})"
+        ),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,8 +55,11 @@ pub struct StoredArtifact {
     pub sha256: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct ArtifactMetadata<'a> {
+    pub tool_name: &'a str,
+    pub tool_version: &'a str,
+    pub engine: &'a str,
     pub format: &'a str,
     pub sha256: &'a str,
     pub size_bytes: u64,
@@ -56,14 +73,55 @@ pub struct ArtifactMetadata<'a> {
     pub execution_id: &'a str,
 }
 
+#[derive(Serialize)]
+struct ManifestTool<'a> {
+    name: &'a str,
+    version: &'a str,
+}
+
+#[derive(Serialize)]
+struct Manifest<'a> {
+    manifest_version: u32,
+    tool: ManifestTool<'a>,
+    engine: &'a str,
+    format: &'a str,
+    file_name: &'a str,
+    sha256: &'a str,
+    size_bytes: u64,
+    database: &'a str,
+    host: &'a str,
+    port: u16,
+    server_version: &'a str,
+    pg_dump_version: &'a str,
+    runner: &'a str,
+    created_at: &'a str,
+    execution_id: &'a str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct StoredTool {
+    pub name: String,
+    pub version: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct StoredMetadata {
+    pub manifest_version: u32,
+    pub tool: StoredTool,
+    pub engine: String,
     pub format: String,
+    pub file_name: String,
     pub sha256: String,
     pub size_bytes: u64,
     pub database: String,
     pub server_version: String,
     pub pg_dump_version: String,
+    pub created_at: String,
+}
+
+#[derive(Deserialize)]
+struct ManifestVersion {
+    manifest_version: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -191,7 +249,31 @@ pub async fn write_metadata(
     artifact: &Path,
     metadata: &ArtifactMetadata<'_>,
 ) -> Result<PathBuf, StorageError> {
-    let mut json = serde_json::to_vec_pretty(metadata).map_err(StorageError::Metadata)?;
+    let file_name = artifact
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let manifest = Manifest {
+        manifest_version: MANIFEST_VERSION,
+        tool: ManifestTool {
+            name: metadata.tool_name,
+            version: metadata.tool_version,
+        },
+        engine: metadata.engine,
+        format: metadata.format,
+        file_name: &file_name,
+        sha256: metadata.sha256,
+        size_bytes: metadata.size_bytes,
+        database: metadata.database,
+        host: metadata.host,
+        port: metadata.port,
+        server_version: metadata.server_version,
+        pg_dump_version: metadata.pg_dump_version,
+        runner: metadata.runner,
+        created_at: metadata.created_at,
+        execution_id: metadata.execution_id,
+    };
+    let mut json = serde_json::to_vec_pretty(&manifest).map_err(StorageError::Metadata)?;
     json.push(b'\n');
     let final_path = metadata_path(artifact);
     let mut partial_path = final_path.as_os_str().to_owned();
@@ -227,9 +309,7 @@ pub fn metadata_path(artifact: &Path) -> PathBuf {
 pub async fn read_metadata(artifact: &Path) -> Result<Option<StoredMetadata>, StorageError> {
     let path = metadata_path(artifact);
     match fs::read(&path).await {
-        Ok(bytes) => serde_json::from_slice(&bytes)
-            .map(Some)
-            .map_err(StorageError::Metadata),
+        Ok(bytes) => parse_manifest(&bytes).map(Some),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(source) => Err(StorageError::Io { path, source }),
     }
@@ -276,6 +356,16 @@ async fn check_source_file(path: &Path) -> Result<bool, StorageError> {
         }
     }
     Ok(true)
+}
+
+fn parse_manifest(bytes: &[u8]) -> Result<StoredMetadata, StorageError> {
+    let probe: ManifestVersion = serde_json::from_slice(bytes).map_err(StorageError::Metadata)?;
+    if probe.manifest_version != Some(MANIFEST_VERSION) {
+        return Err(StorageError::UnsupportedManifest {
+            found: probe.manifest_version,
+        });
+    }
+    serde_json::from_slice(bytes).map_err(StorageError::Metadata)
 }
 
 pub async fn sha256_file(path: &Path) -> Result<(u64, String), StorageError> {
@@ -446,6 +536,9 @@ mod tests {
         let (_dir, target) = target().await;
         let artifact = target.dir().join("db.dump");
         let metadata = ArtifactMetadata {
+            tool_name: "database-backup",
+            tool_version: "0.1.0",
+            engine: "postgresql",
             format: "pg_dump-custom",
             sha256: "abc",
             size_bytes: 3,
@@ -466,12 +559,34 @@ mod tests {
             serde_json::from_slice(&std::fs::read(&path).expect("arquivo")).expect("json");
 
         assert_eq!(path, target.dir().join("db.dump.meta.json"));
+        assert_eq!(json["manifest_version"], MANIFEST_VERSION);
+        assert_eq!(json["tool"]["name"], "database-backup");
+        assert_eq!(json["tool"]["version"], "0.1.0");
+        assert_eq!(json["engine"], "postgresql");
+        assert_eq!(json["file_name"], "db.dump");
         assert_eq!(json["sha256"], "abc");
         assert_eq!(json["runner"], "docker");
+        let allowed = [
+            "manifest_version",
+            "tool",
+            "engine",
+            "format",
+            "file_name",
+            "sha256",
+            "size_bytes",
+            "database",
+            "host",
+            "port",
+            "server_version",
+            "pg_dump_version",
+            "runner",
+            "created_at",
+            "execution_id",
+        ];
         let keys: Vec<&String> = json.as_object().expect("objeto").keys().collect();
         assert!(
-            keys.iter()
-                .all(|key| !key.contains("password") && !key.contains("secret"))
+            keys.iter().all(|key| allowed.contains(&key.as_str())),
+            "{keys:?}"
         );
     }
 
@@ -485,6 +600,9 @@ mod tests {
             .expect("cópia");
         let stored = pending.commit().await.expect("commit");
         let metadata = ArtifactMetadata {
+            tool_name: "database-backup",
+            tool_version: "0.1.0",
+            engine: "postgresql",
             format: "pg_dump-custom",
             sha256: &stored.sha256,
             size_bytes: stored.size_bytes,
@@ -507,6 +625,10 @@ mod tests {
             .expect("metadados presentes");
         let (size, sha256) = sha256_file(&stored.path).await.expect("checksum");
 
+        assert_eq!(read.manifest_version, MANIFEST_VERSION);
+        assert_eq!(read.engine, "postgresql");
+        assert_eq!(read.file_name, "db.dump");
+        assert_eq!(read.tool.version, "0.1.0");
         assert_eq!(read.sha256, stored.sha256);
         assert_eq!(read.database, "db");
         assert_eq!((size, sha256), (stored.size_bytes, stored.sha256));
@@ -516,6 +638,30 @@ mod tests {
                 .expect("leitura"),
             None
         );
+    }
+
+    #[tokio::test]
+    async fn manifest_without_or_with_unknown_version_is_rejected() {
+        let (_dir, target) = target().await;
+        let artifact = target.dir().join("db.dump");
+        let cases = [
+            (r#"{"sha256":"abc"}"#, None),
+            (r#"{"manifest_version":2,"sha256":"abc"}"#, Some(2)),
+        ];
+
+        for (body, expected) in cases {
+            std::fs::write(metadata_path(&artifact), body).expect("manifesto");
+            let result = read_metadata(&artifact).await;
+            assert!(
+                matches!(result, Err(StorageError::UnsupportedManifest { found }) if found == expected),
+                "{body}"
+            );
+        }
+        std::fs::write(metadata_path(&artifact), "{não é json").expect("manifesto");
+        assert!(matches!(
+            read_metadata(&artifact).await,
+            Err(StorageError::Metadata(_))
+        ));
     }
 
     #[test]
