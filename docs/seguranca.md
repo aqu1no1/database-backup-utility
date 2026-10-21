@@ -1,6 +1,7 @@
 # Segurança do MVP (v0.1.0 — PostgreSQL CLI)
 
-Revisão do DB-17. Para cada controle: a evidência (código, teste ou documento) e o status.
+Revisão do DB-17, ampliada no DB-35 (cadeia de build). Para cada controle: a evidência (código, teste
+ou documento) e o status. As **regras** que guiam estas decisões estão em [`seguranca-rust.md`](seguranca-rust.md).
 
 - **ok:** já atendido antes desta revisão.
 - **corrigido:** ajustado no DB-17.
@@ -66,11 +67,34 @@ Todos os testes citados rodam na CI (`cargo test --workspace --tests`, job
 | Token com privilégio mínimo | `permissions: contents: read` no topo de `ci.yml`, `audit.yml` e `release.yml`; `contents: write` só no job de release | ok |
 | Sem `pull_request_target` | `ci.yml` usa `pull_request` | ok |
 | Release só por `workflow_dispatch` | `release.yml`; validação de versão/changelog (`.github/scripts/release_notes.py`) | ok |
-| `Cargo.lock` versionado e usado com `--locked` | `release.yml` falha sem lockfile | ok |
+| `Cargo.lock` versionado e usado com `--locked` | `release.yml` falha sem lockfile; `ci.yml` e `release.yml` rodam clippy, testes e build com `--locked` | corrigido (DB-35: CI passou a usar `--locked`) |
 | Actions fixadas por commit SHA | `uses: <action>@<sha> # <tag>` em todos os workflows; atualização descrita em [`CI.md`](CI.md) | corrigido |
 | Shell dos workflows sem avisos | `actionlint` sem avisos (corrigido o `SC2035` do `release.yml`) | corrigido |
-| CI vermelha bloqueia merge | checks obrigatórios na `main` (ver [`CI.md`](CI.md)) | corrigido no fim do DB-17, com confirmação do mantenedor |
+| CI vermelha bloqueia merge | checks obrigatórios na `main` (ver [`CI.md`](CI.md)) | **pendente**: será aplicado no fim do DB-35, com confirmação do mantenedor (até lá a `main` não tem proteção) |
 | Proibição de `unwrap`/`expect` em produção | `[workspace.lints.clippy]` com `deny` + `clippy.toml` liberando só em testes; CI roda clippy com `-D warnings` | corrigido |
+| Proibição de `unsafe` | `[workspace.lints.rust] unsafe_code = "forbid"`; um bloco `unsafe` temporário faz o build falhar | corrigido (DB-35) |
+| Toolchain fixada e fonte única | `rust-toolchain.toml` (1.99.1); workflows usam `rustup toolchain install` (saiu a action `dtolnay/rust-toolchain`); atualização em [`seguranca-rust.md`](seguranca-rust.md#51-toolchain-fixada) | corrigido (DB-35) |
+
+## Cadeia de dependências
+
+| Controle | Evidência | Status |
+| --- | --- | --- |
+| Advisories conhecidos (RustSec) em todo PR | job `Rust / Supply Chain` (`cargo deny check`); `audit.yml` semanal com `cargo deny check advisories` | corrigido (DB-35) |
+| Licenças compatíveis com MIT OR Apache-2.0 | `deny.toml` com allowlist das licenças em uso; mutação: tirar `ISC` ou a exceção do `option-ext` faz o check falhar | corrigido (DB-35) |
+| Só crates.io como fonte | `deny.toml` `[sources]`; git ou registry desconhecido falham | corrigido (DB-35) |
+| Sem versões wildcard | `deny.toml` `wildcards = "deny"`; caminhos internos liberados só porque as crates são `publish = false` | corrigido (DB-35) |
+| Avisos de licença de terceiros no binário | `THIRD-PARTY-LICENSES.md` gerado por `cargo-about` (só dependências de runtime) e incluído no tarball | corrigido a partir da próxima release (DB-35); **o tarball da v0.1.0 não tem esse arquivo** |
+
+### Exceções ativas
+
+Toda exceção na política de dependências fica aqui, com motivo e condição de remoção (triagem no
+§4.4 de [`seguranca-rust.md`](seguranca-rust.md#44-triagem-de-achados)). Revisão a cada atualização de toolchain (card recorrente no Linear).
+
+| Exceção | Tipo | Alcance | Motivo | Condição de remoção | Revisar em |
+| --- | --- | --- | --- | --- | --- |
+| `option-ext` — MPL-2.0 | licença (por crate) | runtime (`directories` → `dirs-sys` → `option-ext`, usado pelo histórico) | MPL-2.0 é copyleft fraco por arquivo; usamos a crate sem modificação e a fonte está disponível no crates.io; o texto vai no `THIRD-PARTY-LICENSES.md` | `directories`/`dirs-sys` deixarem de depender dela, ou trocarmos `directories` por código próprio | próxima atualização de Rust (DB-36) |
+
+Nenhum advisory RustSec ignorado.
 
 ## Docker
 
@@ -92,6 +116,8 @@ Todos os testes citados rodam na CI (`cargo test --workspace --tests`, job
 - **`DBU_PG_PASSWORD` é visível** em `/proc/<pid>/environ` para o próprio usuário e o root.
   Prefira `--password-file`.
 - **Dono do arquivo de senha não é conferido.** Só as permissões são.
+- **v0.1.0 sem avisos de terceiros.** O tarball publicado em 2026-10-21 não traz as notas de licença
+  das dependências embutidas. Corrigido no workflow (DB-35); a próxima release já inclui o arquivo.
 - **Senhas de exemplo no Compose de desenvolvimento.** Os perfis opcionais `mysql` e `mongodb` têm
   valores padrão (`dev-change-me`). Exigir as variáveis quebraria o `docker compose` de quem só usa
   o PostgreSQL, porque o Compose interpola até os serviços de perfis desativados. Os serviços escutam
