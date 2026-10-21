@@ -5,6 +5,8 @@ members = ["apps/cli", "crates/core", "crates/database-adapters", "crates/histor
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/aqu1no1/database-backup-utility"
 
 [workspace.dependencies]
 database-backup-core = { path = "crates/core" }

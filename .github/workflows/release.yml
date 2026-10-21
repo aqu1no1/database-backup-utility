@@ -67,8 +67,9 @@ jobs:
         env:
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
-          mkdir -p dist
-          tar -C target/release -czf "dist/database-backup-linux-x86_64-${RELEASE_VERSION}.tar.gz" database-backup
+          mkdir -p dist package
+          cp target/release/database-backup LICENSE-MIT LICENSE-APACHE README.md package/
+          tar -C package -czf "dist/database-backup-linux-x86_64-${RELEASE_VERSION}.tar.gz" .
           (cd dist && sha256sum ./*.tar.gz > SHA256SUMS.txt)
 
       - name: Criar tag e publicar GitHub Release
