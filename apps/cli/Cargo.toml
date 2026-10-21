@@ -27,3 +27,6 @@ sha2.workspace = true
 tempfile.workspace = true
 testcontainers.workspace = true
 tokio-postgres.workspace = true
+
+[lints]
+workspace = true

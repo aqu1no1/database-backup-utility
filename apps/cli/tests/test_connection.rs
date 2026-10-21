@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 #[path = "../../../crates/database-adapters/tests/support/mod.rs"]
 mod support;
 
