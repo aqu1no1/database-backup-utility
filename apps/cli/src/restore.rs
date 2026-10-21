@@ -9,7 +9,7 @@ use database_backup_adapters::postgres::{
 };
 use database_backup_core::{Password, PostgresConnectionConfig};
 use database_backup_history::{ExecutionStatus, History, NewRestore, RestoreMode};
-use database_backup_storage::{read_metadata, sha256_file};
+use database_backup_storage::{check_restore_source, read_metadata, sha256_file};
 use time::OffsetDateTime;
 use time::macros::format_description;
 
@@ -84,11 +84,8 @@ pub async fn run(args: RestoreArgs) -> ExitCode {
         Ok(path) => path,
         Err(error) => return fail(exit::INVALID_ARCHIVE, &error.to_string()),
     };
-    if !file.is_file() {
-        return fail(
-            exit::INVALID_ARCHIVE,
-            &format!("arquivo de backup não encontrado: {}", file.display()),
-        );
+    if let Err(error) = check_restore_source(&file).await {
+        return fail(exit::INVALID_ARCHIVE, &describe(&error));
     }
 
     let server = match PostgresConnectionConfig::new(
@@ -110,11 +107,15 @@ pub async fn run(args: RestoreArgs) -> ExitCode {
         Ok(history) => history,
         Err(error) => return fail(exit::FAILURE, &describe(&error)),
     };
-    let (artifact_id, checksum) =
-        match verify_checksum(&file, &history, args.allow_unverified).await {
-            Ok(value) => value,
-            Err(message) => return fail(exit::INVALID_ARCHIVE, &message),
-        };
+    let verified = match verify_checksum(&file, &history, args.allow_unverified).await {
+        Ok(verified) => verified,
+        Err(message) => return fail(exit::INVALID_ARCHIVE, &message),
+    };
+    if !verified.matched_reference {
+        eprintln!(
+            "aviso: checksum não verificado (--allow-unverified); a integridade do arquivo não foi confirmada"
+        );
+    }
 
     let (password, _) = match read_password(&target) {
         Ok(value) => value,
@@ -151,9 +152,10 @@ pub async fn run(args: RestoreArgs) -> ExitCode {
 
     let file_location = file.display().to_string();
     let restore_id = match history.start_restore(&NewRestore {
-        artifact_id: artifact_id.as_deref(),
+        artifact_id: verified.artifact_id.as_deref(),
         source_location: &file_location,
-        source_sha256: Some(&checksum),
+        source_sha256: Some(&verified.sha256),
+        checksum_verified: verified.matched_reference,
         target_host: target.host(),
         target_port: target.port(),
         target_database: target.database(),
@@ -210,11 +212,18 @@ pub async fn run(args: RestoreArgs) -> ExitCode {
     }
 }
 
+struct VerifiedSource {
+    artifact_id: Option<String>,
+    sha256: String,
+    /// `false` quando não havia checksum de referência e `--allow-unverified` foi usado.
+    matched_reference: bool,
+}
+
 async fn verify_checksum(
     file: &Path,
     history: &History,
     allow_unverified: bool,
-) -> Result<(Option<String>, String), String> {
+) -> Result<VerifiedSource, String> {
     let metadata = read_metadata(file)
         .await
         .map_err(|error| describe(&error))?;
@@ -230,8 +239,16 @@ async fn verify_checksum(
         Some(expected) if expected != actual => Err(format!(
             "checksum divergente: esperado {expected}, calculado {actual}; o arquivo foi alterado ou corrompido"
         )),
-        Some(_) => Ok((artifact.map(|a| a.id), actual)),
-        None if allow_unverified => Ok((None, actual)),
+        Some(_) => Ok(VerifiedSource {
+            artifact_id: artifact.map(|a| a.id),
+            sha256: actual,
+            matched_reference: true,
+        }),
+        None if allow_unverified => Ok(VerifiedSource {
+            artifact_id: None,
+            sha256: actual,
+            matched_reference: false,
+        }),
         None => Err(
             "não há checksum conhecido para este arquivo (.meta.json ou histórico); use --allow-unverified para restaurar mesmo assim"
                 .to_owned(),

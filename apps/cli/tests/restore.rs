@@ -126,6 +126,11 @@ async fn rejects_missing_corrupted_and_unverified_files() -> TestResult {
     let size = bytes.len();
     let truncated = dir.path().join("truncado.dump");
     std::fs::write(&truncated, &bytes[..size * 3 / 4])?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&truncated, std::fs::Permissions::from_mode(0o600))?;
+    }
     let invalid = ws
         .restore(&db, &truncated, "truncado")
         .arg("--allow-unverified")
@@ -138,10 +143,49 @@ async fn rejects_missing_corrupted_and_unverified_files() -> TestResult {
         .arg("--allow-unverified")
         .output()?;
     assert_eq!(allowed.status.code(), Some(0), "{}", text(&allowed));
+    assert!(String::from_utf8_lossy(&allowed.stderr).contains("checksum não verificado"));
     assert_eq!(
         query_i64(&db, "externo", "SELECT COUNT(*) FROM orders").await?,
         3
     );
+    let verified: bool = ws.history().query_row(
+        "SELECT checksum_verified FROM restore_executions WHERE target_database = 'externo' AND status = 'succeeded'",
+        [],
+        |row| row.get(0),
+    )?;
+    assert!(!verified);
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn rejects_unsafe_source_files() -> TestResult {
+    use std::os::unix::fs::PermissionsExt;
+
+    let ws = Workspace::new()?;
+    let dir = tempfile::tempdir()?;
+    let private = dir.path().join("privado.dump");
+    std::fs::write(&private, b"dump")?;
+    std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o600))?;
+    let link = dir.path().join("link.dump");
+    std::os::unix::fs::symlink(&private, &link)?;
+    let shared = dir.path().join("compartilhado.dump");
+    std::fs::write(&shared, b"dump")?;
+    std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o666))?;
+
+    for (file, reason) in [
+        (&link, "link simbólico"),
+        (&shared, "gravável por grupo ou outros"),
+    ] {
+        let output = ws
+            .cli("segredo")
+            .args(["restore", "--user", "postgres", "--target-database", "x"])
+            .arg("--file")
+            .arg(file)
+            .output()?;
+        assert_eq!(output.status.code(), Some(10), "{}", text(&output));
+        assert!(text(&output).contains(reason), "{}", text(&output));
+    }
     Ok(())
 }
 

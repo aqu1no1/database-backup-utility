@@ -28,6 +28,10 @@ pub enum StorageError {
     Read(#[source] io::Error),
     #[error("falha ao gerar os metadados do backup")]
     Metadata(#[source] serde_json::Error),
+    #[error("arquivo de backup não encontrado: {0}")]
+    SourceNotFound(PathBuf),
+    #[error("arquivo recusado ({reason}): {path}")]
+    UnsafeSource { path: PathBuf, reason: &'static str },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -229,6 +233,49 @@ pub async fn read_metadata(artifact: &Path) -> Result<Option<StoredMetadata>, St
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(source) => Err(StorageError::Io { path, source }),
     }
+}
+
+/// Recusa origens de restore que poderiam ter sido trocadas por outro usuário:
+/// symlinks, arquivos não regulares e, no unix, arquivos graváveis por grupo ou
+/// outros. Aplica a mesma regra ao `.meta.json`, que fornece o checksum esperado.
+pub async fn check_restore_source(artifact: &Path) -> Result<(), StorageError> {
+    if !check_source_file(artifact).await? {
+        return Err(StorageError::SourceNotFound(artifact.to_owned()));
+    }
+    check_source_file(&metadata_path(artifact)).await?;
+    Ok(())
+}
+
+/// Retorna `false` quando o arquivo não existe.
+async fn check_source_file(path: &Path) -> Result<bool, StorageError> {
+    let metadata = match fs::symlink_metadata(path).await {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(source) => {
+            return Err(StorageError::Io {
+                path: path.to_owned(),
+                source,
+            });
+        }
+    };
+    let unsafe_source = |reason| StorageError::UnsafeSource {
+        path: path.to_owned(),
+        reason,
+    };
+    if metadata.file_type().is_symlink() {
+        return Err(unsafe_source("link simbólico"));
+    }
+    if !metadata.is_file() {
+        return Err(unsafe_source("não é um arquivo regular"));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.permissions().mode() & 0o022 != 0 {
+            return Err(unsafe_source("gravável por grupo ou outros usuários"));
+        }
+    }
+    Ok(true)
 }
 
 pub async fn sha256_file(path: &Path) -> Result<(u64, String), StorageError> {
@@ -482,5 +529,68 @@ mod tests {
             backup_file_name("../etc/passwd db", at),
             "___etc_passwd_db-20261020T190509Z.dump"
         );
+    }
+
+    #[cfg(unix)]
+    fn source_file(dir: &Path, name: &str, mode: u32) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = dir.join(name);
+        std::fs::write(&path, b"dump").expect("arquivo");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).expect("modo");
+        path
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn restore_source_accepts_private_file() {
+        let dir = TempDir::new().expect("diretório temporário");
+        let dump = source_file(dir.path(), "db.dump", 0o600);
+        source_file(dir.path(), "db.dump.meta.json", 0o644);
+
+        check_restore_source(&dump).await.expect("origem válida");
+    }
+
+    #[tokio::test]
+    async fn restore_source_reports_missing_file() {
+        let dir = TempDir::new().expect("diretório temporário");
+
+        let result = check_restore_source(&dir.path().join("ausente.dump")).await;
+
+        assert!(matches!(result, Err(StorageError::SourceNotFound(_))));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn restore_source_rejects_symlink_and_directory() {
+        let dir = TempDir::new().expect("diretório temporário");
+        let dump = source_file(dir.path(), "db.dump", 0o600);
+        let link = dir.path().join("link.dump");
+        std::os::unix::fs::symlink(&dump, &link).expect("symlink");
+
+        let from_link = check_restore_source(&link).await;
+        let from_dir = check_restore_source(dir.path()).await;
+
+        assert!(matches!(from_link, Err(StorageError::UnsafeSource { .. })));
+        assert!(matches!(from_dir, Err(StorageError::UnsafeSource { .. })));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn restore_source_rejects_writable_by_others() {
+        let dir = TempDir::new().expect("diretório temporário");
+        let shared = source_file(dir.path(), "shared.dump", 0o666);
+        let group = source_file(dir.path(), "group.dump", 0o620);
+        let with_shared_meta = source_file(dir.path(), "db.dump", 0o600);
+        source_file(dir.path(), "db.dump.meta.json", 0o666);
+
+        for path in [shared, group, with_shared_meta] {
+            let result = check_restore_source(&path).await;
+            assert!(
+                matches!(result, Err(StorageError::UnsafeSource { .. })),
+                "{} deveria ser recusado",
+                path.display()
+            );
+        }
     }
 }

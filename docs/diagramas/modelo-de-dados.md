@@ -1,7 +1,7 @@
 # Modelo do histórico interno
 
-Schema aplicado pelas migrations `crates/history/migrations/0001_initial.sql` e `0002_restores.sql`. Datas em UTC no
-formato RFC 3339 e IDs UUID v7.
+Schema aplicado pelas migrations `crates/history/migrations/0001_initial.sql`, `0002_restores.sql` e
+`0003_restore_checksum_verified.sql`. Datas em UTC no formato RFC 3339 e IDs UUID v7.
 
 ```mermaid
 erDiagram
@@ -52,6 +52,7 @@ erDiagram
         text artifact_id FK
         text source_location
         text source_sha256
+        integer checksum_verified
         text target_host
         integer target_port
         text target_database
@@ -71,7 +72,7 @@ erDiagram
 | `backup_jobs` | Definição de um backup de uma conexão. Por enquanto só `full`. |
 | `backup_executions` | Cada execução: `running`, `succeeded`, `failed` ou `canceled`, com duração e erro já sanitizado. |
 | `backup_artifacts` | Arquivos gerados: local, formato, tamanho, SHA-256 e versão da ferramenta. |
-| `restore_executions` | Cada restore: arquivo de origem (e o artefato, quando conhecido), destino sem senha, modo `create`/`overwrite`, banco anterior mantido, status, duração e erro saneado. |
+| `restore_executions` | Cada restore: arquivo de origem (e o artefato, quando conhecido), se o checksum foi conferido com uma referência (`checksum_verified = 0` quando veio de `--allow-unverified`), destino sem senha, modo `create`/`overwrite`, banco anterior mantido, status, duração e erro saneado. |
 
 - Tabelas `STRICT`, chaves estrangeiras ativas e `ON DELETE CASCADE`.
 - Nenhuma coluna guarda senha ou token; um teste verifica isso.

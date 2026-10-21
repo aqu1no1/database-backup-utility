@@ -23,7 +23,8 @@ DBU_PG_PASSWORD='...' cargo run -p database-backup-cli -- restore --file <arquiv
 Sem `DBU_PG_PASSWORD` a senha é pedida sem eco. Exit codes: 0 ok, 2 parâmetro inválido,
 3 autenticação, 4 banco inexistente, 5 inacessível/timeout, 6 TLS, 7 ferramentas ausentes,
 8 backup falhou, 9 cancelado, 10 arquivo inválido, 11 restore falhou,
-12 confirmação necessária.
+12 confirmação necessária. O `restore` recusa (código 10) symlinks e arquivos graváveis por
+grupo/outros.
 
 ## PostgreSQL de desenvolvimento
 

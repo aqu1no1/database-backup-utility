@@ -16,6 +16,9 @@ pub const DATABASE_FILE: &str = "history.sqlite3";
 const MIGRATIONS: &[M<'static>] = &[
     M::up(include_str!("../migrations/0001_initial.sql")),
     M::up(include_str!("../migrations/0002_restores.sql")),
+    M::up(include_str!(
+        "../migrations/0003_restore_checksum_verified.sql"
+    )),
 ];
 
 #[derive(Debug, Error)]
@@ -123,6 +126,8 @@ pub struct NewRestore<'a> {
     pub artifact_id: Option<&'a str>,
     pub source_location: &'a str,
     pub source_sha256: Option<&'a str>,
+    /// `false` quando o checksum foi aceito sem referência (`--allow-unverified`).
+    pub checksum_verified: bool,
     pub target_host: &'a str,
     pub target_port: u16,
     pub target_database: &'a str,
@@ -134,6 +139,7 @@ pub struct RestoreRecord {
     pub id: String,
     pub artifact_id: Option<String>,
     pub source_location: String,
+    pub checksum_verified: bool,
     pub target_database: String,
     pub mode: String,
     pub previous_database: Option<String>,
@@ -367,14 +373,15 @@ impl History {
         let id = new_id();
         self.conn.execute(
             "INSERT INTO restore_executions
-                 (id, artifact_id, source_location, source_sha256, target_host, target_port,
-                  target_database, mode, status, started_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'running', ?9)",
+                 (id, artifact_id, source_location, source_sha256, checksum_verified,
+                  target_host, target_port, target_database, mode, status, started_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'running', ?10)",
             params![
                 id,
                 restore.artifact_id,
                 restore.source_location,
                 restore.source_sha256,
+                restore.checksum_verified,
                 restore.target_host,
                 restore.target_port,
                 restore.target_database,
@@ -426,8 +433,8 @@ impl History {
 
     pub fn list_restores(&self, limit: u32) -> Result<Vec<RestoreRecord>, HistoryError> {
         let mut statement = self.conn.prepare(
-            "SELECT id, artifact_id, source_location, target_database, mode, previous_database,
-                    status, duration_ms, error_message
+            "SELECT id, artifact_id, source_location, checksum_verified, target_database, mode,
+                    previous_database, status, duration_ms, error_message
              FROM restore_executions ORDER BY started_at DESC, id DESC LIMIT ?1",
         )?;
         let rows = statement.query_map([limit], |row| {
@@ -435,12 +442,13 @@ impl History {
                 row.get::<_, String>(0)?,
                 row.get::<_, Option<String>>(1)?,
                 row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
+                row.get::<_, bool>(3)?,
                 row.get::<_, String>(4)?,
-                row.get::<_, Option<String>>(5)?,
-                row.get::<_, String>(6)?,
-                row.get::<_, Option<i64>>(7)?,
-                row.get::<_, Option<String>>(8)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, Option<String>>(6)?,
+                row.get::<_, String>(7)?,
+                row.get::<_, Option<i64>>(8)?,
+                row.get::<_, Option<String>>(9)?,
             ))
         })?;
         rows.map(|row| {
@@ -448,6 +456,7 @@ impl History {
                 id,
                 artifact_id,
                 source_location,
+                checksum_verified,
                 target_database,
                 mode,
                 previous_database,
@@ -459,6 +468,7 @@ impl History {
                 id,
                 artifact_id,
                 source_location,
+                checksum_verified,
                 target_database,
                 mode,
                 previous_database,
@@ -715,7 +725,10 @@ mod tests {
             .upsert_connection(&sample_connection())
             .expect("conexão");
 
-        assert_eq!(upgraded.schema_version().expect("versão"), 2);
+        assert_eq!(
+            upgraded.schema_version().expect("versão"),
+            MIGRATIONS.len() as i64
+        );
         assert_eq!(again, connection_id);
         assert!(upgraded.list_restores(10).expect("restores").is_empty());
     }
@@ -751,6 +764,7 @@ mod tests {
                 artifact_id: Some(&found.id),
                 source_location: &found.location,
                 source_sha256: found.checksum_sha256.as_deref(),
+                checksum_verified: true,
                 target_host: "localhost",
                 target_port: 5432,
                 target_database: "db",
@@ -771,6 +785,7 @@ mod tests {
         assert_eq!(restores.len(), 1);
         assert_eq!(restores[0].status, ExecutionStatus::Succeeded);
         assert_eq!(restores[0].mode, "overwrite");
+        assert!(restores[0].checksum_verified);
         assert_eq!(
             restores[0].previous_database.as_deref(),
             Some("db__previous_20261020T190000Z")
