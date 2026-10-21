@@ -23,6 +23,11 @@ pub const SEED_SQL: &str = include_str!(concat!(
     "/../../tests/fixtures/postgres/seed.sql"
 ));
 
+pub const E2E_SQL: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../tests/fixtures/postgres/e2e.sql"
+));
+
 pub type TestResult<T = ()> = Result<T, Box<dyn Error + Send + Sync>>;
 
 pub struct PostgresTestDb {
@@ -79,11 +84,15 @@ impl PostgresTestDb {
     }
 
     pub async fn start_seeded() -> TestResult<Self> {
+        Self::start_with("seed.sql", SEED_SQL).await
+    }
+
+    pub async fn start_with(name: &str, sql: &str) -> TestResult<Self> {
         let db = Self::start().await?;
         db.client
-            .batch_execute(SEED_SQL)
+            .batch_execute(sql)
             .await
-            .map_err(|error| format!("falha ao aplicar a fixture seed.sql: {error}"))?;
+            .map_err(|error| format!("falha ao aplicar a fixture {name}: {error}"))?;
         Ok(db)
     }
 

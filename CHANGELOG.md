@@ -19,6 +19,12 @@ versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 - Opção global `--json` com resultado (ou erro e exit code) em uma linha JSON no stdout.
 - Logs estruturados com `tracing` no stderr (horário, operação, IDs, status e duração, sem credenciais), configuráveis por `--log-level` ou `RUST_LOG`.
 
+### Fixed
+- Cancelar um backup ou restore no runner Docker logo no início (Ctrl+C ou timeout) podia deixar um container `dbu-pg-*` criado e nunca removido. Agora o cliente `docker run` é encerrado antes e a remoção do container é repetida por até 2 segundos.
+
+### Security
+- `pg_dump`/`pg_restore` passam a receber o nome do banco como valor entre aspas (`dbname='...'`). Antes, um nome de banco contendo `=` (por exemplo `dbname=postgres`) era interpretado pelo libpq como string de conexão e podia levar o backup ou o restore para outro banco.
+
 <!-- Ao concluir uma funcionalidade relevante, registre-a aqui usando:
 ### Added
 - Mensagem da mudança validada.

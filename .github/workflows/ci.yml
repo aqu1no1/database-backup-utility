@@ -55,12 +55,21 @@ jobs:
           sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
           sudo apt-get install -y postgresql-client-17
           echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
-      - name: Testcontainers PostgreSQL
+      - name: Testcontainers PostgreSQL e E2E
         env:
           DBU_REQUIRE_NATIVE: '1'
+          DBU_E2E_LOG_DIR: ${{ runner.temp }}/e2e-logs
         run: |
           pg_dump --version
           cargo test --workspace --tests -- --nocapture
+      - name: Logs de diagnóstico do E2E
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-logs
+          path: ${{ runner.temp }}/e2e-logs
+          if-no-files-found: ignore
+          retention-days: 7
 
   angular:
     name: Angular / Lint, Test & Build

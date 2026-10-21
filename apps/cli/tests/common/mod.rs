@@ -12,6 +12,7 @@ pub struct Workspace {
     _dir: TempDir,
     pub data: PathBuf,
     pub out: PathBuf,
+    pub tmp: PathBuf,
 }
 
 impl Workspace {
@@ -19,10 +20,13 @@ impl Workspace {
         let dir = TempDir::new()?;
         let data = dir.path().join("data");
         let out = dir.path().join("out");
+        let tmp = dir.path().join("tmp");
+        std::fs::create_dir(&tmp)?;
         Ok(Self {
             _dir: dir,
             data,
             out,
+            tmp,
         })
     }
 
@@ -30,6 +34,8 @@ impl Workspace {
         let mut command = Command::new(env!("CARGO_BIN_EXE_database-backup"));
         command
             .env("DBU_DATA_DIR", &self.data)
+            .env("TMPDIR", &self.tmp)
+            .env_remove("RUST_LOG")
             .env("DBU_PG_PASSWORD", password)
             .stdin(Stdio::null());
         command

@@ -207,3 +207,23 @@ async fn cancel_stops_dump_and_container() -> TestResult {
     assert!(!container_exists(&container), "{container} ainda existe");
     Ok(())
 }
+
+#[tokio::test]
+async fn cancel_right_after_spawn_leaves_no_container() -> TestResult {
+    let db = PostgresTestDb::start_seeded().await?;
+    let tools = PgTools::detect(RunnerChoice::Docker, server_version(&db).await?).await?;
+    let config = config_for(&db, db.database());
+    let password = Password::new(db.password().to_owned());
+
+    for _ in 0..3 {
+        let process = tools.dump(&config, &password)?;
+        let container = process
+            .container_name()
+            .ok_or("o modo docker deve nomear o container")?
+            .to_owned();
+        process.cancel().await;
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        assert!(!container_exists(&container), "{container} ainda existe");
+    }
+    Ok(())
+}
