@@ -7,6 +7,7 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/aqu1no1/database-backup-utility"
+publish = false
 
 [workspace.dependencies]
 database-backup-core = { path = "crates/core" }
@@ -33,6 +34,9 @@ tokio-postgres-rustls = { version = "0.14", features = ["ring"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1.28", features = ["v7"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
 
 [workspace.lints.clippy]
 unwrap_used = "deny"
