@@ -1,5 +1,3 @@
-//! `backup list` e `restore list`: consulta do histórico interno.
-
 use std::fmt::Write as _;
 use std::process::ExitCode;
 

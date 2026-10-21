@@ -1,5 +1,3 @@
-//! Validação de arquivos de backup compartilhada por `restore run` e `backup verify`.
-
 use std::path::Path;
 
 use database_backup_adapters::postgres::{ArchiveInfo, PgTools, PgVersion};
@@ -11,9 +9,7 @@ use crate::describe;
 pub struct VerifiedSource {
     pub artifact_id: Option<String>,
     pub sha256: String,
-    /// `false` quando não havia checksum de referência e `--allow-unverified` foi usado.
     pub matched_reference: bool,
-    /// Versão do PostgreSQL de origem, segundo o `.meta.json` ou o histórico.
     pub source_version: Option<PgVersion>,
 }
 
@@ -65,7 +61,6 @@ pub async fn verify_checksum(
     }
 }
 
-/// Lê o archive com `pg_restore --list` e confere se a ferramenta disponível consegue lê-lo.
 pub async fn read_archive(tools: &PgTools, file: &Path) -> Result<ArchiveInfo, String> {
     let archive = tools
         .restore_list(file)
@@ -82,7 +77,6 @@ pub async fn read_archive(tools: &PgTools, file: &Path) -> Result<ArchiveInfo, S
     Ok(archive)
 }
 
-/// Recusa restaurar um backup vindo de um PostgreSQL mais novo que o servidor de destino.
 pub fn check_target(archive: &ArchiveInfo, target: PgVersion) -> Result<(), String> {
     match archive.dumped_from {
         Some(from) if from.major > target.major => Err(format!(

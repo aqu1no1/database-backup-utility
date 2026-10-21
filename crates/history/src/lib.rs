@@ -149,7 +149,6 @@ pub struct RestoreRecord {
     pub error_message: Option<String>,
 }
 
-/// Uma execução de backup com a conexão de origem e o artefato gerado, se houver.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BackupSummary {
     pub execution_id: String,
@@ -488,7 +487,6 @@ impl History {
         .collect()
     }
 
-    /// Lista as execuções de backup mais recentes, opcionalmente só de um banco.
     pub fn list_backups(
         &self,
         limit: u32,

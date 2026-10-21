@@ -1,5 +1,3 @@
-//! Comportamento da CLI que não depende de banco: argumentos, ajuda, exit codes e JSON.
-
 use std::process::{Command, Output};
 
 use tempfile::TempDir;

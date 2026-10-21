@@ -1,5 +1,3 @@
-//! Saída da CLI: resultado no stdout (texto ou JSON), erros no stderr e logs via `tracing`.
-
 use std::io::IsTerminal;
 use std::process::ExitCode;
 use std::sync::OnceLock;
@@ -31,11 +29,6 @@ impl LogLevel {
     }
 }
 
-/// Configura o formato de saída e os logs. Os logs vão sempre para o stderr,
-/// para não misturar com o resultado (texto ou JSON) no stdout.
-///
-/// Precedência do nível: `--log-level` > `RUST_LOG` > `warn`. O nível escolhido
-/// vale para a CLI; as dependências ficam em `warn`.
 pub fn init(json: bool, level: Option<LogLevel>) {
     let _ = JSON.set(json);
     let filter = match level {
@@ -69,8 +62,6 @@ struct Failure<'a> {
     error: &'a str,
 }
 
-/// Imprime o resultado de um comando bem-sucedido: `text` no modo normal ou
-/// `{"status":"ok", ...data}` com `--json`.
 pub fn success<T: Serialize>(data: &T, text: &str) -> ExitCode {
     if json() {
         print_json(&Success { status: "ok", data });
@@ -80,8 +71,6 @@ pub fn success<T: Serialize>(data: &T, text: &str) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// Único ponto de saída com erro: a mensagem vai para o stderr e, com `--json`,
-/// também como `{"status":"error","code":N,"error":"..."}` no stdout.
 pub fn fail(code: u8, message: &str) -> ExitCode {
     eprintln!("Erro: {message}");
     if json() {
