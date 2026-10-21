@@ -2,11 +2,11 @@
 
 > Documento central de visão, decisões, escopo, arquitetura e planejamento.
 >
-> **Status:** planejamento e estruturação; funcionalidades descritas neste documento **não devem ser consideradas implementadas** sem confirmação no código e nos testes.
+> **Status:** v0.1.0 (CLI PostgreSQL) implementada, testada e em preparação de release. As versões seguintes (multi-SGBD, desktop, agendamento e nuvem) continuam **planejadas, não implementadas**. Na dúvida, o código e os testes são a fonte de verdade.
 >
 > **Repositório:** `database-backup-utility`  
 > **Desafio de origem:** [roadmap.sh — Database Backup Utility](https://roadmap.sh/projects/database-backup-utility)  
-> **Última revisão deste documento:** 20/10/2026
+> **Última revisão deste documento:** 21/10/2026
 
 ## 1. Visão geral
 
@@ -57,7 +57,7 @@ O objetivo não é criar um formato universal de backup do zero. Cada SGBD terá
 | DEC-012 | Backups completos antes dos incrementais/diferenciais | **Confirmada no planejamento** | Funcionalidades avançadas variam por SGBD. |
 | DEC-013 | `CHANGELOG.md` + SemVer + tags + GitHub Releases | **Confirmada** | Processo de publicação reproduzível. |
 | DEC-014 | GitHub Actions para verificações e releases | **Confirmada** | Automatizar testes, build e publicação autorizada. |
-| DEC-015 | Planejamento de versões no **Linear** | **Confirmada** | Projeto P-DB-1, milestones v0.1.0–v0.3.0 e issues DB-5 a DB-16 criados. |
+| DEC-015 | Planejamento de versões no **Linear** | **Confirmada** | Projeto P-DB-1, milestones v0.1.0–v0.4.0, issues DB-5 a DB-34; cada milestone tem um card de release (DB-14, DB-32, DB-33, DB-34). |
 | DEC-016 | `AGENTS.md` na raiz para agentes de programação | **Confirmada** | Orientar implementação, revisão, segurança e testes. |
 | DEC-017 | Agendamento independente do processo Tauri | **Confirmada no planejamento** | Backup deve funcionar com a aplicação desktop fechada. |
 | DEC-018 | Primeiro armazenamento local, cloud depois | **Confirmada no planejamento** | Reduzir complexidade da primeira entrega. |
@@ -462,31 +462,25 @@ Agendador do sistema operacional
 
 Não depender de uma janela Tauri aberta. Configurações e registros persistentes devem estar disponíveis para o processo agendado de acordo com as permissões do usuário/serviço.
 
-## 9. CLI planejada
+## 9. CLI (implementada na v0.1.0)
 
-> **Exemplos de design de comandos, não comandos já implementados.** A sintaxe definitiva será consolidada ao criar `apps/cli`.
+Sintaxe atual. Referência completa em `docs/comandos.md` e no `--help` de cada comando:
 
 ```bash
-# Testar conexão previamente cadastrada
-database-backup connection test development
-
-# Executar backup completo
-database-backup backup run development --type full --storage local
-
-# Listar backups
-database-backup backup list development
-
-# Verificar um backup
-database-backup backup verify BACKUP_ID
-
-# Restaurar em destino separado
-database-backup restore BACKUP_ID --target staging
-
-# Consultar ajuda
-database-backup --help
+database-backup connection test --database app --user backup
+database-backup backup run --database app --user backup [--output-dir DIR] [--runner auto|native|docker]
+database-backup backup list [--database app] [--json]
+database-backup backup verify --file app-20261021T120000Z.dump
+database-backup restore run --file app-20261021T120000Z.dump --target-database app_staging --user backup
+database-backup restore list
 ```
 
-As senhas não devem ser aceitas por argumento simples de linha de comando em usos normais. Preferir prompt oculto, integração segura com mecanismos de credenciais ou outra estratégia aprovada para execução não interativa. Saída estruturada `--json` é evolução desejável para automações.
+A senha nunca é aceita por argumento. Ela vem de um prompt sem eco, de `DBU_PG_PASSWORD` ou de um
+arquivo `600` (`--password-file`/`DBU_PG_PASSWORD_FILE`), e só uma fonte pode estar definida.
+`--json` está disponível em todos os comandos.
+
+Ainda **não** existem (planejado): conexões cadastradas por nome, `--type` incremental/diferencial,
+`--storage` de nuvem e restore por ID de backup.
 
 ## 10. Dados internos e metadados (planejamento)
 
@@ -593,18 +587,18 @@ Para o desktop Angular, após a criação da aplicação, usar os scripts **efet
 
 ## 14. Roadmap e releases planejadas
 
-> **Todas as versões abaixo são propostas de escopo futuro; não indicam releases já publicadas.**
+> A v0.1.0 está implementada (milestone "v0.1.0 — PostgreSQL CLI" no Linear, DB-5 a DB-19). As demais versões são **propostas de escopo futuro** e não indicam releases publicadas. A v1.0.0 e a v2.0.0 ainda não têm milestone nem cards no Linear.
 
 ### v0.1.0 — Core Rust + PostgreSQL CLI
 
-- [ ] Criar Cargo Workspace e CLI com `clap`.
-- [ ] Implementar parâmetros e teste seguro de conexão PostgreSQL.
-- [ ] Executar `pg_dump` em fluxo controlado, com saída em arquivo local.
-- [ ] Restaurar com `pg_restore` em base separada.
-- [ ] Implementar logs, status e registro mínimo da operação.
-- [ ] Criar testes unitários e de integração com Testcontainers.
-- [ ] Configurar CI, changelog e processo de release.
-- [ ] Documentar comandos e pré-requisitos.
+- [x] Criar Cargo Workspace e CLI com `clap`.
+- [x] Implementar parâmetros e teste seguro de conexão PostgreSQL.
+- [x] Executar `pg_dump` em fluxo controlado, com saída em arquivo local.
+- [x] Restaurar com `pg_restore` em base separada.
+- [x] Implementar logs, status e registro mínimo da operação.
+- [x] Criar testes unitários e de integração com Testcontainers.
+- [x] Configurar CI, changelog e processo de release.
+- [x] Documentar comandos e pré-requisitos.
 
 ### v0.2.0 — Multi-database
 
@@ -648,16 +642,16 @@ Para o desktop Angular, após a criação da aplicação, usar os scripts **efet
 
 ## 15. Critérios de conclusão da primeira entrega
 
-A `v0.1.0` só deverá ser considerada pronta quando:
+A `v0.1.0` só deverá ser considerada pronta quando (situação em 21/10/2026, com a evidência de cada item):
 
-1. Um usuário conseguir executar `--help` e configurar uma conexão PostgreSQL local.
-2. A conexão puder ser validada sem expor senha.
-3. Um backup completo produzir um artefato íntegro e identificado.
-4. O backup puder ser restaurado em um PostgreSQL descartável.
-5. O teste de restore comparar dados esperados, em vez de apenas confiar no exit code.
-6. Os cenários de falha essenciais forem cobertos e documentados.
-7. Os comandos de formatação, análise estática e testes definidos para a release passarem.
-8. O README, o changelog e o processo de release refletirem exatamente o que existe no código.
+1. ✅ Um usuário conseguir executar `--help` e configurar uma conexão PostgreSQL local. Evidência: `apps/cli/tests/cli.rs`, README.
+2. ✅ A conexão puder ser validada sem expor senha. Evidência: `test_connection.rs`, varredura de segredos no E2E.
+3. ✅ Um backup completo produzir um artefato íntegro e identificado. Evidência: SHA-256 + manifesto versionado (`docs/manifesto.md`).
+4. ✅ O backup puder ser restaurado em um PostgreSQL descartável. Evidência: E2E `full_cycle_restores_identical_data_on_another_server`.
+5. ✅ O teste de restore comparar dados esperados, em vez de apenas confiar no exit code. Evidência: snapshot de schema e hash das linhas no E2E.
+6. ✅ Os cenários de falha essenciais forem cobertos e documentados. Evidência: `docs/testes.md`, `docs/seguranca.md`.
+7. ✅ Os comandos de formatação, análise estática e testes definidos para a release passarem. Evidência: CI verde na `main`; validação local do DB-14.
+8. ✅ O README, o changelog e o processo de release refletirem exatamente o que existe no código. Evidência: revisão do DB-14.
 
 ## 16. Convenções para desenvolvimento assistido por IA
 

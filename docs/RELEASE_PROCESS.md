@@ -13,23 +13,28 @@ Não há push de tag como gatilho e merges na `main` não publicam automaticamen
 4. Transferir entradas implementadas e verificadas de `[Unreleased]` para uma seção como:
 
 ```markdown
-## [0.1.0] - 2026-10-20
+## [X.Y.Z] - AAAA-MM-DD
 
 ### Added
-- Comando de backup PostgreSQL validado por testes E2E.
+- Mudança implementada e verificada.
 ```
 
 O bloco acima é **apenas um exemplo**. Não registre funcionalidades ainda não implementadas.
+O `[Unreleased]` fica vazio acima da nova seção, e o comentário de instruções fica dentro dele:
+o script extrai o texto da seção da versão até o fim do arquivo, então nada além das notas
+pode vir depois dela.
 
-5. Validar com:
+5. Validar localmente com os mesmos passos do job de release:
 
 ```bash
-python3 .github/scripts/release_notes.py --version v0.1.0
+python3 -m unittest discover -s .github/scripts -p 'test_*.py'
+python3 .github/scripts/release_notes.py --version vX.Y.Z      # confere versão de todos os membros do workspace e o changelog
 cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace --lib --bins
-cargo test --workspace --tests
-cargo build --release -p database-backup-cli --bin database-backup
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --lib --bins --locked
+cargo test --workspace --tests --locked                         # Docker necessário
+cargo build --locked --release -p database-backup-cli --bin database-backup
+./target/release/database-backup --version                      # deve mostrar X.Y.Z
 ```
 
 6. Enviar via PR e fazer merge na `main` quando os checks passarem.
@@ -42,6 +47,12 @@ cargo build --release -p database-backup-cli --bin database-backup
    formatação, Clippy, testes unitários, integração PostgreSQL e build da CLI.
 4. Após tudo passar, cria a **tag anotada na SHA validada**, envia ao repositório e
    publica um GitHub Release com as notas da versão, tarball Linux x86_64 e SHA256SUMS.
+
+## Depois de publicar
+
+1. Baixar o tarball e o `SHA256SUMS.txt` do Release e rodar `sha256sum -c SHA256SUMS.txt`.
+2. Extrair e conferir `database-backup --version`.
+3. Mover o card de release para Done no Linear e fechar o milestone.
 
 ## Observações de segurança
 

@@ -4,9 +4,10 @@ Ferramenta multiplataforma de backup e restauração de bancos de dados. O produ
 **CLI independente em Rust** e, futuramente, um **desktop Tauri + Angular + Tailwind v4**,
 ambos utilizando as mesmas crates de negócio.
 
-> **Estado atual:** teste de conexão, backup full e restore PostgreSQL pela CLI, histórico interno
-> em SQLite, testes de integração, Docker Compose e pipelines.
-> As entregas funcionais estão organizadas nas issues do Linear.
+> **Estado atual (v0.1.0):** CLI para PostgreSQL com teste de conexão, backup full, verificação e
+> restore, histórico interno em SQLite, manifesto versionado e testes E2E. **Ainda não existem:**
+> desktop Angular/Tauri, MySQL, MongoDB, SQLite (como banco de origem), agendamento, nuvem,
+> compressão extra e criptografia. Esses itens estão planejados em [`docs/RELEASES.md`](docs/RELEASES.md).
 
 ## Stack
 
@@ -17,7 +18,47 @@ ambos utilizando as mesmas crates de negócio.
 - Testes: Rust `cargo test`, integração com Testcontainers, Vitest futuramente no Angular.
 - GitHub Actions: CI em PRs/main, auditoria e releases **somente manuais** (`workflow_dispatch`).
 
-## Requisitos locais
+## Instalação (binário da release)
+
+Disponível para Linux x86_64 nos [GitHub Releases](https://github.com/aqu1no1/database-backup-utility/releases).
+
+```bash
+VERSION=v0.1.0
+curl -LO "https://github.com/aqu1no1/database-backup-utility/releases/download/$VERSION/database-backup-linux-x86_64-$VERSION.tar.gz"
+curl -LO "https://github.com/aqu1no1/database-backup-utility/releases/download/$VERSION/SHA256SUMS.txt"
+sha256sum -c SHA256SUMS.txt                         # precisa mostrar OK
+tar -xzf "database-backup-linux-x86_64-$VERSION.tar.gz"
+install -m 755 database-backup ~/.local/bin/        # ou outro diretório do PATH
+database-backup --version
+```
+
+Requisitos para usar, um dos dois:
+- **Cliente PostgreSQL** (`pg_dump` e `pg_restore`) com versão **maior ou igual** à do servidor
+  (`--runner native`);
+- **Docker**: a CLI usa a imagem `postgres:<versão do servidor>` (`--runner docker`). Quem pode usar o
+  Docker tem, na prática, acesso de root; veja [`docs/seguranca.md`](docs/seguranca.md).
+
+O padrão `--runner auto` usa o cliente instalado se for compatível; senão, o Docker.
+
+### Roteiro rápido: backup, verificação e restore em staging
+
+```bash
+mkdir -p ~/.config/dbu && install -m 600 /dev/null ~/.config/dbu/pg.pass && printf '%s\n' 'senha' > ~/.config/dbu/pg.pass
+export DBU_PG_PASSWORD_FILE=~/.config/dbu/pg.pass
+
+database-backup connection test --host db.interno --tls verify-full --database app --user backup
+database-backup backup run --host db.interno --tls verify-full --database app --user backup
+database-backup backup list --database app
+database-backup backup verify --file ~/.local/share/database-backup-utility/backups/app-<data>.dump
+database-backup restore run --host staging.interno --tls verify-full --user backup \
+  --file ~/.local/share/database-backup-utility/backups/app-<data>.dump --target-database app_staging
+```
+
+O restore cria um banco **novo** por padrão. Substituir um banco com dados exige `--overwrite` e a
+confirmação do nome, e o banco anterior é mantido. Detalhes nas seções abaixo e em
+[`docs/comandos.md`](docs/comandos.md).
+
+## Requisitos locais (desenvolvimento)
 
 - Rust estável (`rustup`, Cargo), Docker Engine e Docker Compose v2.
 - Python 3.11+ somente para scripts de release.
@@ -178,5 +219,13 @@ O `Cargo.lock` é versionado; **a release manual exige o lockfile no repositóri
 
 ## Licença
 
-Licença ainda não definida. Antes da primeira distribuição pública, escolher a licença,
-adicionar `LICENSE` e declarar `license` nos manifests Cargo.
+Licenciado sob qualquer uma destas, à sua escolha:
+
+- Apache License, Version 2.0 ([`LICENSE-APACHE`](LICENSE-APACHE) ou <https://www.apache.org/licenses/LICENSE-2.0>)
+- MIT license ([`LICENSE-MIT`](LICENSE-MIT) ou <https://opensource.org/licenses/MIT>)
+
+### Contribuição
+
+Salvo declaração explícita em contrário, qualquer contribuição enviada intencionalmente para inclusão
+neste projeto, conforme definido na licença Apache-2.0, será licenciada nos termos acima, sem termos
+ou condições adicionais.
