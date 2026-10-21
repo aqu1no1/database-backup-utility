@@ -1,5 +1,9 @@
+mod archive;
 mod backup;
+mod listing;
+mod output;
 mod restore;
+mod verify;
 
 use std::error::Error;
 use std::io::IsTerminal;
@@ -10,40 +14,129 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use database_backup_adapters::postgres::{
     ConnectionError, RunnerChoice, Timeouts, test_connection,
 };
-use database_backup_core::{PROJECT_NAME, Password, PostgresConnectionConfig, TlsMode};
+use database_backup_core::{Password, PostgresConnectionConfig, TlsMode};
+use serde::Serialize;
+use tracing::info;
+
+use output::{LogLevel, fail, success};
 
 const PASSWORD_ENV: &str = "DBU_PG_PASSWORD";
+
+macro_rules! password_note {
+    () => {
+        "A senha é lida de DBU_PG_PASSWORD ou, sem a variável, por um prompt sem eco."
+    };
+}
 
 #[derive(Debug, Parser)]
 #[command(
     name = "database-backup",
     version,
-    about = "Ferramenta de backup e restauração de bancos de dados."
+    about = "Ferramenta de backup e restauração de bancos de dados.",
+    after_help = "Exemplos:
+  database-backup connection test --database app --user postgres
+  database-backup backup run --database app --user postgres
+  database-backup backup list --json
+  database-backup backup verify --file app-20261021T120000Z.dump
+  database-backup restore run --file app-20261021T120000Z.dump --target-database app_copia --user postgres
+
+Exit codes: 0 ok, 1 falha geral, 2 parâmetro inválido, 3 autenticação, 4 banco inexistente,
+5 inacessível/timeout, 6 TLS, 7 ferramentas ausentes, 8 backup falhou, 9 cancelado,
+10 arquivo inválido, 11 restore falhou, 12 confirmação necessária.
+
+Logs vão para o stderr; ajuste com --log-level ou RUST_LOG."
 )]
 struct Cli {
+    #[arg(
+        long,
+        global = true,
+        help = "Imprime o resultado em JSON (uma linha) no stdout"
+    )]
+    json: bool,
+    #[arg(
+        long,
+        global = true,
+        value_enum,
+        help = "Nível dos logs no stderr (padrão: warn, ou RUST_LOG)"
+    )]
+    log_level: Option<LogLevel>,
     #[command(subcommand)]
-    command: Option<Commands>,
+    command: Commands,
 }
 
 #[derive(Debug, Subcommand)]
 enum Commands {
-    #[command(about = "Mostra o estado atual do bootstrap (sem operações de backup).")]
-    Info,
+    #[command(subcommand, about = "Operações sobre conexões.")]
+    Connection(ConnectionCommand),
+    #[command(subcommand, about = "Gera, lista e verifica backups.")]
+    Backup(BackupCommand),
+    #[command(subcommand, about = "Restaura backups e lista restaurações.")]
+    Restore(RestoreCommand),
+}
+
+#[derive(Debug, Subcommand)]
+enum ConnectionCommand {
     #[command(
         about = "Valida a configuração e testa a conexão com um PostgreSQL.",
-        after_help = "A senha é lida de DBU_PG_PASSWORD ou, sem a variável, por um prompt sem eco."
+        after_help = concat!(
+            "Exemplos:\n",
+            "  database-backup connection test --database app --user postgres\n",
+            "  database-backup connection test --host db.interno --tls verify-full --database app --user backup\n\n",
+            password_note!()
+        )
     )]
-    TestConnection(TestConnectionArgs),
+    Test(TestConnectionArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum BackupCommand {
     #[command(
         about = "Gera um backup completo (pg_dump, formato custom) de um PostgreSQL.",
-        after_help = "A senha é lida de DBU_PG_PASSWORD ou, sem a variável, por um prompt sem eco."
+        after_help = concat!(
+            "Exemplos:\n",
+            "  database-backup backup run --database app --user postgres\n",
+            "  database-backup backup run --database app --user postgres --output-dir /srv/backups --runner docker\n\n",
+            password_note!()
+        )
     )]
-    Backup(backup::BackupArgs),
+    Run(backup::BackupArgs),
+    #[command(
+        about = "Lista os backups registrados no histórico.",
+        after_help = "Exemplos:
+  database-backup backup list
+  database-backup backup list --database app --limit 5 --json"
+    )]
+    List(listing::BackupListArgs),
+    #[command(
+        about = "Verifica checksum e estrutura de um arquivo de backup, sem restaurar.",
+        after_help = "Exemplos:
+  database-backup backup verify --file app-20261021T120000Z.dump
+  database-backup backup verify --file externo.dump --allow-unverified --json"
+    )]
+    Verify(verify::VerifyArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum RestoreCommand {
     #[command(
         about = "Restaura um backup PostgreSQL validado em um banco de destino.",
-        after_help = "Por padrão só cria um banco novo. Sobrescrever um banco com dados exige --overwrite e confirmação;\no banco anterior é mantido como <destino>__previous_<data>.\nA senha é lida de DBU_PG_PASSWORD ou, sem a variável, por um prompt sem eco."
+        after_help = concat!(
+            "Por padrão só cria um banco novo. Sobrescrever um banco com dados exige --overwrite e confirmação;\n",
+            "o banco anterior é mantido como <destino>__previous_<data>.\n\n",
+            "Exemplos:\n",
+            "  database-backup restore run --file app-20261021T120000Z.dump --target-database app_copia --user postgres\n",
+            "  database-backup restore run --file app-20261021T120000Z.dump --target-database app --user postgres --overwrite --confirm app\n\n",
+            password_note!()
+        )
     )]
-    Restore(restore::RestoreArgs),
+    Run(restore::RestoreArgs),
+    #[command(
+        about = "Lista as restaurações registradas no histórico.",
+        after_help = "Exemplos:
+  database-backup restore list
+  database-backup restore list --limit 5 --json"
+    )]
+    List(listing::RestoreListArgs),
 }
 
 #[derive(Debug, Args)]
@@ -135,19 +228,23 @@ mod exit {
     pub const CONFIRMATION_REQUIRED: u8 = 12;
 }
 
+#[derive(Serialize)]
+struct ConnectionResult<'a> {
+    server_version: &'a str,
+    connection: String,
+}
+
 #[tokio::main]
 async fn main() -> ExitCode {
     let cli = Cli::parse();
+    output::init(cli.json, cli.log_level);
     match cli.command {
-        Some(Commands::Info) | None => {
-            println!(
-                "{PROJECT_NAME}: estrutura inicial pronta; backup e restore em desenvolvimento."
-            );
-            ExitCode::SUCCESS
-        }
-        Some(Commands::TestConnection(args)) => run_test_connection(args).await,
-        Some(Commands::Backup(args)) => backup::run(args).await,
-        Some(Commands::Restore(args)) => restore::run(args).await,
+        Commands::Connection(ConnectionCommand::Test(args)) => run_test_connection(args).await,
+        Commands::Backup(BackupCommand::Run(args)) => backup::run(args).await,
+        Commands::Backup(BackupCommand::List(args)) => listing::backups(&args),
+        Commands::Backup(BackupCommand::Verify(args)) => verify::run(args).await,
+        Commands::Restore(RestoreCommand::Run(args)) => restore::run(args).await,
+        Commands::Restore(RestoreCommand::List(args)) => listing::restores(&args),
     }
 }
 
@@ -169,13 +266,27 @@ async fn run_test_connection(args: TestConnectionArgs) -> ExitCode {
 
     match test_connection(&config, &password, timeouts).await {
         Ok(info) => {
-            println!(
-                "Conexão OK: PostgreSQL {} em {}",
-                info.server_version, config
+            info!(
+                operation = "connection.test",
+                connection = %config,
+                status = "succeeded",
+                "conexão testada"
             );
-            ExitCode::SUCCESS
+            success(
+                &ConnectionResult {
+                    server_version: &info.server_version,
+                    connection: config.to_string(),
+                },
+                &format!(
+                    "Conexão OK: PostgreSQL {} em {}",
+                    info.server_version, config
+                ),
+            )
         }
-        Err(error) => fail(exit_code_for(&error), &error.to_string()),
+        Err(error) => {
+            info!(operation = "connection.test", connection = %config, status = "failed", "falha ao testar conexão");
+            fail(exit_code_for(&error), &error.to_string())
+        }
     }
 }
 
@@ -201,11 +312,6 @@ fn exit_code_for(error: &ConnectionError) -> u8 {
         ConnectionError::Tls { .. } => exit::TLS,
         ConnectionError::Other { .. } => exit::FAILURE,
     }
-}
-
-fn fail(code: u8, message: &str) -> ExitCode {
-    eprintln!("Erro: {message}");
-    ExitCode::from(code)
 }
 
 fn describe(error: &dyn Error) -> String {

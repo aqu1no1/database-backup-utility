@@ -27,13 +27,22 @@ ambos utilizando as mesmas crates de negócio.
 
 ```bash
 cargo run -p database-backup-cli -- --help
-cargo run -p database-backup-cli -- info
+cargo run -p database-backup-cli -- backup --help
 ```
+
+Comandos: `connection test`, `backup run`, `backup list`, `backup verify`, `restore run` e
+`restore list`. Cada `--help` traz exemplos.
+
+- `--json` (em qualquer comando) imprime o resultado em uma linha JSON no stdout:
+  `{"status":"ok",...}` no sucesso e `{"status":"error","code":N,"error":"..."}` na falha.
+  A mensagem de erro continua indo também para o stderr.
+- Os logs (`tracing`) vão para o stderr, com horário, operação, IDs, status e duração, e nunca
+  incluem senhas ou conteúdo do dump. O padrão é `warn`; use `--log-level info` ou `RUST_LOG`.
 
 Testar a conexão com um PostgreSQL (a senha nunca é passada por argumento):
 
 ```bash
-DBU_PG_PASSWORD='...' cargo run -p database-backup-cli -- test-connection \
+DBU_PG_PASSWORD='...' cargo run -p database-backup-cli -- connection test \
   --host localhost --port 5432 --database my_database --user postgres
 ```
 
@@ -43,7 +52,7 @@ exigem TLS com certificado validado (`--tls verify-full`, padrão em `--tls auto
 Gerar um backup completo (`pg_dump` em formato custom, já comprimido):
 
 ```bash
-DBU_PG_PASSWORD='...' cargo run -p database-backup-cli -- backup \
+DBU_PG_PASSWORD='...' cargo run -p database-backup-cli -- backup run \
   --database my_database --user postgres [--output-dir DIR] [--runner auto|native|docker]
 ```
 
@@ -54,10 +63,22 @@ DBU_PG_PASSWORD='...' cargo run -p database-backup-cli -- backup \
 - Destino padrão: `backups/` na pasta de dados do aplicativo (`~/.local/share/database-backup-utility/backups/` no Linux).
 - `--runner auto` usa o `pg_dump` instalado se for compatível; senão, o Docker.
 
+Consultar o histórico e verificar um backup sem restaurar:
+
+```bash
+cargo run -p database-backup-cli -- backup list [--database my_database] [--limit 20]
+cargo run -p database-backup-cli -- backup verify --file <arquivo.dump> [--runner auto|native|docker]
+cargo run -p database-backup-cli -- restore list
+```
+
+- `backup verify` recusa symlinks e arquivos graváveis por outros, confere o SHA-256 com o
+  `.meta.json` (ou com o histórico) e valida a estrutura com `pg_restore --list`. Sai com 10 se o
+  arquivo estiver ausente, alterado ou inválido.
+
 Restaurar um backup:
 
 ```bash
-DBU_PG_PASSWORD='...' cargo run -p database-backup-cli -- restore \
+DBU_PG_PASSWORD='...' cargo run -p database-backup-cli -- restore run \
   --file ~/.local/share/database-backup-utility/backups/my_database-20261020T190509Z.dump \
   --target-database my_database_copy --user postgres
 ```

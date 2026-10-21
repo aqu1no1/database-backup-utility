@@ -38,8 +38,9 @@ docker compose --env-file .env -f infra/docker/compose.yml \
 
 | Variável | Finalidade |
 | --- | --- |
-| `DBU_PG_PASSWORD` | Senha usada pelo `test-connection` em scripts e agendamentos. Sem ela, a CLI pede a senha sem eco no terminal. |
+| `DBU_PG_PASSWORD` | Senha usada por `connection test`, `backup run` e `restore run` em scripts e agendamentos. Sem ela, a CLI pede a senha sem eco no terminal. |
 | `DBU_DATA_DIR` | Diretório do histórico SQLite, no lugar do padrão do sistema. Útil para testes e uso portátil. |
+| `RUST_LOG` | Filtro dos logs no stderr (ex.: `info`, `database_backup=debug`) quando `--log-level` não é informado. Padrão: `warn`. |
 
 - A CLI não lê o `.env`; exporte as variáveis no shell ou no agendador.
 - A senha nunca é aceita como argumento, porque argumentos ficam visíveis em `ps` e no histórico do shell.
@@ -82,7 +83,7 @@ O backup usa as ferramentas oficiais do PostgreSQL, executadas de dois jeitos:
 - **Senha:** gravada num `.pgpass` temporário com permissão `0600`, apontado por `PGPASSFILE` e
   apagado no fim, inclusive em falha ou cancelamento. No modo Docker o arquivo é montado só para
   leitura. A senha nunca aparece nos argumentos do processo nem nas mensagens de erro.
-- **TLS:** segue a mesma regra do `test-connection` (`PGSSLMODE=disable` em `localhost`,
+- **TLS:** segue a mesma regra do `connection test` (`PGSSLMODE=disable` em `localhost`,
   `verify-full` nos demais). No Docker, os certificados do sistema são montados no container.
 - **Rede no Docker:** para `localhost` o container usa `--network host`, porque o Compose publica
   o PostgreSQL só em `127.0.0.1`. No macOS e no Windows isso exige o host networking do

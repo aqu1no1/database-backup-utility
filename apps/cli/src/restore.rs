@@ -9,11 +9,15 @@ use database_backup_adapters::postgres::{
 };
 use database_backup_core::{Password, PostgresConnectionConfig};
 use database_backup_history::{ExecutionStatus, History, NewRestore, RestoreMode};
-use database_backup_storage::{check_restore_source, read_metadata, sha256_file};
+use database_backup_storage::check_restore_source;
+use serde::Serialize;
 use time::OffsetDateTime;
 use time::macros::format_description;
+use tracing::{info, warn};
 
-use crate::{RunnerArg, TlsArg, describe, exit, exit_code_for, fail, read_password};
+use crate::archive::{check_target, read_archive, verify_checksum};
+use crate::output::{fail, success};
+use crate::{RunnerArg, TlsArg, describe, exit, exit_code_for, read_password};
 
 const MAINTENANCE_DATABASE: &str = "postgres";
 
@@ -73,6 +77,17 @@ struct Plan {
     created_by_us: bool,
 }
 
+#[derive(Serialize)]
+struct RestoreResult<'a> {
+    restore_id: &'a str,
+    database: &'a str,
+    mode: &'static str,
+    previous_database: Option<&'a str>,
+    objects: usize,
+    checksum_verified: bool,
+    duration_ms: u128,
+}
+
 enum Outcome {
     Succeeded { previous: Option<String> },
     Canceled,
@@ -112,8 +127,9 @@ pub async fn run(args: RestoreArgs) -> ExitCode {
         Err(message) => return fail(exit::INVALID_ARCHIVE, &message),
     };
     if !verified.matched_reference {
-        eprintln!(
-            "aviso: checksum não verificado (--allow-unverified); a integridade do arquivo não foi confirmada"
+        warn!(
+            operation = "restore.run",
+            "checksum não verificado (--allow-unverified); a integridade do arquivo não foi confirmada"
         );
     }
 
@@ -138,10 +154,13 @@ pub async fn run(args: RestoreArgs) -> ExitCode {
         Ok(tools) => tools,
         Err(error) => return fail(exit::TOOLS, &error.to_string()),
     };
-    let archive = match inspect_archive(&tools, &file, server_version).await {
+    let archive = match read_archive(&tools, &file).await {
         Ok(archive) => archive,
         Err(message) => return fail(exit::INVALID_ARCHIVE, &message),
     };
+    if let Err(message) = check_target(&archive, server_version) {
+        return fail(exit::INVALID_ARCHIVE, &message);
+    }
 
     let admin = Admin::new(&server, &password, Timeouts::default());
     let stamp = timestamp();
@@ -165,6 +184,14 @@ pub async fn run(args: RestoreArgs) -> ExitCode {
         Err(error) => return fail(exit::FAILURE, &describe(&error)),
     };
 
+    info!(
+        operation = "restore.run",
+        restore_id = %restore_id,
+        target = %target,
+        mode = plan.mode.as_str(),
+        status = "running",
+        "restore iniciado"
+    );
     let started = Instant::now();
     let outcome = execute(&Job {
         tools: &tools,
@@ -187,100 +214,50 @@ pub async fn run(args: RestoreArgs) -> ExitCode {
                 previous.as_deref(),
                 None,
             );
-            println!(
+            let elapsed = started.elapsed();
+            info!(
+                operation = "restore.run",
+                restore_id = %restore_id,
+                status = "succeeded",
+                duration_ms = elapsed.as_millis() as u64,
+                "restore concluído"
+            );
+            let mut text = format!(
                 "Restore concluído em {} ({} objetos) em {:.1}s",
                 target.database(),
                 archive.entries,
-                started.elapsed().as_secs_f64()
+                elapsed.as_secs_f64()
             );
-            if let Some(previous) = previous {
-                println!("Banco anterior mantido como {previous}");
+            if let Some(previous) = &previous {
+                text.push_str(&format!("\nBanco anterior mantido como {previous}"));
             }
-            ExitCode::SUCCESS
+            success(
+                &RestoreResult {
+                    restore_id: &restore_id,
+                    database: target.database(),
+                    mode: plan.mode.as_str(),
+                    previous_database: previous.as_deref(),
+                    objects: archive.entries,
+                    checksum_verified: verified.matched_reference,
+                    duration_ms: elapsed.as_millis(),
+                },
+                &text,
+            )
         }
         Outcome::Canceled => {
             let message = "restore cancelado; o destino não foi alterado";
             let _ =
                 history.finish_restore(&restore_id, ExecutionStatus::Canceled, None, Some(message));
+            info!(operation = "restore.run", restore_id = %restore_id, status = "canceled", "restore cancelado");
             fail(exit::CANCELED, message)
         }
         Outcome::Failed(message) => {
             let _ =
                 history.finish_restore(&restore_id, ExecutionStatus::Failed, None, Some(&message));
+            info!(operation = "restore.run", restore_id = %restore_id, status = "failed", "restore falhou");
             fail(exit::RESTORE_FAILED, &message)
         }
     }
-}
-
-struct VerifiedSource {
-    artifact_id: Option<String>,
-    sha256: String,
-    /// `false` quando não havia checksum de referência e `--allow-unverified` foi usado.
-    matched_reference: bool,
-}
-
-async fn verify_checksum(
-    file: &Path,
-    history: &History,
-    allow_unverified: bool,
-) -> Result<VerifiedSource, String> {
-    let metadata = read_metadata(file)
-        .await
-        .map_err(|error| describe(&error))?;
-    let artifact = history
-        .find_artifact_by_location(&file.display().to_string())
-        .map_err(|error| describe(&error))?;
-    let expected = metadata
-        .map(|metadata| metadata.sha256)
-        .or_else(|| artifact.as_ref().and_then(|a| a.checksum_sha256.clone()));
-
-    let (_, actual) = sha256_file(file).await.map_err(|error| describe(&error))?;
-    match expected {
-        Some(expected) if expected != actual => Err(format!(
-            "checksum divergente: esperado {expected}, calculado {actual}; o arquivo foi alterado ou corrompido"
-        )),
-        Some(_) => Ok(VerifiedSource {
-            artifact_id: artifact.map(|a| a.id),
-            sha256: actual,
-            matched_reference: true,
-        }),
-        None if allow_unverified => Ok(VerifiedSource {
-            artifact_id: None,
-            sha256: actual,
-            matched_reference: false,
-        }),
-        None => Err(
-            "não há checksum conhecido para este arquivo (.meta.json ou histórico); use --allow-unverified para restaurar mesmo assim"
-                .to_owned(),
-        ),
-    }
-}
-
-async fn inspect_archive(
-    tools: &PgTools,
-    file: &Path,
-    server: PgVersion,
-) -> Result<ArchiveInfo, String> {
-    let archive = tools
-        .restore_list(file)
-        .await
-        .map_err(|error| format!("o arquivo não é um backup válido do pg_dump: {error}"))?;
-    if let Some(from) = archive.dumped_from
-        && from.major > server.major
-    {
-        return Err(format!(
-            "o backup veio do PostgreSQL {from}, mais novo que o servidor de destino {server}"
-        ));
-    }
-    if let Some(by) = archive.dumped_by
-        && by.major > tools.version().major
-    {
-        return Err(format!(
-            "o backup foi gerado pelo pg_dump {by}, mais novo que o pg_restore {} disponível",
-            tools.version()
-        ));
-    }
-    Ok(archive)
 }
 
 async fn plan_target(admin: &Admin, args: &RestoreArgs, stamp: &str) -> Result<Plan, ExitCode> {

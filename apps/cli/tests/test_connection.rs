@@ -8,7 +8,7 @@ use support::{PostgresTestDb, TestResult};
 fn run_cli(args: &[&str], password: Option<&str>) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_database-backup"));
     command
-        .arg("test-connection")
+        .args(["connection", "test"])
         .args(args)
         .env_remove("DBU_PG_PASSWORD");
     if let Some(password) = password {
