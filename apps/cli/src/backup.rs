@@ -14,7 +14,7 @@ use database_backup_storage::{
 use serde::Serialize;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::output::{fail, success};
 use crate::{ConnectionArgs, RunnerArg, describe, exit, exit_code_for, read_password};
@@ -104,6 +104,13 @@ pub async fn run(args: BackupArgs) -> ExitCode {
         Ok(target) => target,
         Err(error) => return fail(exit::FAILURE, &describe(&error)),
     };
+    if target.is_shared().await.unwrap_or(false) {
+        warn!(
+            operation = "backup.run",
+            dir = %target.dir().display(),
+            "o diretório de saída é acessível por grupo ou outros usuários; os backups ficam com permissão 0600, mas os nomes dos arquivos ficam visíveis (use chmod 700)"
+        );
+    }
 
     let execution_id = match start_execution(&history, &config, &source.secret_ref()) {
         Ok(id) => id,

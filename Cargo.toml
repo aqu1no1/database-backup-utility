@@ -31,3 +31,7 @@ tokio-postgres-rustls = { version = "0.14", features = ["ring"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1.28", features = ["v7"] }
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"

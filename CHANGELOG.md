@@ -24,7 +24,12 @@ versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 ### Fixed
 - Cancelar um backup ou restore no runner Docker logo no início (Ctrl+C ou timeout) podia deixar um container `dbu-pg-*` criado e nunca removido. Agora o cliente `docker run` é encerrado antes e a remoção do container é repetida por até 2 segundos.
 
+### Changed
+- `backup run` avisa no stderr quando o diretório de saída já existe e é acessível por grupo ou outros usuários. Os backups continuam com permissão `0600`, e o modo do diretório não é alterado.
+
 ### Security
+- GitHub Actions fixadas por commit SHA em todos os workflows.
+- Clippy proíbe `unwrap()`/`expect()` fora de testes (`[workspace.lints.clippy]`).
 - `pg_dump`/`pg_restore` passam a receber o nome do banco como valor entre aspas (`dbname='...'`). Antes, um nome de banco contendo `=` (por exemplo `dbname=postgres`) era interpretado pelo libpq como string de conexão e podia levar o backup ou o restore para outro banco.
 
 <!-- Ao concluir uma funcionalidade relevante, registre-a aqui usando:

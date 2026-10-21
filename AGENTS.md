@@ -156,6 +156,10 @@ Regras arquiteturais:
 
 ## 5. Regras de backup e restauração de bancos
 
+Os controles de segurança já implementados, suas evidências e os riscos aceitos estão em
+`docs/seguranca.md`. Ao mudar credenciais, TLS, execução de utilitários, permissões, restore, CI ou
+Docker, atualize esse documento junto.
+
 - Cada SGBD possui mecanismos próprios de backup e restauração. Nunca apresente backup
   completo, incremental, diferencial ou restauração seletiva como recursos universais,
   a menos que o adaptador correspondente os implemente e teste.

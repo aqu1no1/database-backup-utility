@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 mod common;
 #[path = "../../../crates/database-adapters/tests/support/mod.rs"]
 mod support;
@@ -200,5 +202,32 @@ async fn verify_list_and_logs_after_backup() -> TestResult {
     let corrupted = verify(&dump)?;
     assert_eq!(corrupted.status.code(), Some(10), "{}", text(&corrupted));
     assert!(text(&corrupted).contains("checksum divergente"));
+    Ok(())
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn shared_output_directory_triggers_a_warning() -> TestResult {
+    use std::os::unix::fs::PermissionsExt;
+
+    let db = PostgresTestDb::start_seeded().await?;
+    let ws = Workspace::new()?;
+    std::fs::create_dir(&ws.out)?;
+    std::fs::set_permissions(&ws.out, std::fs::Permissions::from_mode(0o755))?;
+
+    let output = ws.command(&db, db.user(), db.password()).output()?;
+
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("acessível por grupo ou outros"), "{stderr}");
+    let dump = ws.dump_path();
+    assert_eq!(
+        std::fs::metadata(&dump)?.permissions().mode() & 0o777,
+        0o600
+    );
+    assert_eq!(
+        std::fs::metadata(&ws.out)?.permissions().mode() & 0o777,
+        0o755
+    );
     Ok(())
 }
