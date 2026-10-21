@@ -139,6 +139,20 @@ impl LocalTarget {
         Ok(Self { dir })
     }
 
+    pub async fn is_shared(&self) -> Result<bool, StorageError> {
+        let metadata = fs::metadata(&self.dir).await.map_err(io_error(&self.dir))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            Ok(metadata.permissions().mode() & 0o077 != 0)
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = metadata;
+            Ok(false)
+        }
+    }
+
     #[must_use]
     pub fn dir(&self) -> &Path {
         &self.dir
@@ -529,6 +543,29 @@ mod tests {
             .mode();
         assert_eq!(dir_mode & 0o777, 0o700);
         assert_eq!(file_mode & 0o777, 0o600);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn reports_output_directory_shared_with_others() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (_dir, target) = target().await;
+        assert!(!target.is_shared().await.expect("modo"));
+
+        std::fs::set_permissions(target.dir(), std::fs::Permissions::from_mode(0o755))
+            .expect("modo");
+        let reopened = LocalTarget::new(target.dir()).await.expect("destino");
+
+        assert!(reopened.is_shared().await.expect("modo"));
+        assert_eq!(
+            std::fs::metadata(reopened.dir())
+                .expect("metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o755
+        );
     }
 
     #[tokio::test]
