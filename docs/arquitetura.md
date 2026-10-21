@@ -21,6 +21,8 @@ flowchart TD
 - `crates/storage` grava o backup localmente: arquivo `.partial`, SHA-256 em streaming,
   `fsync` e `rename` atômico, além do arquivo `.meta.json`. Destinos em nuvem entram nessa crate.
 - O comando `backup` da CLI monta as peças: conexão → runner → storage → histórico.
+- O comando `restore` faz o caminho inverso: checksum (storage/histórico) → `pg_restore --list` →
+  estado do destino (`postgres/admin.rs`) → `pg_restore` em um banco novo ou temporário → troca de nomes.
 - SQLite interno será usado para histórico; não confundir com suporte futuro a backup de bancos SQLite.
 - Agendamento invoca a CLI com mecanismo independente da janela desktop, não incluído no MVP.
 

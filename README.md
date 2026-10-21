@@ -4,8 +4,8 @@ Ferramenta multiplataforma de backup e restauração de bancos de dados. O produ
 **CLI independente em Rust** e, futuramente, um **desktop Tauri + Angular + Tailwind v4**,
 ambos utilizando as mesmas crates de negócio.
 
-> **Estado atual:** teste de conexão e backup full PostgreSQL pela CLI, histórico interno em
-> SQLite, testes de integração, Docker Compose e pipelines. **Ainda não executa restaurações.**
+> **Estado atual:** teste de conexão, backup full e restore PostgreSQL pela CLI, histórico interno
+> em SQLite, testes de integração, Docker Compose e pipelines.
 > As entregas funcionais estão organizadas nas issues do Linear.
 
 ## Stack
@@ -54,6 +54,26 @@ DBU_PG_PASSWORD='...' cargo run -p database-backup-cli -- backup \
 - Destino padrão: `backups/` na pasta de dados do aplicativo (`~/.local/share/database-backup-utility/backups/` no Linux).
 - `--runner auto` usa o `pg_dump` instalado se for compatível; senão, o Docker.
 
+Restaurar um backup:
+
+```bash
+DBU_PG_PASSWORD='...' cargo run -p database-backup-cli -- restore \
+  --file ~/.local/share/database-backup-utility/backups/my_database-20261020T190509Z.dump \
+  --target-database my_database_copy --user postgres
+```
+
+- Antes de restaurar, confere o SHA-256 com o `.meta.json` (ou com o histórico), valida o arquivo
+  com `pg_restore --list` e recusa backups vindos de um PostgreSQL mais novo que o destino.
+  Arquivos sem checksum conhecido exigem `--allow-unverified`, que emite um aviso e marca o restore
+  como não verificado no histórico; estrutura e versão continuam sendo conferidas.
+- Recusa como origem links simbólicos, caminhos que não são arquivos regulares e (no Linux/macOS)
+  arquivos ou `.meta.json` graváveis por grupo ou outros usuários.
+- Por padrão só **cria um banco novo**. Se o destino já tem dados, é preciso `--overwrite` e
+  confirmar digitando o nome do banco (ou `--confirm <nome>` em scripts). O restore vai para um
+  banco temporário; só se der certo o atual vira `<destino>__previous_<data>` (mantido) e o novo
+  assume o nome. Se falhar, o destino não é tocado.
+- O `pg_restore` roda em uma única transação: uma falha no meio desfaz tudo.
+
 | Exit code | Significado |
 | --- | --- |
 | 0 | Sucesso |
@@ -65,7 +85,10 @@ DBU_PG_PASSWORD='...' cargo run -p database-backup-cli -- backup \
 | 6 | Falha de TLS |
 | 7 | `pg_dump`/`pg_restore` ausente ou incompatível (e Docker indisponível) |
 | 8 | O backup falhou |
-| 9 | Backup cancelado (Ctrl+C) |
+| 9 | Backup ou restore cancelado (Ctrl+C) |
+| 10 | Arquivo de backup ausente, corrompido, sem checksum conhecido ou incompatível |
+| 11 | O restore falhou (o destino não foi alterado) |
+| 12 | Destino com dados sem `--overwrite`, ou confirmação ausente/divergente |
 
 ## PostgreSQL para desenvolvimento
 

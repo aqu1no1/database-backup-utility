@@ -75,6 +75,20 @@ pub async fn test_connection(
     password: &Password,
     timeouts: Timeouts,
 ) -> Result<ConnectionInfo, ConnectionError> {
+    let client = connect(config, password, timeouts).await?;
+    match tokio::time::timeout(timeouts.query, query_server(&client)).await {
+        Ok(result) => result.map_err(|error| classify(config, error)),
+        Err(_) => Err(ConnectionError::Timeout {
+            address: address(config),
+        }),
+    }
+}
+
+pub(crate) async fn connect(
+    config: &PostgresConnectionConfig,
+    password: &Password,
+    timeouts: Timeouts,
+) -> Result<Client, ConnectionError> {
     let mut pg_config = Config::new();
     pg_config
         .host(config.host())
@@ -84,59 +98,54 @@ pub async fn test_connection(
         .password(password.expose())
         .connect_timeout(timeouts.connect);
 
-    match config.tls() {
-        TlsRequirement::Plain => {
-            pg_config.ssl_mode(SslMode::Disable);
-            run(config, &pg_config, NoTls, timeouts).await
+    let connecting = async {
+        match config.tls() {
+            TlsRequirement::Plain => {
+                pg_config.ssl_mode(SslMode::Disable);
+                open(&pg_config, NoTls).await
+            }
+            TlsRequirement::VerifyFull => {
+                pg_config.ssl_mode(SslMode::Require);
+                let tls = verified_tls().map_err(|source| ConnectionError::Tls {
+                    address: address(config),
+                    source,
+                })?;
+                open(&pg_config, tls).await
+            }
         }
-        TlsRequirement::VerifyFull => {
-            pg_config.ssl_mode(SslMode::Require);
-            let tls = verified_tls().map_err(|source| ConnectionError::Tls {
-                address: address(config),
-                source,
-            })?;
-            run(config, &pg_config, tls, timeouts).await
-        }
-    }
-}
-
-async fn run<T>(
-    config: &PostgresConnectionConfig,
-    pg_config: &Config,
-    tls: T,
-    timeouts: Timeouts,
-) -> Result<ConnectionInfo, ConnectionError>
-where
-    T: MakeTlsConnect<Socket> + Send + 'static,
-    T::Stream: Send + 'static,
-    <T::TlsConnect as TlsConnect<Socket>>::Future: Send,
-{
-    let total = timeouts.connect + timeouts.query;
-    match tokio::time::timeout(total, connect_and_query(pg_config, tls)).await {
-        Ok(result) => result.map_err(|error| classify(config, error)),
+    };
+    match tokio::time::timeout(timeouts.connect + timeouts.query, connecting).await {
+        Ok(Ok(client)) => Ok(client),
+        Ok(Err(OpenError::Connection(error))) => Err(error),
+        Ok(Err(OpenError::Postgres(error))) => Err(classify(config, error)),
         Err(_) => Err(ConnectionError::Timeout {
             address: address(config),
         }),
     }
 }
 
-async fn connect_and_query<T>(
-    pg_config: &Config,
-    tls: T,
-) -> Result<ConnectionInfo, tokio_postgres::Error>
+enum OpenError {
+    Connection(ConnectionError),
+    Postgres(tokio_postgres::Error),
+}
+
+impl From<ConnectionError> for OpenError {
+    fn from(error: ConnectionError) -> Self {
+        Self::Connection(error)
+    }
+}
+
+async fn open<T>(pg_config: &Config, tls: T) -> Result<Client, OpenError>
 where
     T: MakeTlsConnect<Socket> + Send + 'static,
     T::Stream: Send + 'static,
     <T::TlsConnect as TlsConnect<Socket>>::Future: Send,
 {
-    let (client, connection) = pg_config.connect(tls).await?;
-    let connection_task = tokio::spawn(async move {
+    let (client, connection) = pg_config.connect(tls).await.map_err(OpenError::Postgres)?;
+    tokio::spawn(async move {
         let _ = connection.await;
     });
-    let result = query_server(&client).await;
-    drop(client);
-    connection_task.abort();
-    result
+    Ok(client)
 }
 
 async fn query_server(client: &Client) -> Result<ConnectionInfo, tokio_postgres::Error> {
@@ -160,7 +169,10 @@ fn verified_tls() -> Result<MakeRustlsConnect, BoxError> {
     Ok(MakeRustlsConnect::new(client_config))
 }
 
-fn classify(config: &PostgresConnectionConfig, error: tokio_postgres::Error) -> ConnectionError {
+pub(crate) fn classify(
+    config: &PostgresConnectionConfig,
+    error: tokio_postgres::Error,
+) -> ConnectionError {
     let address = address(config);
     let code = error.code().cloned();
     let message = error.to_string();
@@ -214,6 +226,6 @@ fn has_io_kind(error: &(dyn StdError + 'static), kind: io::ErrorKind) -> bool {
     false
 }
 
-fn address(config: &PostgresConnectionConfig) -> String {
+pub(crate) fn address(config: &PostgresConnectionConfig) -> String {
     format!("{}:{}", config.host(), config.port())
 }

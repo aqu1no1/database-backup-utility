@@ -236,87 +236,29 @@ impl PgTools {
         config: &PostgresConnectionConfig,
         password: &Password,
     ) -> Result<DumpProcess, ToolError> {
-        let secrets = PgPass::write(config, password)?;
-        let pg_args: Vec<OsString> = [
-            "--format=custom",
-            "--no-password",
-            "--host",
-            config.host(),
-            "--port",
-            &config.port().to_string(),
-            "--username",
-            config.user(),
-            "--dbname",
-            config.database(),
-        ]
-        .into_iter()
-        .map(OsString::from)
-        .collect();
-
-        let (mut command, container) = match self.kind {
-            RunnerKind::Native => {
-                let mut command = Command::new(&self.paths.pg_dump);
-                command
-                    .args(&pg_args)
-                    .env("PGPASSFILE", secrets.path())
-                    .env("PGSSLMODE", ssl_mode(config.tls()))
-                    .env_remove("PGPASSWORD");
-                (command, None)
-            }
-            RunnerKind::Docker => {
-                let name = container_name();
-                let mut command = Command::new(&self.paths.docker);
-                command.args(["run", "--rm", "-i", "--name", &name]);
-                if config.is_local() {
-                    command.args(["--network", "host"]);
-                }
-                command
-                    .arg("-v")
-                    .arg(mount(&secrets.path(), CONTAINER_PGPASS))
-                    .args(["-e", &format!("PGPASSFILE={CONTAINER_PGPASS}")])
-                    .args(["-e", &format!("PGSSLMODE={}", ssl_mode(config.tls()))]);
-                if config.tls() == TlsRequirement::VerifyFull {
-                    command
-                        .args(["-v", "/etc/ssl/certs:/etc/ssl/certs:ro"])
-                        .args(["-e", "PGSSLROOTCERT=system"]);
-                }
-                command
-                    .args(["--entrypoint", "pg_dump"])
-                    .arg(self.image())
-                    .args(&pg_args);
-                (command, Some(name))
-            }
-        };
-
-        let mut child = command
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(|source| ToolError::Spawn {
-                tool: "pg_dump",
-                source,
-            })?;
-        let stdout = child.stdout.take();
-        let stderr = child.stderr.take().map(collect_stderr);
-
-        Ok(DumpProcess {
-            child,
-            stdout,
-            stderr,
-            container,
-            docker: self.paths.docker.clone(),
-            redact: vec![
-                password.expose().to_owned(),
-                secrets.path().display().to_string(),
-            ],
-            _secrets: secrets,
-            finished: false,
-        })
+        let args = connection_args(config, &["--format=custom"]);
+        self.spawn("pg_dump", config, password, args, None, true)
     }
 
-    pub async fn restore_list(&self, archive: &Path) -> Result<usize, ToolError> {
+    pub fn restore(
+        &self,
+        config: &PostgresConnectionConfig,
+        password: &Password,
+        archive: &Path,
+    ) -> Result<RestoreProcess, ToolError> {
+        let args = connection_args(
+            config,
+            &[
+                "--single-transaction",
+                "--exit-on-error",
+                "--no-owner",
+                "--no-privileges",
+            ],
+        );
+        self.spawn("pg_restore", config, password, args, Some(archive), false)
+    }
+
+    pub async fn restore_list(&self, archive: &Path) -> Result<ArchiveInfo, ToolError> {
         let mut command = match self.kind {
             RunnerKind::Native => {
                 let mut command = Command::new(&self.paths.pg_restore);
@@ -324,10 +266,7 @@ impl PgTools {
                 command
             }
             RunnerKind::Docker => {
-                let archive = std::path::absolute(archive).map_err(|source| ToolError::Spawn {
-                    tool: "pg_restore",
-                    source,
-                })?;
+                let archive = absolute("pg_restore", archive)?;
                 let mut command = Command::new(&self.paths.docker);
                 command
                     .args(["run", "--rm", "--network", "none", "-v"])
@@ -354,11 +293,97 @@ impl PgTools {
                 stderr: sanitize(&tail(&output.stderr), &[]),
             });
         }
-        let entries = String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .filter(|line| !line.is_empty() && !line.starts_with(';'))
-            .count();
-        Ok(entries)
+        Ok(ArchiveInfo::parse(&String::from_utf8_lossy(&output.stdout)))
+    }
+
+    fn spawn(
+        &self,
+        tool: &'static str,
+        config: &PostgresConnectionConfig,
+        password: &Password,
+        mut args: Vec<OsString>,
+        archive: Option<&Path>,
+        capture_stdout: bool,
+    ) -> Result<ToolProcess, ToolError> {
+        let secrets = PgPass::write(config, password)?;
+
+        let (mut command, container) = match self.kind {
+            RunnerKind::Native => {
+                let program = match tool {
+                    "pg_restore" => &self.paths.pg_restore,
+                    _ => &self.paths.pg_dump,
+                };
+                if let Some(archive) = archive {
+                    args.push(archive.as_os_str().to_owned());
+                }
+                let mut command = Command::new(program);
+                command
+                    .args(&args)
+                    .env("PGPASSFILE", secrets.path())
+                    .env("PGSSLMODE", ssl_mode(config.tls()))
+                    .env_remove("PGPASSWORD");
+                (command, None)
+            }
+            RunnerKind::Docker => {
+                let name = container_name();
+                let mut command = Command::new(&self.paths.docker);
+                command.args(["run", "--rm", "-i", "--name", &name]);
+                if config.is_local() {
+                    command.args(["--network", "host"]);
+                }
+                command
+                    .arg("-v")
+                    .arg(mount(&secrets.path(), CONTAINER_PGPASS))
+                    .args(["-e", &format!("PGPASSFILE={CONTAINER_PGPASS}")])
+                    .args(["-e", &format!("PGSSLMODE={}", ssl_mode(config.tls()))]);
+                if config.tls() == TlsRequirement::VerifyFull {
+                    command
+                        .args(["-v", "/etc/ssl/certs:/etc/ssl/certs:ro"])
+                        .args(["-e", "PGSSLROOTCERT=system"]);
+                }
+                if let Some(archive) = archive {
+                    command
+                        .arg("-v")
+                        .arg(mount(&absolute(tool, archive)?, CONTAINER_ARCHIVE));
+                    args.push(OsString::from(CONTAINER_ARCHIVE));
+                }
+                command
+                    .args(["--entrypoint", tool])
+                    .arg(self.image())
+                    .args(&args);
+                (command, Some(name))
+            }
+        };
+
+        let stdout = if capture_stdout {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        };
+        let mut child = command
+            .stdin(Stdio::null())
+            .stdout(stdout)
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(|source| ToolError::Spawn { tool, source })?;
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take().map(collect_stderr);
+
+        Ok(ToolProcess {
+            tool,
+            child,
+            stdout,
+            stderr,
+            container,
+            docker: self.paths.docker.clone(),
+            redact: vec![
+                password.expose().to_owned(),
+                secrets.path().display().to_string(),
+            ],
+            _secrets: secrets,
+            finished: false,
+        })
     }
 
     fn image(&self) -> &str {
@@ -366,7 +391,45 @@ impl PgTools {
     }
 }
 
-pub struct DumpProcess {
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ArchiveInfo {
+    pub entries: usize,
+    pub tables: usize,
+    pub database: Option<String>,
+    pub dumped_from: Option<PgVersion>,
+    pub dumped_by: Option<PgVersion>,
+}
+
+impl ArchiveInfo {
+    #[must_use]
+    pub fn parse(listing: &str) -> Self {
+        let mut info = Self::default();
+        for line in listing.lines() {
+            if let Some(header) = line.strip_prefix(';') {
+                let header = header.trim();
+                if let Some(value) = header.strip_prefix("dbname:") {
+                    info.database = Some(value.trim().to_owned());
+                } else if let Some(value) = header.strip_prefix("Dumped from database version:") {
+                    info.dumped_from = PgVersion::parse(value);
+                } else if let Some(value) = header.strip_prefix("Dumped by pg_dump version:") {
+                    info.dumped_by = PgVersion::parse(value);
+                }
+            } else if !line.trim().is_empty() {
+                info.entries += 1;
+                if line.contains(" TABLE ") && !line.contains(" TABLE DATA ") {
+                    info.tables += 1;
+                }
+            }
+        }
+        info
+    }
+}
+
+pub type DumpProcess = ToolProcess;
+pub type RestoreProcess = ToolProcess;
+
+pub struct ToolProcess {
+    tool: &'static str,
     child: Child,
     stdout: Option<ChildStdout>,
     stderr: Option<JoinHandle<Vec<u8>>>,
@@ -377,7 +440,7 @@ pub struct DumpProcess {
     finished: bool,
 }
 
-impl DumpProcess {
+impl ToolProcess {
     pub fn take_stdout(&mut self) -> Option<ChildStdout> {
         self.stdout.take()
     }
@@ -387,11 +450,13 @@ impl DumpProcess {
         self.container.as_deref()
     }
 
-    pub async fn wait(mut self) -> Result<(), ToolError> {
-        let status = self.child.wait().await.map_err(|source| ToolError::Spawn {
-            tool: "pg_dump",
-            source,
-        })?;
+    pub async fn wait(&mut self) -> Result<(), ToolError> {
+        let tool = self.tool;
+        let status = self
+            .child
+            .wait()
+            .await
+            .map_err(|source| ToolError::Spawn { tool, source })?;
         self.finished = true;
         let stderr = match self.stderr.take() {
             Some(task) => task.await.unwrap_or_default(),
@@ -401,7 +466,7 @@ impl DumpProcess {
             return Ok(());
         }
         Err(ToolError::Failed {
-            tool: "pg_dump",
+            tool,
             code: exit_code(status),
             stderr: sanitize(&tail(&stderr), &self.redact),
         })
@@ -423,7 +488,7 @@ impl DumpProcess {
     }
 }
 
-impl Drop for DumpProcess {
+impl Drop for ToolProcess {
     fn drop(&mut self) {
         if self.finished {
             return;
@@ -450,8 +515,7 @@ impl PgPass {
             .tempdir()
             .map_err(ToolError::Credentials)?;
         let line = format!(
-            "*:*:{}:{}:{}\n",
-            escape_pgpass(config.database()),
+            "*:*:*:{}:{}\n",
             escape_pgpass(config.user()),
             escape_pgpass(password.expose()),
         );
@@ -505,6 +569,30 @@ fn check_compatible(
             required: server.major,
         })
     }
+}
+
+fn connection_args(config: &PostgresConnectionConfig, extra: &[&str]) -> Vec<OsString> {
+    let port = config.port().to_string();
+    let base = [
+        "--no-password",
+        "--host",
+        config.host(),
+        "--port",
+        &port,
+        "--username",
+        config.user(),
+        "--dbname",
+        config.database(),
+    ];
+    extra
+        .iter()
+        .chain(base.iter())
+        .map(OsString::from)
+        .collect()
+}
+
+fn absolute(tool: &'static str, path: &Path) -> Result<PathBuf, ToolError> {
+    std::path::absolute(path).map_err(|source| ToolError::Spawn { tool, source })
 }
 
 fn ssl_mode(tls: TlsRequirement) -> &'static str {
@@ -640,6 +728,48 @@ mod tests {
     }
 
     #[test]
+    fn parses_archive_listing_header_and_entries() {
+        let listing = ";
+; Archive created at 2026-10-20 19:25:10 UTC
+;     dbname: my_database
+;     TOC Entries: 13
+;     Compression: gzip
+;     Format: CUSTOM
+;     Dumped from database version: 17.11 (Debian 17.11-1.pgdg13+2)
+;     Dumped by pg_dump version: 17.11 (Debian 17.11-1.pgdg13+2)
+;
+;
+; Selected TOC Entries:
+;
+217; 1259 16386 TABLE public customers backup_test
+216; 1259 16385 SEQUENCE public customers_id_seq backup_test
+219; 1259 16398 TABLE public orders backup_test
+3360; 0 16386 TABLE DATA public customers backup_test
+3362; 0 16398 TABLE DATA public orders backup_test
+";
+
+        let info = ArchiveInfo::parse(listing);
+
+        assert_eq!(info.entries, 5);
+        assert_eq!(info.tables, 2);
+        assert_eq!(info.database.as_deref(), Some("my_database"));
+        assert_eq!(
+            info.dumped_from,
+            Some(PgVersion {
+                major: 17,
+                minor: 11
+            })
+        );
+        assert_eq!(
+            info.dumped_by,
+            Some(PgVersion {
+                major: 17,
+                minor: 11
+            })
+        );
+    }
+
+    #[test]
     fn escapes_pgpass_separators() {
         assert_eq!(escape_pgpass(r"a:b\c"), r"a\:b\\c");
     }
@@ -684,7 +814,7 @@ mod tests {
         drop(pgpass);
 
         assert_eq!(mode & 0o777, 0o600);
-        assert_eq!(content, "*:*:db:user:a\\:b\n");
+        assert_eq!(content, "*:*:*:user:a\\:b\n");
         assert!(!path.exists());
     }
 }

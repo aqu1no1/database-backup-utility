@@ -1,11 +1,10 @@
-use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
-use clap::{Args, ValueEnum};
+use clap::Args;
 use database_backup_adapters::postgres::{
-    PgTools, PgVersion, RunnerChoice, Timeouts, ToolError, test_connection,
+    PgTools, PgVersion, Timeouts, ToolError, test_connection,
 };
 use database_backup_core::{Password, PostgresConnectionConfig};
 use database_backup_history::{ExecutionStatus, History, NewArtifact, NewConnection};
@@ -15,7 +14,7 @@ use database_backup_storage::{
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
-use crate::{ConnectionArgs, exit, exit_code_for, fail, read_password};
+use crate::{ConnectionArgs, RunnerArg, describe, exit, exit_code_for, fail, read_password};
 
 const FORMAT: &str = "pg_dump-custom";
 
@@ -37,23 +36,6 @@ pub struct BackupArgs {
     runner: RunnerArg,
     #[arg(long, value_parser = clap::value_parser!(u64).range(1..), help = "Tempo máximo do backup em segundos (padrão: sem limite)")]
     timeout: Option<u64>,
-}
-
-#[derive(Debug, Clone, Copy, ValueEnum)]
-enum RunnerArg {
-    Auto,
-    Native,
-    Docker,
-}
-
-impl From<RunnerArg> for RunnerChoice {
-    fn from(value: RunnerArg) -> Self {
-        match value {
-            RunnerArg::Auto => Self::Auto,
-            RunnerArg::Native => Self::Native,
-            RunnerArg::Docker => Self::Docker,
-        }
-    }
 }
 
 enum Failure {
@@ -303,17 +285,6 @@ fn tool_failure(error: ToolError) -> Failure {
 
 fn storage_failure(error: database_backup_storage::StorageError) -> Failure {
     Failure::Error(describe(&error))
-}
-
-fn describe(error: &dyn Error) -> String {
-    let mut message = error.to_string();
-    let mut source = error.source();
-    while let Some(cause) = source {
-        message.push_str(": ");
-        message.push_str(&cause.to_string());
-        source = cause.source();
-    }
-    message
 }
 
 fn human_size(bytes: u64) -> String {

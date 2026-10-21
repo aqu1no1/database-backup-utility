@@ -1,75 +1,12 @@
+mod common;
 #[path = "../../../crates/database-adapters/tests/support/mod.rs"]
 mod support;
 
-use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::path::PathBuf;
+use std::process::Stdio;
 
-use sha2::{Digest, Sha256};
+use common::{Workspace, sha256_hex, text};
 use support::{PostgresTestDb, TestResult};
-use tempfile::TempDir;
-
-struct Workspace {
-    _dir: TempDir,
-    data: PathBuf,
-    out: PathBuf,
-}
-
-impl Workspace {
-    fn new() -> TestResult<Self> {
-        let dir = TempDir::new()?;
-        let data = dir.path().join("data");
-        let out = dir.path().join("out");
-        Ok(Self {
-            _dir: dir,
-            data,
-            out,
-        })
-    }
-
-    fn command(&self, db: &PostgresTestDb, user: &str, password: &str) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_database-backup"));
-        command
-            .args(["backup", "--runner", "docker", "--host", db.host()])
-            .args(["--port", &db.port().to_string()])
-            .args(["--database", db.database(), "--user", user])
-            .arg("--output-dir")
-            .arg(&self.out)
-            .env("DBU_DATA_DIR", &self.data)
-            .env("DBU_PG_PASSWORD", password)
-            .stdin(Stdio::null());
-        command
-    }
-
-    fn files(&self) -> Vec<String> {
-        let mut names: Vec<String> = std::fs::read_dir(&self.out)
-            .map(|entries| {
-                entries
-                    .filter_map(Result::ok)
-                    .map(|entry| entry.file_name().to_string_lossy().into_owned())
-                    .collect()
-            })
-            .unwrap_or_default();
-        names.sort();
-        names
-    }
-
-    fn history(&self) -> rusqlite::Connection {
-        rusqlite::Connection::open(self.data.join("history.sqlite3")).expect("histórico")
-    }
-}
-
-fn sha256_hex(path: &Path) -> String {
-    let digest = Sha256::digest(std::fs::read(path).expect("dump"));
-    digest.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
-fn text(output: &Output) -> String {
-    format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    )
-}
 
 #[tokio::test]
 async fn backup_produces_verified_artifact_and_history() -> TestResult {

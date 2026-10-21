@@ -114,6 +114,14 @@ impl PostgresConnectionConfig {
     pub fn is_local(&self) -> bool {
         is_local_host(&self.host)
     }
+
+    pub fn with_database(&self, database: &str) -> Result<Self, ConfigError> {
+        validate_identifier("database", database)?;
+        Ok(Self {
+            database: database.to_owned(),
+            ..self.clone()
+        })
+    }
 }
 
 impl fmt::Display for PostgresConnectionConfig {
@@ -244,6 +252,20 @@ mod tests {
         assert_eq!(
             PostgresConnectionConfig::new("localhost", 5432, &long, "user", TlsMode::Auto),
             Err(ConfigError::FieldTooLong { field: "database" })
+        );
+    }
+
+    #[test]
+    fn with_database_keeps_connection_and_validates_name() {
+        let config = config("localhost", TlsMode::Auto).expect("configuração válida");
+        let other = config.with_database("postgres").expect("banco válido");
+
+        assert_eq!(other.database(), "postgres");
+        assert_eq!(other.host(), "localhost");
+        assert_eq!(other.tls(), config.tls());
+        assert_eq!(
+            config.with_database(""),
+            Err(ConfigError::EmptyField { field: "database" })
         );
     }
 
