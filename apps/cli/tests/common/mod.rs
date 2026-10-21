@@ -38,7 +38,7 @@ impl Workspace {
     pub fn command(&self, db: &PostgresTestDb, user: &str, password: &str) -> Command {
         let mut command = self.cli(password);
         command
-            .args(["backup", "--runner", "docker", "--host", db.host()])
+            .args(["backup", "run", "--runner", "docker", "--host", db.host()])
             .args(["--port", &db.port().to_string()])
             .args(["--database", db.database(), "--user", user])
             .arg("--output-dir")
@@ -49,7 +49,7 @@ impl Workspace {
     pub fn restore(&self, db: &PostgresTestDb, file: &Path, target: &str) -> Command {
         let mut command = self.cli(db.password());
         command
-            .args(["restore", "--runner", "docker", "--host", db.host()])
+            .args(["restore", "run", "--runner", "docker", "--host", db.host()])
             .args(["--port", &db.port().to_string()])
             .args(["--user", db.user(), "--target-database", target])
             .arg("--file")

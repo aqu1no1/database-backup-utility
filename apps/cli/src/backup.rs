@@ -11,10 +11,13 @@ use database_backup_history::{ExecutionStatus, History, NewArtifact, NewConnecti
 use database_backup_storage::{
     ArtifactMetadata, LocalTarget, StoredArtifact, backup_file_name, write_metadata,
 };
+use serde::Serialize;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
+use tracing::info;
 
-use crate::{ConnectionArgs, RunnerArg, describe, exit, exit_code_for, fail, read_password};
+use crate::output::{fail, success};
+use crate::{ConnectionArgs, RunnerArg, describe, exit, exit_code_for, read_password};
 
 const FORMAT: &str = "pg_dump-custom";
 
@@ -36,6 +39,16 @@ pub struct BackupArgs {
     runner: RunnerArg,
     #[arg(long, value_parser = clap::value_parser!(u64).range(1..), help = "Tempo máximo do backup em segundos (padrão: sem limite)")]
     timeout: Option<u64>,
+}
+
+#[derive(Serialize)]
+struct BackupResult<'a> {
+    execution_id: &'a str,
+    database: &'a str,
+    file: String,
+    size_bytes: u64,
+    sha256: &'a str,
+    duration_ms: u128,
 }
 
 enum Failure {
@@ -96,6 +109,14 @@ pub async fn run(args: BackupArgs) -> ExitCode {
         Err(error) => return fail(exit::FAILURE, &describe(&error)),
     };
 
+    info!(
+        operation = "backup.run",
+        execution_id = %execution_id,
+        source = %config,
+        runner = tools.kind().as_str(),
+        status = "running",
+        "backup iniciado"
+    );
     let started = Instant::now();
     let timeout = args.timeout.map(Duration::from_secs);
     let outcome = execute(
@@ -122,24 +143,45 @@ pub async fn run(args: BackupArgs) -> ExitCode {
                     ),
                 );
             }
-            println!(
+            let elapsed = started.elapsed();
+            info!(
+                operation = "backup.run",
+                execution_id = %execution_id,
+                status = "succeeded",
+                duration_ms = elapsed.as_millis() as u64,
+                size_bytes = artifact.size_bytes,
+                "backup concluído"
+            );
+            let text = format!(
                 "Backup concluído: {} ({}, sha256 {}…) em {:.1}s",
                 artifact.path.display(),
                 human_size(artifact.size_bytes),
                 &artifact.sha256[..12],
-                started.elapsed().as_secs_f64()
+                elapsed.as_secs_f64()
             );
-            ExitCode::SUCCESS
+            success(
+                &BackupResult {
+                    execution_id: &execution_id,
+                    database: config.database(),
+                    file: artifact.path.display().to_string(),
+                    size_bytes: artifact.size_bytes,
+                    sha256: &artifact.sha256,
+                    duration_ms: elapsed.as_millis(),
+                },
+                &text,
+            )
         }
         Err(Failure::Canceled) => {
             let message = "backup cancelado pelo usuário";
             let _ =
                 history.finish_execution(&execution_id, ExecutionStatus::Canceled, Some(message));
+            info!(operation = "backup.run", execution_id = %execution_id, status = "canceled", "backup cancelado");
             fail(exit::CANCELED, message)
         }
         Err(Failure::Error(message)) => {
             let _ =
                 history.finish_execution(&execution_id, ExecutionStatus::Failed, Some(&message));
+            info!(operation = "backup.run", execution_id = %execution_id, status = "failed", "backup falhou");
             fail(exit::BACKUP_FAILED, &message)
         }
     }
@@ -287,7 +329,7 @@ fn storage_failure(error: database_backup_storage::StorageError) -> Failure {
     Failure::Error(describe(&error))
 }
 
-fn human_size(bytes: u64) -> String {
+pub fn human_size(bytes: u64) -> String {
     const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
     let mut value = bytes as f64;
     let mut unit = 0;

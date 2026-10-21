@@ -20,11 +20,36 @@ flowchart TD
   Distribuição nativa das ferramentas será avaliada por SO.
 - `crates/storage` grava o backup localmente: arquivo `.partial`, SHA-256 em streaming,
   `fsync` e `rename` atômico, além do arquivo `.meta.json`. Destinos em nuvem entram nessa crate.
-- O comando `backup` da CLI monta as peças: conexão → runner → storage → histórico.
-- O comando `restore` faz o caminho inverso: checksum (storage/histórico) → `pg_restore --list` →
+- O comando `backup run` da CLI monta as peças: conexão → runner → storage → histórico.
+- O comando `restore run` faz o caminho inverso: checksum (storage/histórico) → `pg_restore --list` →
   estado do destino (`postgres/admin.rs`) → `pg_restore` em um banco novo ou temporário → troca de nomes.
 - SQLite interno será usado para histórico; não confundir com suporte futuro a backup de bancos SQLite.
 - Agendamento invoca a CLI com mecanismo independente da janela desktop, não incluído no MVP.
+
+## Organização da CLI
+
+`apps/cli/src/` é só a interface. A lógica continua nas crates.
+
+| Arquivo | Papel |
+| --- | --- |
+| `main.rs` | Árvore de comandos (`connection test`, `backup run/list/verify`, `restore run/list`), opções globais `--json`/`--log-level`, leitura de senha e mapeamento de erros para exit codes. |
+| `output.rs` | Único ponto de saída. `success` imprime o texto ou `{"status":"ok",...}`; `fail` escreve `Erro: ...` no stderr e, com `--json`, `{"status":"error","code":N,"error":"..."}` no stdout. Também configura o `tracing`. |
+| `archive.rs` | Validações de arquivo compartilhadas por `restore run` e `backup verify`: checksum contra `.meta.json`/histórico, leitura com `pg_restore --list` e compatibilidade de versões. |
+| `backup.rs`, `restore.rs`, `verify.rs`, `listing.rs` | Um comando (ou par de `list`) por arquivo. |
+
+Regras da saída:
+
+- **stdout** só recebe o resultado (texto ou uma linha JSON), para ser seguro em scripts.
+- **stderr** recebe erros e logs do `tracing`. Os logs têm horário, `operation` (`backup.run`,
+  `restore.run`, `backup.verify`, `connection.test`), IDs de execução, `status` e `duration_ms`, sem senha,
+  `secret_ref` ou conteúdo do dump. Cores ANSI só quando o stderr é um terminal.
+- **Nível dos logs:** `--log-level` > `RUST_LOG` > `warn`. O nível vale para a CLI; as dependências
+  ficam em `warn`.
+
+`backup verify` precisa escolher um `pg_restore` compatível sem conectar a um servidor. Ele usa a
+versão do PostgreSQL de origem gravada no `.meta.json` ou, na falta dele, a versão registrada no
+histórico. Sem nenhuma das duas, o arquivo é recusado (código 10). O manifesto versionado do DB-19 vai
+substituir essa fonte.
 
 ## Fluxo alvo de backup
 

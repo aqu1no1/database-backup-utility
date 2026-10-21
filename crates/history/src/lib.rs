@@ -144,8 +144,24 @@ pub struct RestoreRecord {
     pub mode: String,
     pub previous_database: Option<String>,
     pub status: ExecutionStatus,
+    pub started_at: OffsetDateTime,
     pub duration_ms: Option<i64>,
     pub error_message: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BackupSummary {
+    pub execution_id: String,
+    pub database: String,
+    pub host: Option<String>,
+    pub port: Option<u16>,
+    pub status: ExecutionStatus,
+    pub started_at: OffsetDateTime,
+    pub duration_ms: Option<i64>,
+    pub error_message: Option<String>,
+    pub location: Option<String>,
+    pub size_bytes: Option<u64>,
+    pub checksum_sha256: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -434,51 +450,119 @@ impl History {
     pub fn list_restores(&self, limit: u32) -> Result<Vec<RestoreRecord>, HistoryError> {
         let mut statement = self.conn.prepare(
             "SELECT id, artifact_id, source_location, checksum_verified, target_database, mode,
-                    previous_database, status, duration_ms, error_message
+                    previous_database, status, started_at, duration_ms, error_message
              FROM restore_executions ORDER BY started_at DESC, id DESC LIMIT ?1",
         )?;
         let rows = statement.query_map([limit], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, Option<String>>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, bool>(3)?,
-                row.get::<_, String>(4)?,
-                row.get::<_, String>(5)?,
-                row.get::<_, Option<String>>(6)?,
-                row.get::<_, String>(7)?,
-                row.get::<_, Option<i64>>(8)?,
-                row.get::<_, Option<String>>(9)?,
-            ))
+            Ok(RawRestore {
+                id: row.get(0)?,
+                artifact_id: row.get(1)?,
+                source_location: row.get(2)?,
+                checksum_verified: row.get(3)?,
+                target_database: row.get(4)?,
+                mode: row.get(5)?,
+                previous_database: row.get(6)?,
+                status: row.get(7)?,
+                started_at: row.get(8)?,
+                duration_ms: row.get(9)?,
+                error_message: row.get(10)?,
+            })
         })?;
         rows.map(|row| {
-            let (
-                id,
-                artifact_id,
-                source_location,
-                checksum_verified,
-                target_database,
-                mode,
-                previous_database,
-                status,
-                duration_ms,
-                error_message,
-            ) = row?;
+            let raw = row?;
             Ok(RestoreRecord {
-                id,
-                artifact_id,
-                source_location,
-                checksum_verified,
-                target_database,
-                mode,
-                previous_database,
-                status: status.parse()?,
-                duration_ms,
-                error_message,
+                id: raw.id,
+                artifact_id: raw.artifact_id,
+                source_location: raw.source_location,
+                checksum_verified: raw.checksum_verified,
+                target_database: raw.target_database,
+                mode: raw.mode,
+                previous_database: raw.previous_database,
+                status: raw.status.parse()?,
+                started_at: parse_time(&raw.started_at)?,
+                duration_ms: raw.duration_ms,
+                error_message: raw.error_message,
             })
         })
         .collect()
     }
+
+    pub fn list_backups(
+        &self,
+        limit: u32,
+        database: Option<&str>,
+    ) -> Result<Vec<BackupSummary>, HistoryError> {
+        let mut statement = self.conn.prepare(
+            "SELECT e.id, c.database_name, c.host, c.port, e.status, e.started_at, e.duration_ms,
+                    e.error_message, a.location, a.size_bytes, a.checksum_sha256
+             FROM backup_executions e
+             JOIN backup_jobs j ON j.id = e.job_id
+             JOIN connections c ON c.id = j.connection_id
+             LEFT JOIN backup_artifacts a ON a.execution_id = e.id
+             WHERE ?1 IS NULL OR c.database_name = ?1
+             ORDER BY e.started_at DESC, e.id DESC LIMIT ?2",
+        )?;
+        let rows = statement.query_map(params![database, limit], |row| {
+            Ok(RawBackupSummary {
+                execution_id: row.get(0)?,
+                database: row.get(1)?,
+                host: row.get(2)?,
+                port: row.get(3)?,
+                status: row.get(4)?,
+                started_at: row.get(5)?,
+                duration_ms: row.get(6)?,
+                error_message: row.get(7)?,
+                location: row.get(8)?,
+                size_bytes: row.get(9)?,
+                checksum_sha256: row.get(10)?,
+            })
+        })?;
+        rows.map(|row| {
+            let raw = row?;
+            Ok(BackupSummary {
+                execution_id: raw.execution_id,
+                database: raw.database,
+                host: raw.host,
+                port: raw.port,
+                status: raw.status.parse()?,
+                started_at: parse_time(&raw.started_at)?,
+                duration_ms: raw.duration_ms,
+                error_message: raw.error_message,
+                location: raw.location,
+                size_bytes: raw.size_bytes.map(|size| u64::try_from(size).unwrap_or(0)),
+                checksum_sha256: raw.checksum_sha256,
+            })
+        })
+        .collect()
+    }
+}
+
+struct RawRestore {
+    id: String,
+    artifact_id: Option<String>,
+    source_location: String,
+    checksum_verified: bool,
+    target_database: String,
+    mode: String,
+    previous_database: Option<String>,
+    status: String,
+    started_at: String,
+    duration_ms: Option<i64>,
+    error_message: Option<String>,
+}
+
+struct RawBackupSummary {
+    execution_id: String,
+    database: String,
+    host: Option<String>,
+    port: Option<u16>,
+    status: String,
+    started_at: String,
+    duration_ms: Option<i64>,
+    error_message: Option<String>,
+    location: Option<String>,
+    size_bytes: Option<i64>,
+    checksum_sha256: Option<String>,
 }
 
 struct RawExecution {
@@ -731,6 +815,59 @@ mod tests {
         );
         assert_eq!(again, connection_id);
         assert!(upgraded.list_restores(10).expect("restores").is_empty());
+    }
+
+    #[test]
+    fn lists_backups_with_artifacts_and_filters_by_database() {
+        let (_dir, _path, history) = temp_history();
+        let connection_id = history
+            .upsert_connection(&sample_connection())
+            .expect("conexão");
+        let job_id = history.create_job(&connection_id, "diario").expect("job");
+        let failed = history.start_execution(&job_id).expect("início");
+        history
+            .finish_execution(&failed, ExecutionStatus::Failed, Some("pg_dump falhou"))
+            .expect("fim");
+        let succeeded = history.start_execution(&job_id).expect("início");
+        let checksum = "c".repeat(64);
+        history
+            .add_artifact(
+                &succeeded,
+                &NewArtifact {
+                    location: "/backups/db.dump",
+                    format: "pg_dump-custom",
+                    size_bytes: 42,
+                    checksum_sha256: Some(&checksum),
+                    tool_version: None,
+                },
+            )
+            .expect("artefato");
+        history
+            .finish_execution(&succeeded, ExecutionStatus::Succeeded, None)
+            .expect("fim");
+
+        let all = history.list_backups(10, None).expect("lista");
+        let other = history.list_backups(10, Some("outro")).expect("lista");
+        let limited = history.list_backups(1, Some("my_database")).expect("lista");
+
+        assert_eq!(all.len(), 2);
+        let ok = all
+            .iter()
+            .find(|backup| backup.execution_id == succeeded)
+            .expect("backup concluído");
+        assert_eq!(ok.status, ExecutionStatus::Succeeded);
+        assert_eq!(ok.database, "my_database");
+        assert_eq!(ok.location.as_deref(), Some("/backups/db.dump"));
+        assert_eq!(ok.size_bytes, Some(42));
+        assert_eq!(ok.checksum_sha256.as_deref(), Some(checksum.as_str()));
+        let ko = all
+            .iter()
+            .find(|backup| backup.execution_id == failed)
+            .expect("backup com falha");
+        assert_eq!(ko.location, None);
+        assert_eq!(ko.error_message.as_deref(), Some("pg_dump falhou"));
+        assert!(other.is_empty());
+        assert_eq!(limited.len(), 1);
     }
 
     #[test]

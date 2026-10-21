@@ -120,8 +120,10 @@ Regras arquiteturais:
 - Prefira `Option<T>` e `Result<T, E>` a valores sentinela e panics.
 - Utilize enums e configurações tipadas para representar capacidades e estados dos SGBDs.
 - Mantenha campos privados, exceto quando fizerem parte intencional da API pública.
-- Documente APIs públicas e invariantes não óbvias. Evite comentários que apenas repetem
-  o que o código já demonstra.
+- **Não escreva comentários no código** (nem `//`, `///` ou `//!`). Nomes, tipos e testes devem
+  deixar o comportamento claro. Quando houver algo pertinente a explicar, ou a mudança alterar
+  algo grande no sistema (arquitetura, fluxo de backup/restore, formato de dados, segurança),
+  registre em `docs/` (por exemplo `docs/arquitetura.md` ou um arquivo novo do tema).
 - Evite `unsafe`. Se for inevitável, documente e teste suas invariantes de segurança.
 
 ### Erros e observabilidade
@@ -403,6 +405,9 @@ existirem. Confirme os nomes reais no `package.json`; não invente comandos.
 
 ### Branches, commits e Pull Requests
 
+- **Revisão humana antes de qualquer commit.** O agente não faz `git commit`, `git push` nem abre
+  PR por conta própria. Ao terminar, deixe as alterações no working tree, apresente o resumo
+  para revisão e só faça commit, push ou PR quando o mantenedor pedir explicitamente, a cada vez.
 - **Sempre comece da `main` atualizada.** Nunca crie uma branch a partir de outra branch de
   trabalho, exceto no caso de branch empilhada descrito abaixo:
 
@@ -440,6 +445,7 @@ existirem. Confirme os nomes reais no `package.json`; não invente comandos.
 6. Avalie se o `CHANGELOG.md` precisa receber uma entrada em `Unreleased`.
 7. Resuma os arquivos alterados, os resultados observados, os comandos realmente executados,
    as limitações e os riscos restantes.
+8. Pare para revisão: não faça commit, push nem PR sem pedido explícito do mantenedor.
 
 ## 11. Referências adicionais
 

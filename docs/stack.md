@@ -3,7 +3,7 @@
 | Área | Tecnologia | Estado |
 | --- | --- | --- |
 | Linguagem principal | Rust estável / Cargo Workspace | Base criada |
-| CLI | Clap, Tokio, rpassword | `info`, `test-connection`, `backup` e `restore` |
+| CLI | Clap, Tokio, rpassword, tracing, serde_json | `connection test`, `backup run/list/verify`, `restore run/list`, `--json` |
 | Conexão PostgreSQL | tokio-postgres, rustls (ring) + certificados do sistema | Teste de conexão implementado |
 | Motor PostgreSQL | Ferramentas oficiais `pg_dump`, `pg_restore` (runner native ou Docker) | Executor implementado |
 | Histórico | SQLite (rusqlite, bundled) + rusqlite_migration | Crate `history` com schema inicial |

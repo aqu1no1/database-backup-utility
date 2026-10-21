@@ -14,17 +14,22 @@ docker info                                                      # Docker Engine
 
 ```bash
 cargo run -p database-backup-cli -- --help
-cargo run -p database-backup-cli -- info
-DBU_PG_PASSWORD='...' cargo run -p database-backup-cli -- test-connection --database my_database --user postgres
-DBU_PG_PASSWORD='...' cargo run -p database-backup-cli -- backup --database my_database --user postgres
-DBU_PG_PASSWORD='...' cargo run -p database-backup-cli -- restore --file <arquivo.dump> --target-database my_database_copy --user postgres
+DBU_PG_PASSWORD='...' cargo run -p database-backup-cli -- connection test --database my_database --user postgres
+DBU_PG_PASSWORD='...' cargo run -p database-backup-cli -- backup run --database my_database --user postgres
+cargo run -p database-backup-cli -- backup list --json
+cargo run -p database-backup-cli -- backup verify --file <arquivo.dump>
+DBU_PG_PASSWORD='...' cargo run -p database-backup-cli -- restore run --file <arquivo.dump> --target-database my_database_copy --user postgres
+cargo run -p database-backup-cli -- restore list
 ```
+
+Opções globais: `--json` (resultado em JSON no stdout) e `--log-level error|warn|info|debug|trace`
+(logs no stderr; padrão `warn` ou `RUST_LOG`).
 
 Sem `DBU_PG_PASSWORD` a senha é pedida sem eco. Exit codes: 0 ok, 2 parâmetro inválido,
 3 autenticação, 4 banco inexistente, 5 inacessível/timeout, 6 TLS, 7 ferramentas ausentes,
 8 backup falhou, 9 cancelado, 10 arquivo inválido, 11 restore falhou,
-12 confirmação necessária. O `restore` recusa (código 10) symlinks e arquivos graváveis por
-grupo/outros.
+12 confirmação necessária. `restore run` e `backup verify` recusam (código 10) symlinks e
+arquivos graváveis por grupo/outros.
 
 ## PostgreSQL de desenvolvimento
 
@@ -49,6 +54,7 @@ cargo test -p database-backup-adapters --test postgres_tools          # pg_dump/
 cargo test -p database-backup-cli --test backup                       # backup ponta a ponta
 cargo test -p database-backup-adapters --test postgres_restore        # pg_restore e administração de bancos
 cargo test -p database-backup-cli --test restore                      # restore ponta a ponta
+cargo test -p database-backup-cli --test cli                          # argumentos, ajuda e JSON (sem Docker)
 cargo test -p database-backup-adapters --test postgres_container -- seed_fixture_is_applied
 ```
 

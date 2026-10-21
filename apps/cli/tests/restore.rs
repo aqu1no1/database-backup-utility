@@ -179,7 +179,14 @@ fn rejects_unsafe_source_files() -> TestResult {
     ] {
         let output = ws
             .cli("segredo")
-            .args(["restore", "--user", "postgres", "--target-database", "x"])
+            .args([
+                "restore",
+                "run",
+                "--user",
+                "postgres",
+                "--target-database",
+                "x",
+            ])
             .arg("--file")
             .arg(file)
             .output()?;

@@ -11,10 +11,13 @@ versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 ## [Unreleased]
 
 ### Added
-- CLI `database-backup` com o comando `info`, que mostra o estado atual do projeto.
-- Comando `test-connection` para validar parâmetros e testar a conexão PostgreSQL, com senha por prompt sem eco ou `DBU_PG_PASSWORD`, TLS verificado para hosts remotos e exit codes por tipo de falha.
-- Comando `backup`: backup full PostgreSQL com `pg_dump` (formato custom) em streaming, executado pelo cliente instalado ou via Docker, com arquivo finalizado de forma atômica, SHA-256, arquivo de metadados ao lado do dump e registro no histórico SQLite.
-- Comando `restore`: restaura um backup PostgreSQL após conferir SHA-256, estrutura e versão; cria um banco novo por padrão e só substitui um banco com dados com `--overwrite` e confirmação do nome, restaurando antes em um banco temporário e mantendo o anterior como `<destino>__previous_<data>`. O `pg_restore` roda em uma única transação e cada restore é registrado no histórico. Recusa symlinks e arquivos graváveis por grupo/outros como origem; `--allow-unverified` avisa e marca o restore como não verificado.
+- CLI `database-backup` organizada em `connection test`, `backup run|list|verify` e `restore run|list`, com exemplos em cada `--help` e exit codes documentados.
+- Comando `connection test` para validar parâmetros e testar a conexão PostgreSQL, com senha por prompt sem eco ou `DBU_PG_PASSWORD`, TLS verificado para hosts remotos e exit codes por tipo de falha.
+- Comando `backup run`: backup full PostgreSQL com `pg_dump` (formato custom) em streaming, executado pelo cliente instalado ou via Docker, com arquivo finalizado de forma atômica, SHA-256, arquivo de metadados ao lado do dump e registro no histórico SQLite.
+- Comando `restore run`: restaura um backup PostgreSQL após conferir SHA-256, estrutura e versão; cria um banco novo por padrão e só substitui um banco com dados com `--overwrite` e confirmação do nome, restaurando antes em um banco temporário e mantendo o anterior como `<destino>__previous_<data>`. O `pg_restore` roda em uma única transação e cada restore é registrado no histórico. Recusa symlinks e arquivos graváveis por grupo/outros como origem; `--allow-unverified` avisa e marca o restore como não verificado.
+- `backup list` e `restore list` consultam o histórico; `backup verify` confere checksum e estrutura de um backup sem restaurar.
+- Opção global `--json` com resultado (ou erro e exit code) em uma linha JSON no stdout.
+- Logs estruturados com `tracing` no stderr (horário, operação, IDs, status e duração, sem credenciais), configuráveis por `--log-level` ou `RUST_LOG`.
 
 <!-- Ao concluir uma funcionalidade relevante, registre-a aqui usando:
 ### Added
