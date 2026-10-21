@@ -30,6 +30,20 @@ Configure em Settings → Rules → Rulesets a obrigatoriedade de PR e dos check
 `Rust / Quality & Unit` e `Rust / PostgreSQL Integration`. Confira os nomes reais
 exibidos após a primeira execução. Angular só passa a ser exigido após ser implementado.
 
+## Actions fixadas por SHA
+
+Toda `uses:` aponta para um commit SHA, com a tag correspondente ao lado
+(`actions/checkout@<sha> # v7.0.1`). Assim, uma tag movida ou comprometida no repositório da action
+não muda o que roda aqui. Para atualizar:
+
+```bash
+gh api repos/actions/checkout/commits/v7 --jq .sha    # SHA atual da tag
+```
+
+Troque o SHA e a tag do comentário no mesmo commit. O `dtolnay/rust-toolchain` é fixado no SHA da
+branch `stable` e recebe `toolchain: stable` explicitamente, porque fixado por SHA ele não deduz o
+toolchain pelo nome da ref. Dependabot para `github-actions` é uma opção futura; não está configurado.
+
 ## Primeira configuração do repositório
 
 1. Adicione estes arquivos em uma branch via PR.
