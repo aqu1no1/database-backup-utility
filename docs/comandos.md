@@ -25,7 +25,7 @@ cargo run -p database-backup-cli -- restore list
 Opções globais: `--json` (resultado em JSON no stdout) e `--log-level error|warn|info|debug|trace`
 (logs no stderr; padrão `warn` ou `RUST_LOG`).
 
-Sem `DBU_PG_PASSWORD` a senha é pedida sem eco. Exit codes: 0 ok, 2 parâmetro inválido,
+A senha vem de `--password-file`, `DBU_PG_PASSWORD_FILE` ou `DBU_PG_PASSWORD` (só uma); sem nenhuma, é pedida sem eco. Exit codes: 0 ok, 2 parâmetro inválido,
 3 autenticação, 4 banco inexistente, 5 inacessível/timeout, 6 TLS, 7 ferramentas ausentes,
 8 backup falhou, 9 cancelado, 10 arquivo inválido, 11 restore falhou,
 12 confirmação necessária. `restore run` e `backup verify` recusam (código 10) symlinks e

@@ -15,6 +15,10 @@ flowchart TD
 - Adaptadores lidam com capacidades específicas por SGBD, sem prometer uma função universal.
 - `core/`, `shared/`, `features/` e `layout/` são pastas do frontend **quando ele for criado**.
 - `crates/` Rust são compartilhadas entre interfaces. A pasta `libs/` TS não será criada sem uso.
+- Segredos: `crates/core/src/secret.rs` define o contrato `SecretProvider`, de onde a senha veio
+  (`SecretSource`) e a leitura estrita de arquivo de senha. A CLI implementa o contrato em
+  `apps/cli/src/credentials.rs` (flag, variáveis, prompt). O desktop e um futuro adaptador de keyring
+  entram como outras implementações. Ver [`configuracao.md`](configuracao.md#credenciais).
 - `crates/database-adapters/src/postgres/tools.rs` executa `pg_dump`/`pg_restore` em modo `native`
   ou `docker`, sempre com argumentos estruturados e a senha num `.pgpass` temporário. O banco vai
   em `--dbname dbname='<nome escapado>'`: um valor de `--dbname` com `=` seria lido pelo libpq como

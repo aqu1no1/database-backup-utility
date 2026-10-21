@@ -69,6 +69,12 @@ pub struct RestoreArgs {
     allow_unverified: bool,
     #[arg(long, value_parser = clap::value_parser!(u64).range(1..), help = "Tempo máximo do restore em segundos (padrão: sem limite)")]
     timeout: Option<u64>,
+    #[arg(
+        long,
+        value_name = "ARQUIVO",
+        help = "Arquivo com a senha (permissão 600 ou 400)"
+    )]
+    password_file: Option<PathBuf>,
 }
 
 struct Plan {
@@ -133,7 +139,7 @@ pub async fn run(args: RestoreArgs) -> ExitCode {
         );
     }
 
-    let (password, _) = match read_password(&target) {
+    let (password, _) = match read_password(&target, args.password_file.clone()) {
         Ok(value) => value,
         Err(message) => return fail(exit::INVALID_INPUT, &message),
     };

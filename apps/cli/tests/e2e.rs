@@ -936,3 +936,64 @@ async fn verify_and_restore_without_history() -> TestResult {
     })
     .await
 }
+
+#[cfg(unix)]
+fn secret_file(dir: &Path, name: &str, value: &str) -> TestResult<PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+    let path = dir.join(name);
+    std::fs::write(&path, format!("{value}\n"))?;
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+    Ok(path)
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn scheduled_style_backup_with_password_file() -> TestResult {
+    guarded(async {
+        let source = PostgresTestDb::start_with("e2e.sql", E2E_SQL).await?;
+        let target = PostgresTestDb::start().await?;
+        let session = Session::new("password-file", &[source.password(), target.password()]);
+        let ws = Workspace::new()?;
+        let secrets = tempfile::tempdir()?;
+        let source_file = secret_file(secrets.path(), "origem.pass", source.password())?;
+        let target_file = secret_file(secrets.path(), "destino.pass", target.password())?;
+
+        let mut command = backup(&ws, &source, source.database(), "docker");
+        command
+            .env_remove("DBU_PG_PASSWORD")
+            .env("DBU_PG_PASSWORD_FILE", &source_file)
+            .stdin(Stdio::null());
+        let backed_up = session.run("backup-with-password-file", &mut command);
+        assert_eq!(backed_up.status.code(), Some(0), "{}", text(&backed_up));
+        let dump = dump_of(&backed_up);
+
+        let mut command = restore(&ws, &target, &dump, "agendado", "docker");
+        command
+            .env_remove("DBU_PG_PASSWORD")
+            .arg("--password-file")
+            .arg(&target_file)
+            .stdin(Stdio::null());
+        let restored = session.run("restore-with-password-file", &mut command);
+        assert_eq!(restored.status.code(), Some(0), "{}", text(&restored));
+        assert_eq!(
+            snapshot(&target, "agendado").await?,
+            snapshot(&source, source.database()).await?
+        );
+
+        let secret_ref: String =
+            ws.history()
+                .query_row("SELECT secret_ref FROM connections", [], |row| row.get(0))?;
+        assert_eq!(secret_ref, format!("file:{}", source_file.display()));
+        for secret in [source.password(), target.password()] {
+            let leaks = [
+                files_containing(&ws.data, secret),
+                files_containing(&ws.out, secret),
+            ]
+            .concat();
+            assert!(leaks.is_empty(), "segredo gravado em {leaks:?}");
+        }
+        assert_no_residue(&ws);
+        Ok(())
+    })
+    .await
+}

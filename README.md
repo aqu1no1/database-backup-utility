@@ -46,7 +46,9 @@ DBU_PG_PASSWORD='...' cargo run -p database-backup-cli -- connection test \
   --host localhost --port 5432 --database my_database --user postgres
 ```
 
-Sem `DBU_PG_PASSWORD`, a CLI pede a senha em um prompt sem eco. Hosts fora de `localhost`
+A senha também pode vir de um arquivo com permissão `600` (`--password-file` ou
+`DBU_PG_PASSWORD_FILE`, o indicado para agendadores). Mais de uma fonte definida é erro. Sem nenhuma,
+a CLI pede a senha em um prompt sem eco. Detalhes em [`docs/configuracao.md`](docs/configuracao.md#credenciais). Hosts fora de `localhost`
 exigem TLS com certificado validado (`--tls verify-full`, padrão em `--tls auto`).
 
 Gerar um backup completo (`pg_dump` em formato custom, já comprimido):

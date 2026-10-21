@@ -1,12 +1,13 @@
 mod archive;
 mod backup;
+mod credentials;
 mod listing;
 mod output;
 mod restore;
 mod verify;
 
 use std::error::Error;
-use std::io::IsTerminal;
+use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
 
@@ -14,17 +15,17 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use database_backup_adapters::postgres::{
     ConnectionError, RunnerChoice, Timeouts, test_connection,
 };
-use database_backup_core::{Password, PostgresConnectionConfig, TlsMode};
+use database_backup_core::{
+    Password, PostgresConnectionConfig, SecretProvider, SecretSource, TlsMode,
+};
 use serde::Serialize;
 use tracing::info;
 
 use output::{LogLevel, fail, success};
 
-const PASSWORD_ENV: &str = "DBU_PG_PASSWORD";
-
 macro_rules! password_note {
     () => {
-        "A senha é lida de DBU_PG_PASSWORD ou, sem a variável, por um prompt sem eco."
+        "A senha vem de --password-file, DBU_PG_PASSWORD_FILE ou DBU_PG_PASSWORD (só uma delas; mais de uma é erro)\nou, sem nenhuma, de um prompt sem eco. O arquivo de senha precisa ter permissão 600 ou 400."
     };
 }
 
@@ -156,6 +157,12 @@ struct ConnectionArgs {
         help = "auto: sem TLS só em localhost; verify-full: TLS com certificado validado"
     )]
     tls: TlsArg,
+    #[arg(
+        long,
+        value_name = "ARQUIVO",
+        help = "Arquivo com a senha (permissão 600 ou 400)"
+    )]
+    password_file: Option<PathBuf>,
 }
 
 impl ConnectionArgs {
@@ -253,7 +260,7 @@ async fn run_test_connection(args: TestConnectionArgs) -> ExitCode {
         Ok(config) => config,
         Err(code) => return code,
     };
-    let password = match read_password(&config) {
+    let password = match read_password(&config, args.connection.password_file.clone()) {
         Ok((password, _)) => password,
         Err(message) => return fail(exit::INVALID_INPUT, &message),
     };
@@ -290,18 +297,13 @@ async fn run_test_connection(args: TestConnectionArgs) -> ExitCode {
     }
 }
 
-fn read_password(config: &PostgresConnectionConfig) -> Result<(Password, &'static str), String> {
-    if let Ok(value) = std::env::var(PASSWORD_ENV) {
-        return Ok((Password::new(value), "env:DBU_PG_PASSWORD"));
-    }
-    if !std::io::stdin().is_terminal() {
-        return Err(format!(
-            "senha não informada: defina {PASSWORD_ENV} ou execute em um terminal interativo"
-        ));
-    }
-    rpassword::prompt_password(format!("Senha para {config}: "))
-        .map(|value| (Password::new(value), "prompt"))
-        .map_err(|_| "não foi possível ler a senha do terminal".to_owned())
+fn read_password(
+    config: &PostgresConnectionConfig,
+    password_file: Option<PathBuf>,
+) -> Result<(Password, SecretSource), String> {
+    credentials::CliSecrets { password_file }
+        .password(config)
+        .map_err(|error| describe(&error))
 }
 
 fn exit_code_for(error: &ConnectionError) -> u8 {

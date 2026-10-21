@@ -217,3 +217,108 @@ fn verify_rejects_unsupported_or_foreign_manifest() {
         stderr(&foreign)
     );
 }
+
+const FILE_SECRET: &str = "conteudo-secreto-do-arquivo";
+
+fn without_password(data_dir: &TempDir, args: &[&str], envs: &[(&str, &str)]) -> Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_database-backup"));
+    command
+        .args(args)
+        .env("DBU_DATA_DIR", data_dir.path())
+        .env_remove("DBU_PG_PASSWORD")
+        .env_remove("DBU_PG_PASSWORD_FILE")
+        .env_remove("RUST_LOG")
+        .stdin(std::process::Stdio::null());
+    for (name, value) in envs {
+        command.env(name, value);
+    }
+    command.output().expect("o binário da CLI deve executar")
+}
+
+#[cfg(unix)]
+#[test]
+fn password_sources_are_validated_without_leaking_contents() {
+    let dir = TempDir::new().expect("dir");
+    let private = dir.path().join("pg.pass");
+    let open = dir.path().join("aberto.pass");
+    let empty = dir.path().join("vazio.pass");
+    private_file(&private, FILE_SECRET.as_bytes());
+    private_file(&empty, b"\n");
+    std::fs::write(&open, FILE_SECRET).expect("arquivo");
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&open, std::fs::Permissions::from_mode(0o644)).expect("modo");
+    }
+    let base = [
+        "connection",
+        "test",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "1",
+        "--database",
+        "db",
+        "--user",
+        "u",
+        "--timeout",
+        "1",
+    ];
+    let with_file = |path: &std::path::Path| {
+        let mut args: Vec<String> = base.iter().map(|arg| (*arg).to_owned()).collect();
+        args.push("--password-file".to_owned());
+        args.push(path.display().to_string());
+        args
+    };
+    let run = |args: &[String], envs: &[(&str, &str)]| {
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        without_password(&dir, &args, envs)
+    };
+    let base_args: Vec<String> = base.iter().map(|arg| (*arg).to_owned()).collect();
+    let private_text = private.display().to_string();
+
+    let cases: Vec<(&str, Output, &str)> = vec![
+        ("sem fonte", run(&base_args, &[]), "DBU_PG_PASSWORD_FILE"),
+        (
+            "flag + env",
+            run(&with_file(&private), &[("DBU_PG_PASSWORD", "outra")]),
+            "mais de uma fonte de senha definida: --password-file, DBU_PG_PASSWORD",
+        ),
+        (
+            "flag + env de arquivo",
+            run(
+                &with_file(&private),
+                &[("DBU_PG_PASSWORD_FILE", &private_text)],
+            ),
+            "--password-file, DBU_PG_PASSWORD_FILE",
+        ),
+        ("permissão aberta", run(&with_file(&open), &[]), "chmod 600"),
+        (
+            "inexistente",
+            run(&with_file(&dir.path().join("ausente.pass")), &[]),
+            "não encontrado",
+        ),
+        ("vazio", run(&with_file(&empty), &[]), "vazio"),
+    ];
+
+    for (name, output, expected) in cases {
+        assert_eq!(output.status.code(), Some(2), "{name}: {}", stderr(&output));
+        assert!(
+            stderr(&output).contains(expected),
+            "{name}: {}",
+            stderr(&output)
+        );
+        assert!(
+            !stdout(&output).contains(FILE_SECRET) && !stderr(&output).contains(FILE_SECRET),
+            "{name}: a saída contém o conteúdo do arquivo de senha"
+        );
+    }
+
+    let from_env_file = run(&base_args, &[("DBU_PG_PASSWORD_FILE", &private_text)]);
+    assert_eq!(
+        from_env_file.status.code(),
+        Some(5),
+        "{}",
+        stderr(&from_env_file)
+    );
+    assert!(!stderr(&from_env_file).contains(FILE_SECRET));
+}

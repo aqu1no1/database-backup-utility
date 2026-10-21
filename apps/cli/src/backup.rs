@@ -66,7 +66,7 @@ pub async fn run(args: BackupArgs) -> ExitCode {
         Ok(config) => config,
         Err(code) => return code,
     };
-    let (password, secret_ref) = match read_password(&config) {
+    let (password, source) = match read_password(&config, args.connection.password_file.clone()) {
         Ok(value) => value,
         Err(message) => return fail(exit::INVALID_INPUT, &message),
     };
@@ -105,7 +105,7 @@ pub async fn run(args: BackupArgs) -> ExitCode {
         Err(error) => return fail(exit::FAILURE, &describe(&error)),
     };
 
-    let execution_id = match start_execution(&history, &config, secret_ref) {
+    let execution_id = match start_execution(&history, &config, &source.secret_ref()) {
         Ok(id) => id,
         Err(error) => return fail(exit::FAILURE, &describe(&error)),
     };

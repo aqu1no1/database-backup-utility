@@ -18,6 +18,7 @@ versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 - `backup list` e `restore list` consultam o histórico; `backup verify` confere checksum e estrutura de um backup sem restaurar.
 - Opção global `--json` com resultado (ou erro e exit code) em uma linha JSON no stdout.
 - Manifesto versionado `<dump>.meta.json` (`manifest_version` 1): SGBD, formato, nome do arquivo, versão do utilitário, tamanho e SHA-256, sem credenciais. `backup verify` e `restore run` conferem versão, nome, tamanho e checksum, e funcionam sem o histórico SQLite. Manifestos sem versão ou de versão desconhecida são recusados.
+- Senha por arquivo (`--password-file` ou `DBU_PG_PASSWORD_FILE`) para agendadores, aceito só com permissão `600`/`400`, sem symlink, até 4 KiB. Mais de uma fonte de senha definida passa a ser erro explícito, e o histórico registra só a origem (`prompt`, `env:...`, `file:...`).
 - Logs estruturados com `tracing` no stderr (horário, operação, IDs, status e duração, sem credenciais), configuráveis por `--log-level` ou `RUST_LOG`.
 
 ### Fixed
