@@ -22,19 +22,16 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Configurar toolchain Rust
-        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
-        with:
-          toolchain: stable
-          components: clippy, rustfmt
+      - name: Toolchain do rust-toolchain.toml
+        run: rustup toolchain install && rustc --version && cargo --version
       - name: Formatação
         run: cargo fmt --all -- --check
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Testes unitários
-        run: cargo test --workspace --lib --bins
+        run: cargo test --workspace --lib --bins --locked
       - name: Compilação
-        run: cargo build --workspace
+        run: cargo build --workspace --locked
 
   postgres-integration:
     name: Rust / PostgreSQL Integration
@@ -45,10 +42,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Configurar toolchain Rust
-        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
-        with:
-          toolchain: stable
+      - name: Toolchain do rust-toolchain.toml
+        run: rustup toolchain install && rustc --version && cargo --version
       - name: Docker disponível
         run: docker info
       - name: Cliente PostgreSQL 17 (modo native)
@@ -64,7 +59,7 @@ jobs:
           DBU_E2E_LOG_DIR: ${{ runner.temp }}/e2e-logs
         run: |
           pg_dump --version
-          cargo test --workspace --tests -- --nocapture
+          cargo test --workspace --tests --locked -- --nocapture
       - name: Logs de diagnóstico do E2E
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -73,6 +68,19 @@ jobs:
           path: ${{ runner.temp }}/e2e-logs
           if-no-files-found: ignore
           retention-days: 7
+
+  supply-chain:
+    name: Rust / Supply Chain
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Advisories, licenças, bans e fontes (cargo-deny)
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check
 
   angular:
     name: Angular / Lint, Test & Build

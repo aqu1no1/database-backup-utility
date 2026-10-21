@@ -41,3 +41,6 @@ dist/
 # Python
 __pycache__/
 *.pyc
+
+# Gerado no job de release (cargo about)
+THIRD-PARTY-LICENSES.md

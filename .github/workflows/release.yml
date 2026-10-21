@@ -30,11 +30,8 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
-      - name: Configurar Rust
-        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
-        with:
-          toolchain: stable
-          components: clippy, rustfmt
+      - name: Toolchain do rust-toolchain.toml
+        run: rustup toolchain install && rustc --version && cargo --version
 
       - name: Validar versão, Cargo e CHANGELOG
         env:
@@ -63,12 +60,18 @@ jobs:
       - name: Build release Linux x86_64
         run: cargo build --locked --release -p database-backup-cli --bin database-backup
 
+      - name: Avisos de licença de terceiros (cargo-about)
+        run: |
+          cargo install cargo-about --locked --version 0.9.2 --features cli
+          cargo about generate --locked about.hbs > THIRD-PARTY-LICENSES.md
+          test -s THIRD-PARTY-LICENSES.md
+
       - name: Empacotar e gerar checksums
         env:
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
           mkdir -p dist package
-          cp target/release/database-backup LICENSE-MIT LICENSE-APACHE README.md package/
+          cp target/release/database-backup LICENSE-MIT LICENSE-APACHE THIRD-PARTY-LICENSES.md README.md package/
           tar -C package -czf "dist/database-backup-linux-x86_64-${RELEASE_VERSION}.tar.gz" .
           (cd dist && sha256sum ./*.tar.gz > SHA256SUMS.txt)
 
