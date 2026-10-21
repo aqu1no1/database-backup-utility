@@ -123,13 +123,15 @@ Regras arquiteturais:
 - **Não escreva comentários no código** (nem `//`, `///` ou `//!`). Nomes, tipos e testes devem
   deixar o comportamento claro. Quando houver algo pertinente a explicar, ou a mudança alterar
   algo grande no sistema (arquitetura, fluxo de backup/restore, formato de dados, segurança),
-  registre em `docs/` (por exemplo `docs/arquitetura.md` ou um arquivo novo do tema).
-- Evite `unsafe`. Se for inevitável, documente e teste suas invariantes de segurança.
+  registre em `docs/` (por exemplo `docs/arquitetura.md` ou um arquivo novo do tema). A única
+  exceção é o `// SAFETY:` de um bloco `unsafe` autorizado (ver abaixo).
+- `unsafe` é proibido no workspace (`[workspace.lints.rust] unsafe_code = "forbid"`). A exceção,
+  se um dia for indispensável, segue o §3.8 de `docs/seguranca-rust.md`.
 
 ### Erros e observabilidade
 
-- Não use `.unwrap()` em caminhos de execução de produção. Utilize `.expect()` apenas
-  para invariantes que razoavelmente não podem falhar, com uma justificativa clara.
+- `.unwrap()` e `.expect()` são proibidos fora de testes (`[workspace.lints.clippy]`, verificado
+  pela CI). Trate erros com `Result`.
 - Use `thiserror` para erros tipados de bibliotecas; utilize `anyhow` na composição de erros
   da aplicação se a base do projeto já o adotar.
 - Preserve internamente a causa dos erros, mas retorne mensagens sanitizadas para a CLI
@@ -152,13 +154,23 @@ Regras arquiteturais:
 - Faça benchmarks antes de otimizar. Não introduza Rayon, SIMD, alocadores personalizados
   ou cache sem necessidade demonstrada.
 - Prefira crates bem mantidas e já utilizadas no projeto. Antes de adicionar dependências,
-  avalie manutenção, segurança, licença e complexidade.
+  siga o §4.1 de `docs/seguranca-rust.md` (necessidade, manutenção, `build.rs`, licença).
+
+### Política de segurança — Rust
+
+Antes de mudar código que toque entradas, arquivos, processos externos, segredos, dependências,
+CI ou release, leia `docs/seguranca-rust.md` (regras e fluxo). O estado atual dos controles, as
+evidências, as exceções ativas e os riscos aceitos estão em `docs/seguranca.md`.
+Segurança orientada a risco e evidência: explique o que pode dar errado, por que importa e como a
+medida reduz o risco. Achados do `cargo-deny` seguem a triagem do §4.4; nunca afrouxe a política
+em silêncio. A versão do Rust vem só do `rust-toolchain.toml` e é atualizada de forma deliberada (§5.1).
 
 ## 5. Regras de backup e restauração de bancos
 
 Os controles de segurança já implementados, suas evidências e os riscos aceitos estão em
-`docs/seguranca.md`. Ao mudar credenciais, TLS, execução de utilitários, permissões, restore, CI ou
-Docker, atualize esse documento junto.
+`docs/seguranca.md`; as regras gerais de segurança estão em `docs/seguranca-rust.md`.
+Ao mudar credenciais, TLS, execução de utilitários, permissões, restore, CI ou Docker,
+atualize o `docs/seguranca.md` junto.
 
 - Cada SGBD possui mecanismos próprios de backup e restauração. Nunca apresente backup
   completo, incremental, diferencial ou restauração seletiva como recursos universais,
@@ -358,10 +370,14 @@ Rust, a partir da raiz do repositório:
 
 ```bash
 cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo build --workspace
-cargo test --workspace
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo build --workspace --locked
+cargo test --workspace --locked
+cargo deny check          # quando o cargo-deny estiver instalado; a CI sempre roda (Rust / Supply Chain)
 ```
+
+A toolchain usada é a do `rust-toolchain.toml`; não troque de versão sem o processo do §5.1 de
+`docs/seguranca-rust.md`.
 
 Angular, **após a criação da aplicação** em `apps/desktop` (enquanto ela não existir, registre
 que a etapa não se aplica):

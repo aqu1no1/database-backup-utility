@@ -10,6 +10,14 @@ versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+### Added
+- `THIRD-PARTY-LICENSES.md` no tarball da release, gerado com `cargo-about`, com os avisos de licença das dependências embutidas no binário.
+
+### Security
+- `unsafe` proibido em todo o workspace.
+- Dependências verificadas por `cargo-deny` em cada PR (advisories RustSec, licenças, fontes e wildcards), com triagem documentada em `docs/seguranca-rust.md`.
+- Toolchain do Rust fixada em `rust-toolchain.toml` e Cargo com `--locked` em toda a CI.
+
 <!-- Ao concluir uma funcionalidade relevante, registre-a aqui usando:
 ### Added
 - Mensagem da mudança validada.

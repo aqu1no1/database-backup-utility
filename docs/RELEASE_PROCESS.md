@@ -35,6 +35,8 @@ cargo test --workspace --lib --bins --locked
 cargo test --workspace --tests --locked                         # Docker necessário
 cargo build --locked --release -p database-backup-cli --bin database-backup
 ./target/release/database-backup --version                      # deve mostrar X.Y.Z
+cargo deny check                                                # se instalado
+cargo about generate --locked about.hbs > /tmp/THIRD-PARTY-LICENSES.md   # cargo-about 0.9.2 com --features cli
 ```
 
 6. Enviar via PR e fazer merge na `main` quando os checks passarem.

@@ -29,6 +29,7 @@ curl -LO "https://github.com/aqu1no1/database-backup-utility/releases/download/$
 sha256sum -c SHA256SUMS.txt                         # precisa mostrar OK
 tar -xzf "database-backup-linux-x86_64-$VERSION.tar.gz"
 install -m 755 database-backup ~/.local/bin/        # ou outro diretório do PATH
+# o tarball traz LICENSE-MIT, LICENSE-APACHE e, a partir da próxima release, THIRD-PARTY-LICENSES.md
 database-backup --version
 ```
 

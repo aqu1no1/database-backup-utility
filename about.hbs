@@ -1,0 +1,26 @@
+# Licenças de terceiros
+
+O binário `database-backup` inclui as crates abaixo. Cada uma é distribuída sob a licença indicada.
+Arquivo gerado por `cargo about generate about.hbs` no workflow de release.
+
+## Resumo
+
+{{#each overview}}
+- **{{{name}}}** ({{id}}): {{count}} crate(s)
+{{/each}}
+
+## Textos das licenças
+
+{{#each licenses}}
+### {{{name}}} ({{id}})
+
+Usada por:
+{{#each used_by}}
+- [{{crate.name}} {{crate.version}}]({{#if crate.repository}}{{crate.repository}}{{else}}https://crates.io/crates/{{crate.name}}{{/if}})
+{{/each}}
+
+```text
+{{{text}}}
+```
+
+{{/each}}

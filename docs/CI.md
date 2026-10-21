@@ -17,7 +17,7 @@
 | Workflow | Gatilho | Escopo |
 | --- | --- | --- |
 | `.github/workflows/ci.yml` | PR e push na main | Rustfmt, Clippy, testes unitários, build, integração PostgreSQL e E2E de backup/restore; Angular quando disponível |
-| `.github/workflows/audit.yml` | Semanal + manual | Auditoria de dependências Rust |
+| `.github/workflows/audit.yml` | Semanal + manual | Advisories RustSec (`cargo deny check advisories`) para pegar alertas novos sem PR |
 | `.github/workflows/release.yml` | **Apenas `workflow_dispatch`** | Validação, testes, build Linux, tag e GitHub Release |
 
 O job `Rust / PostgreSQL Integration` roda `cargo test --workspace --tests` com o cliente
@@ -26,9 +26,29 @@ PostgreSQL 17 instalado e `DBU_REQUIRE_NATIVE=1`, então os cenários E2E rodam 
 stderr de cada passo da CLI nos cenários que falharam. Os testes conferem que nenhuma senha aparece
 nessas saídas antes de gravá-las.
 
-Configure em Settings → Rules → Rulesets a obrigatoriedade de PR e dos checks
-`Rust / Quality & Unit` e `Rust / PostgreSQL Integration`. Confira os nomes reais
-exibidos após a primeira execução. Angular só passa a ser exigido após ser implementado.
+O job `Rust / Supply Chain` roda `cargo deny check` (advisories, licenças, bans e fontes, conforme o
+`deny.toml`) em todo PR e push na `main`. Quando ele falhar, siga a triagem do §4.4 de
+[`seguranca-rust.md`](seguranca-rust.md#44-triagem-de-achados): corrigir com a menor atualização
+possível ou registrar a exceção (ID, motivo, condição de remoção) em `seguranca.md`. Nunca afrouxe o
+`deny.toml` em silêncio.
+
+Checks obrigatórios na `main`: `Rust / Quality & Unit`, `Rust / PostgreSQL Integration` e
+`Rust / Supply Chain`. Angular só passa a ser exigido depois de implementado.
+
+## Toolchain do Rust
+
+A versão do Rust vem **só** do `rust-toolchain.toml` (canal exato e componentes `clippy` e
+`rustfmt`). Todo job roda `rustup toolchain install`, que lê o arquivo; nenhum workflow fixa a versão
+em outro lugar. Localmente, o `rustup` usa o mesmo arquivo automaticamente dentro do repositório.
+
+Atualização deliberada, a cada nova Rust stable (~6 semanas, card recorrente no Linear) ou antes, se
+houver advisory na toolchain:
+
+1. Branch `chore/rust-1.NN` e trocar o `channel` no `rust-toolchain.toml`.
+2. Verificação completa (`fmt`, `clippy --locked`, `build --locked`, `test --locked`, `cargo deny check`).
+3. Lints novos do Clippy corrigidos no mesmo PR. Exceção localizada só com justificativa no PR.
+4. Revisar as "Exceções ativas" de `seguranca.md`.
+5. PR `chore: update Rust to 1.NN`, sem mudanças funcionais junto.
 
 ## Actions fixadas por SHA
 
