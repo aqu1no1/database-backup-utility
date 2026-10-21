@@ -160,3 +160,60 @@ fn verify_without_known_checksum_is_rejected() {
     assert_eq!(output.status.code(), Some(10));
     assert!(stderr(&output).contains("--allow-unverified"));
 }
+
+#[cfg(unix)]
+fn private_file(path: &std::path::Path, body: &[u8]) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::write(path, body).expect("arquivo");
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).expect("modo");
+}
+
+#[cfg(unix)]
+#[test]
+fn verify_rejects_unsupported_or_foreign_manifest() {
+    let dir = TempDir::new().expect("dir");
+    let dump = dir.path().join("app.dump");
+    let manifest = dir.path().join("app.dump.meta.json");
+    private_file(&dump, b"PGDMP");
+
+    private_file(&manifest, br#"{"manifest_version":2,"sha256":"x"}"#);
+    let future = cli(
+        &dir,
+        &["backup", "verify", "--file", dump.to_str().expect("utf-8")],
+    );
+    assert_eq!(future.status.code(), Some(10), "{}", stderr(&future));
+    assert!(
+        stderr(&future).contains("versão 2 do manifesto"),
+        "{}",
+        stderr(&future)
+    );
+
+    let body = serde_json::json!({
+        "manifest_version": 1,
+        "tool": { "name": "database-backup", "version": "0.1.0" },
+        "engine": "postgresql",
+        "format": "pg_dump-custom",
+        "file_name": "outro.dump",
+        "sha256": "0".repeat(64),
+        "size_bytes": 5,
+        "database": "app",
+        "host": "localhost",
+        "port": 5432,
+        "server_version": "17.0",
+        "pg_dump_version": "17.0",
+        "runner": "docker",
+        "created_at": "2026-10-21T12:00:00Z",
+        "execution_id": "x"
+    });
+    private_file(&manifest, body.to_string().as_bytes());
+    let foreign = cli(
+        &dir,
+        &["backup", "verify", "--file", dump.to_str().expect("utf-8")],
+    );
+    assert_eq!(foreign.status.code(), Some(10), "{}", stderr(&foreign));
+    assert!(
+        stderr(&foreign).contains("pertence a outro arquivo"),
+        "{}",
+        stderr(&foreign)
+    );
+}

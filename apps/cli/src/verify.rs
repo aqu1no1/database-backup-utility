@@ -40,6 +40,10 @@ struct VerifyResult {
     tables: usize,
     dumped_from: Option<String>,
     dumped_by: Option<String>,
+    manifest_version: Option<u32>,
+    engine: Option<String>,
+    created_at: Option<String>,
+    tool_version: Option<String>,
 }
 
 pub async fn run(args: VerifyArgs) -> ExitCode {
@@ -91,13 +95,25 @@ pub async fn run(args: VerifyArgs) -> ExitCode {
     } else {
         "checksum NÃO verificado"
     };
-    let text = format!(
+    let mut text = format!(
         "Backup válido: {} ({} objetos, {} tabelas; {checksum}; sha256 {}…)",
         file.display(),
         archive.entries,
         archive.tables,
         &verified.sha256[..12]
     );
+    if let Some(manifest) = &verified.manifest {
+        text.push_str(&format!(
+            "\nManifesto v{}: {} {}, criado em {} por {} {}",
+            manifest.manifest_version,
+            manifest.engine,
+            manifest.database,
+            manifest.created_at,
+            manifest.tool.name,
+            manifest.tool.version
+        ));
+    }
+    let manifest = verified.manifest.as_ref();
     success(
         &VerifyResult {
             file: file.display().to_string(),
@@ -108,6 +124,10 @@ pub async fn run(args: VerifyArgs) -> ExitCode {
             tables: archive.tables,
             dumped_from: archive.dumped_from.map(|v| v.to_string()),
             dumped_by: archive.dumped_by.map(|v| v.to_string()),
+            manifest_version: manifest.map(|m| m.manifest_version),
+            engine: manifest.map(|m| m.engine.clone()),
+            created_at: manifest.map(|m| m.created_at.clone()),
+            tool_version: manifest.map(|m| m.tool.version.clone()),
         },
         &text,
     )

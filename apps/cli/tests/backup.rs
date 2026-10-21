@@ -30,6 +30,14 @@ async fn backup_produces_verified_artifact_and_history() -> TestResult {
     assert_eq!(metadata["sha256"], checksum.as_str());
     assert_eq!(metadata["size_bytes"], bytes.len());
     assert_eq!(metadata["runner"], "docker");
+    assert_eq!(metadata["manifest_version"], 1);
+    assert_eq!(metadata["engine"], "postgresql");
+    assert_eq!(metadata["tool"]["name"], "database-backup");
+    assert_eq!(metadata["tool"]["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(
+        metadata["file_name"],
+        dump.file_name().expect("nome").to_string_lossy().as_ref()
+    );
 
     let history = ws.history();
     let (status, duration, error): (String, Option<i64>, Option<String>) = history.query_row(

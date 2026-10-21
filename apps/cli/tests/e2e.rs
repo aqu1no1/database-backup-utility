@@ -847,3 +847,92 @@ async fn hostile_identifiers_are_not_executed() -> TestResult {
 fn quote_ident(name: &str) -> String {
     format!("\"{}\"", name.replace('"', "\"\""))
 }
+
+#[tokio::test]
+async fn verify_and_restore_without_history() -> TestResult {
+    guarded(async {
+        let source = PostgresTestDb::start_with("e2e.sql", E2E_SQL).await?;
+        let target = PostgresTestDb::start().await?;
+        let session = Session::new("without-history", &[source.password(), target.password()]);
+        let origin = Workspace::new()?;
+        let ok = session.run(
+            "backup",
+            &mut backup(&origin, &source, source.database(), "docker"),
+        );
+        assert_eq!(ok.status.code(), Some(0), "{}", text(&ok));
+        let original = dump_of(&ok);
+
+        let fresh = Workspace::new()?;
+        std::fs::create_dir(&fresh.out)?;
+        let dump = fresh.out.join(original.file_name().expect("nome do dump"));
+        let manifest = database_backup_storage_meta(&dump);
+        std::fs::copy(&original, &dump)?;
+        std::fs::copy(database_backup_storage_meta(&original), &manifest)?;
+
+        let verify = |step: &str| {
+            session.run(
+                step,
+                fresh
+                    .cli(source.password())
+                    .args(["--json", "backup", "verify", "--runner", "docker", "--file"])
+                    .arg(&dump),
+            )
+        };
+        let verified = verify("verify-without-history");
+        assert_eq!(verified.status.code(), Some(0), "{}", text(&verified));
+        let report = json(&verified);
+        assert_eq!(report["checksum_verified"], true);
+        assert_eq!(report["manifest_version"], 1);
+        assert_eq!(report["engine"], "postgresql");
+        assert_eq!(report["tool_version"], env!("CARGO_PKG_VERSION"));
+
+        let restored = session.run(
+            "restore-without-history",
+            &mut restore(&fresh, &target, &dump, "sem_historico", "docker"),
+        );
+        assert_eq!(restored.status.code(), Some(0), "{}", text(&restored));
+        assert_eq!(json(&restored)["checksum_verified"], true);
+        assert_eq!(
+            snapshot(&target, "sem_historico").await?,
+            snapshot(&source, source.database()).await?
+        );
+
+        let pristine = std::fs::read(&dump)?;
+        let mut flipped = pristine.clone();
+        let middle = flipped.len() / 2;
+        flipped[middle] ^= 0xFF;
+        std::fs::write(&dump, &flipped)?;
+        let altered = verify("verify-altered-dump");
+        assert_eq!(altered.status.code(), Some(10), "{}", text(&altered));
+        assert!(text(&altered).contains("checksum divergente"));
+        std::fs::write(&dump, &pristine)?;
+
+        let pristine_manifest = std::fs::read_to_string(&manifest)?;
+        let mut forged: serde_json::Value = serde_json::from_str(&pristine_manifest)?;
+        forged["sha256"] = serde_json::Value::from("f".repeat(64));
+        std::fs::write(&manifest, forged.to_string())?;
+        let forged = verify("verify-forged-manifest");
+        assert_eq!(forged.status.code(), Some(10), "{}", text(&forged));
+        assert!(text(&forged).contains("checksum divergente"));
+        std::fs::write(&manifest, &pristine_manifest)?;
+
+        std::fs::remove_file(&dump)?;
+        let missing = verify("verify-missing-dump");
+        assert_eq!(missing.status.code(), Some(10), "{}", text(&missing));
+        assert!(text(&missing).contains("não encontrado"));
+
+        let fresh_history: i64 =
+            fresh
+                .history()
+                .query_row("SELECT count(*) FROM backup_artifacts", [], |row| {
+                    row.get(0)
+                })?;
+        assert_eq!(
+            fresh_history, 0,
+            "o histórico novo não deveria conhecer o backup"
+        );
+        assert_no_residue(&fresh);
+        Ok(())
+    })
+    .await
+}

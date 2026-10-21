@@ -69,6 +69,7 @@ O destino é **outro container**.
 | `corrupted_and_partial_archives_are_rejected` | Checksum divergente (10), arquivo truncado, `.partial` e destino ausente (2), sem criar bancos no destino. |
 | `interrupted_operations_leave_no_partial_results` | Ctrl+C (SIGINT) no meio do dump: sai com 9, não sobra `.dump` nem `.partial` e o histórico fica `canceled`. |
 | `destructive_restore_requires_confirmation` | Sem `--overwrite` ou com `--confirm` errado sai com 12. Com confirmação, o banco anterior é mantido em `__previous_*`. |
+| `verify_and_restore_without_history` | O dump e o manifesto copiados para um ambiente com histórico vazio são verificados e restaurados idênticos. Dump alterado, `sha256` adulterado no manifesto e dump ausente saem com 10. |
 | `hostile_identifiers_are_not_executed` | Nomes com `;`, `$(...)`, crases, aspas, `dbname=...` e prefixo `-` são tratados literalmente ou recusados; nada é executado nem escrito em outro banco. |
 
 Como funciona:

@@ -58,7 +58,9 @@ DBU_PG_PASSWORD='...' cargo run -p database-backup-cli -- backup run \
 
 - O dump é gravado em streaming num arquivo `.partial`, conferido com `pg_restore --list` e só
   então renomeado para `<database>-<AAAAMMDDTHHMMSSZ>.dump`. Arquivo parcial nunca vira backup.
-- Ao lado do dump fica `<arquivo>.dump.meta.json`, com SHA-256, tamanho, versões e runner.
+- Ao lado do dump fica o manifesto versionado `<arquivo>.dump.meta.json` (`0600`), com versão do
+  formato, SGBD, versão do utilitário, SHA-256, tamanho, versões e runner, sem credenciais. Detalhes e
+  limites em [`docs/manifesto.md`](docs/manifesto.md).
 - Cada execução (sucesso, falha ou cancelamento) é registrada no histórico SQLite.
 - Destino padrão: `backups/` na pasta de dados do aplicativo (`~/.local/share/database-backup-utility/backups/` no Linux).
 - `--runner auto` usa o `pg_dump` instalado se for compatível; senão, o Docker.
@@ -71,9 +73,10 @@ cargo run -p database-backup-cli -- backup verify --file <arquivo.dump> [--runne
 cargo run -p database-backup-cli -- restore list
 ```
 
-- `backup verify` recusa symlinks e arquivos graváveis por outros, confere o SHA-256 com o
-  `.meta.json` (ou com o histórico) e valida a estrutura com `pg_restore --list`. Sai com 10 se o
-  arquivo estiver ausente, alterado ou inválido.
+- `backup verify` recusa symlinks e arquivos graváveis por outros, confere o manifesto (versão, nome
+  do arquivo, tamanho e SHA-256) ou, sem ele, o histórico, e valida a estrutura com
+  `pg_restore --list`. Com o manifesto funciona sem o histórico SQLite, por exemplo depois de copiar
+  o par para outra máquina. Sai com 10 se o arquivo estiver ausente, alterado ou inválido.
 
 Restaurar um backup:
 
@@ -83,7 +86,7 @@ DBU_PG_PASSWORD='...' cargo run -p database-backup-cli -- restore run \
   --target-database my_database_copy --user postgres
 ```
 
-- Antes de restaurar, confere o SHA-256 com o `.meta.json` (ou com o histórico), valida o arquivo
+- Antes de restaurar, confere o manifesto `.meta.json` (ou o histórico), valida o arquivo
   com `pg_restore --list` e recusa backups vindos de um PostgreSQL mais novo que o destino.
   Arquivos sem checksum conhecido exigem `--allow-unverified`, que emite um aviso e marca o restore
   como não verificado no histórico; estrutura e versão continuam sendo conferidas.
