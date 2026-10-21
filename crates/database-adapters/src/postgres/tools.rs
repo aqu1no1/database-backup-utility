@@ -573,6 +573,7 @@ fn check_compatible(
 
 fn connection_args(config: &PostgresConnectionConfig, extra: &[&str]) -> Vec<OsString> {
     let port = config.port().to_string();
+    let dbname = dbname_conninfo(config.database());
     let base = [
         "--no-password",
         "--host",
@@ -582,13 +583,18 @@ fn connection_args(config: &PostgresConnectionConfig, extra: &[&str]) -> Vec<OsS
         "--username",
         config.user(),
         "--dbname",
-        config.database(),
+        &dbname,
     ];
     extra
         .iter()
         .chain(base.iter())
         .map(OsString::from)
         .collect()
+}
+
+fn dbname_conninfo(database: &str) -> String {
+    let escaped = database.replace('\\', "\\\\").replace('\'', "\\'");
+    format!("dbname='{escaped}'")
 }
 
 fn absolute(tool: &'static str, path: &Path) -> Result<PathBuf, ToolError> {
@@ -766,6 +772,19 @@ mod tests {
                 major: 17,
                 minor: 11
             })
+        );
+    }
+
+    #[test]
+    fn dbname_is_always_a_quoted_conninfo_value() {
+        assert_eq!(dbname_conninfo("app"), "dbname='app'");
+        assert_eq!(
+            dbname_conninfo("dbname=postgres"),
+            "dbname='dbname=postgres'"
+        );
+        assert_eq!(
+            dbname_conninfo(r"it's a\b host=x"),
+            r"dbname='it\'s a\\b host=x'"
         );
     }
 

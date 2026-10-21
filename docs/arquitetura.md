@@ -16,7 +16,9 @@ flowchart TD
 - `core/`, `shared/`, `features/` e `layout/` são pastas do frontend **quando ele for criado**.
 - `crates/` Rust são compartilhadas entre interfaces. A pasta `libs/` TS não será criada sem uso.
 - `crates/database-adapters/src/postgres/tools.rs` executa `pg_dump`/`pg_restore` em modo `native`
-  ou `docker`, sempre com argumentos estruturados e a senha num `.pgpass` temporário.
+  ou `docker`, sempre com argumentos estruturados e a senha num `.pgpass` temporário. O banco vai
+  em `--dbname dbname='<nome escapado>'`: um valor de `--dbname` com `=` seria lido pelo libpq como
+  string de conexão (host, porta, banco), então o nome nunca é repassado cru.
   Distribuição nativa das ferramentas será avaliada por SO.
 - `crates/storage` grava o backup localmente: arquivo `.partial`, SHA-256 em streaming,
   `fsync` e `rename` atômico, além do arquivo `.meta.json`. Destinos em nuvem entram nessa crate.
