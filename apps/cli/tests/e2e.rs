@@ -457,6 +457,12 @@ async fn full_cycle_restores_identical_data_on_another_server() -> TestResult {
             assert_eq!(restores.as_array().map(Vec::len), Some(1));
             assert_eq!(restores[0]["status"], "succeeded");
             assert_eq!(restores[0]["target_database"], target_name.as_str());
+            let (mode, linked): (String, bool) = ws.history().query_row(
+                "SELECT mode, artifact_id IS NOT NULL FROM restore_executions",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )?;
+            assert_eq!((mode.as_str(), linked), ("create", true));
 
             for secret in [source.password(), target.password()] {
                 let leaks = [
@@ -720,6 +726,16 @@ async fn destructive_restore_requires_confirmation() -> TestResult {
         );
         assert_eq!(refused.status.code(), Some(12), "{}", text(&refused));
 
+        let mut unconfirmed = restore(&ws, &target, &dump, "existente", "docker");
+        unconfirmed.arg("--overwrite");
+        let unconfirmed = session.run("overwrite-without-confirm", &mut unconfirmed);
+        assert_eq!(
+            unconfirmed.status.code(),
+            Some(12),
+            "{}",
+            text(&unconfirmed)
+        );
+
         let mut wrong = restore(&ws, &target, &dump, "existente", "docker");
         wrong.args(["--overwrite", "--confirm", "outro"]);
         let wrong = session.run("wrong-confirmation", &mut wrong);
@@ -743,6 +759,20 @@ async fn destructive_restore_requires_confirmation() -> TestResult {
         assert_eq!(
             snapshot(&target, "existente").await?,
             snapshot(&source, source.database()).await?
+        );
+        assert_eq!(
+            user_databases(&target).await?,
+            vec!["existente".to_owned(), previous.clone()],
+            "nenhum banco temporário __restore_* pode sobrar"
+        );
+        let (mode, kept): (String, String) = ws.history().query_row(
+            "SELECT mode, previous_database FROM restore_executions WHERE status = 'succeeded'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        assert_eq!(
+            (mode.as_str(), kept.as_str()),
+            ("overwrite", previous.as_str())
         );
         assert_no_residue(&ws);
         Ok(())

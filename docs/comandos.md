@@ -47,7 +47,6 @@ docker compose --env-file .env -f infra/docker/compose.yml down
 ```bash
 cargo test --workspace --lib --bins                                   # unitários, sem Docker
 cargo test --workspace --tests                                        # tudo, inclui Testcontainers (Docker)
-cargo test -p database-backup-adapters --test postgres_container      # só a integração PostgreSQL
 cargo test -p database-backup-adapters --test postgres_connection     # teste de conexão
 cargo test -p database-backup-history                                 # histórico SQLite
 cargo test -p database-backup-adapters --test postgres_tools          # pg_dump/pg_restore (native e Docker)
@@ -55,7 +54,8 @@ cargo test -p database-backup-cli --test backup                       # backup p
 cargo test -p database-backup-adapters --test postgres_restore        # pg_restore e administração de bancos
 cargo test -p database-backup-cli --test restore                      # restore ponta a ponta
 cargo test -p database-backup-cli --test cli                          # argumentos, ajuda e JSON (sem Docker)
-cargo test -p database-backup-adapters --test postgres_container -- seed_fixture_is_applied
+cargo test -p database-backup-cli --test e2e                          # ciclos completos (Docker)
+cargo test -p database-backup-cli --test e2e -- hostile               # um cenário pelo nome
 ```
 
 Os testes de integração criam PostgreSQL temporários e não usam o banco do Compose.

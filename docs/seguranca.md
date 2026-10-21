@@ -53,7 +53,7 @@ Todos os testes citados rodam na CI (`cargo test --workspace --tests`, job
 
 | Controle | Evidência | Status |
 | --- | --- | --- |
-| Integridade antes de restaurar | checksum + manifesto + `pg_restore --list`; `rejects_missing_corrupted_and_unverified_files`, E2E `corrupted_and_partial_archives_are_rejected` | ok |
+| Integridade antes de restaurar | checksum + manifesto + `pg_restore --list`; `unverified_archive_requires_explicit_flag_and_is_recorded`, E2E `corrupted_and_partial_archives_are_rejected` e `verify_and_restore_without_history` | ok |
 | Origem segura | sem symlink e sem permissão aberta no dump ou no manifesto; `rejects_unsafe_source_files`, `restore_source_rejects_symlink_and_directory` | ok |
 | Destino explícito e confirmação para operação destrutiva | `--target-database` obrigatório; `--overwrite` + nome; E2E `destructive_restore_requires_confirmation` | ok |
 | Falha não deixa dados parciais | `--single-transaction`; `failed_restore_leaves_target_without_partial_data` | ok |

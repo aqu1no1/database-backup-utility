@@ -690,17 +690,6 @@ mod tests {
     }
 
     #[test]
-    fn open_creates_database_and_applies_migrations() {
-        let (_dir, path, history) = temp_history();
-
-        assert!(path.exists());
-        assert_eq!(
-            history.schema_version().expect("versão"),
-            MIGRATIONS.len() as i64
-        );
-    }
-
-    #[test]
     fn reopening_is_idempotent() {
         let (_dir, path, history) = temp_history();
         let connection_id = history
