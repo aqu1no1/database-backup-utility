@@ -38,14 +38,59 @@ docker compose --env-file .env -f infra/docker/compose.yml \
 
 | Variável | Finalidade |
 | --- | --- |
-| `DBU_PG_PASSWORD` | Senha usada por `connection test`, `backup run` e `restore run` em scripts e agendamentos. Sem ela, a CLI pede a senha sem eco no terminal. |
+| `DBU_PG_PASSWORD` | Senha usada por `connection test`, `backup run` e `restore run` em scripts. |
+| `DBU_PG_PASSWORD_FILE` | Caminho de um arquivo com a senha (equivale a `--password-file`). Recomendado para agendadores. |
 | `DBU_DATA_DIR` | Diretório do histórico SQLite, no lugar do padrão do sistema. Útil para testes e uso portátil. |
 | `RUST_LOG` | Filtro dos logs no stderr (ex.: `info`, `database_backup=debug`) quando `--log-level` não é informado. Padrão: `warn`. |
 
 - A CLI não lê o `.env`; exporte as variáveis no shell ou no agendador.
-- A senha nunca é aceita como argumento, porque argumentos ficam visíveis em `ps` e no histórico do shell.
-- Variáveis de ambiente ficam visíveis para o próprio usuário e o root (`/proc/<pid>/environ`).
-  Um provedor via keyring do sistema está previsto para uma issue futura.
+
+## Credenciais
+
+A senha do PostgreSQL vem de **uma** destas fontes:
+
+| Fonte | Quando usar |
+| --- | --- |
+| `--password-file <ARQUIVO>` | Agendadores e scripts. |
+| `DBU_PG_PASSWORD_FILE` | O mesmo que a flag, via ambiente (ex.: unit do systemd). |
+| `DBU_PG_PASSWORD` | Scripts curtos. Fica visível em `/proc/<pid>/environ` para o próprio usuário e o root. |
+| Prompt sem eco | Uso interativo, quando nenhuma das anteriores está definida e o stdin é um terminal. |
+
+- **Mais de uma fonte definida é erro** (exit 2), e a mensagem lista quais foram encontradas. Isso
+  evita usar sem querer a senha de outro ambiente que ficou exportada no shell.
+- Sem nenhuma fonte e sem terminal (cron, systemd, CI), a CLI sai com 2 e explica as opções.
+- A senha **nunca** é aceita como argumento: argumentos ficam visíveis em `ps` e no histórico do shell.
+- O histórico SQLite guarda só de onde a senha veio (`connections.secret_ref`: `prompt`,
+  `env:DBU_PG_PASSWORD` ou `file:<caminho>`), nunca o valor. Mensagens de erro citam o caminho do
+  arquivo, nunca o conteúdo.
+
+Regras do arquivo de senha (`crates/core/src/secret.rs`):
+
+- arquivo regular, sem link simbólico;
+- no Linux/macOS, nenhuma permissão para grupo ou outros (`600` ou `400`). No Windows essa checagem
+  não existe; proteja o arquivo pelas ACLs;
+- até 4 KiB, em UTF-8 e não vazio;
+- só a quebra de linha final (`\n` ou `\r\n`) é removida; espaços fazem parte da senha.
+
+```bash
+install -m 600 /dev/null ~/.config/dbu/pg.pass
+printf '%s\n' 'a-senha' > ~/.config/dbu/pg.pass
+DBU_PG_PASSWORD_FILE=~/.config/dbu/pg.pass database-backup backup run --database app --user backup
+```
+
+### Keyring do sistema (futuro)
+
+O contrato `SecretProvider` (core) permite adicionar um adaptador para o cofre do sistema
+operacional (Secret Service no Linux, Keychain no macOS, Credential Manager no Windows) sem mudar os
+comandos. Não está no MVP por causa do uso sem terminal: o Secret Service exige uma sessão D-Bus com o
+chaveiro desbloqueado, o que cron e serviços do systemd normalmente não têm. Para agendamento, o
+arquivo de senha com permissão `600` continua sendo o caminho suportado.
+
+### Por que não a crate `secrecy`
+
+O tipo `Password` do core já esconde o valor no `Debug` (`Password(***)`) e zera os bytes no `Drop`.
+A crate `secrecy` traria o mesmo resultado com uma dependência a mais. Reavaliar se surgirem outros
+tipos de segredo, como tokens de nuvem.
 
 ## TLS no teste de conexão
 

@@ -542,6 +542,7 @@ dependencies = [
 name = "database-backup-core"
 version = "0.1.0"
 dependencies = [
+ "tempfile",
  "thiserror",
 ]
 
