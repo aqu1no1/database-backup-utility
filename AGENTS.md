@@ -340,6 +340,14 @@ Estratégia de testes:
 - Prefira testes de comportamento com o padrão Arrange–Act–Assert. Não faça mock do próprio
   sistema cujo comportamento você pretende validar em um teste de integração.
 
+### Política de testes — Rust
+
+Antes de adicionar ou alterar testes, leia `docs/testes-rust.md`.
+Priorize integridade de backup/restore, segurança, contratos da CLI e integrações reais.
+Não crie testes apenas para aumentar cobertura ou espelhar funções.
+Sempre identifique o defeito plausível que cada teste deve detectar.
+Depois da implementação, execute a verificação obrigatória abaixo. Não reporte sucesso sem execução.
+
 ### Verificação obrigatória após cada implementação
 
 Ao terminar **cada** implementação (issue, correção ou ajuste), antes de mostrar o resultado,
@@ -382,8 +390,6 @@ existirem. Confirme os nomes reais no `package.json`; não invente comandos.
 
 - Testes que dependem do Docker exigem um daemon disponível. Se estiver ausente,
   execute as verificações independentes e informe quais testes de integração ficaram pendentes.
-- Priorize testes de comportamento alterado. Evite testes triviais para cada getter
-  ou helper de uma linha sem comportamento observável relevante.
 - Nunca edite manualmente os arquivos gerados pelo Angular nem os artefatos de `target/`.
 
 ## 9. Documentação, changelog e releases
