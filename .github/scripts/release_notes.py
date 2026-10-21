@@ -21,7 +21,7 @@ def extract(version: str, root: Path = ROOT) -> str:
     found_version = cargo["workspace"]["package"]["version"]
     if found_version != plain:
         raise ValueError(f"Cargo.toml informa {found_version}; esperado {plain}.")
-    for member in ("apps/cli", "crates/core", "crates/database-adapters"):
+    for member in cargo["workspace"].get("members", []):
         file = root / member / "Cargo.toml"
         pkg = tomllib.loads(file.read_text(encoding="utf-8"))["package"]
         declared = pkg.get("version")

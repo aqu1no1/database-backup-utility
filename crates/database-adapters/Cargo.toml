@@ -2,6 +2,8 @@
 name = "database-backup-adapters"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
 database-backup-core.workspace = true

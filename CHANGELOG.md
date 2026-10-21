@@ -10,32 +10,35 @@ versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
-### Added
-- CLI `database-backup` organizada em `connection test`, `backup run|list|verify` e `restore run|list`, com exemplos em cada `--help` e exit codes documentados.
-- Comando `connection test` para validar parâmetros e testar a conexão PostgreSQL, com senha por prompt sem eco ou `DBU_PG_PASSWORD`, TLS verificado para hosts remotos e exit codes por tipo de falha.
-- Comando `backup run`: backup full PostgreSQL com `pg_dump` (formato custom) em streaming, executado pelo cliente instalado ou via Docker, com arquivo finalizado de forma atômica, SHA-256, manifesto ao lado do dump e registro no histórico SQLite.
-- Comando `restore run`: restaura um backup PostgreSQL após conferir SHA-256, estrutura e versão; cria um banco novo por padrão e só substitui um banco com dados com `--overwrite` e confirmação do nome, restaurando antes em um banco temporário e mantendo o anterior como `<destino>__previous_<data>`. O `pg_restore` roda em uma única transação e cada restore é registrado no histórico. Recusa symlinks e arquivos graváveis por grupo/outros como origem; `--allow-unverified` avisa e marca o restore como não verificado.
-- `backup list` e `restore list` consultam o histórico; `backup verify` confere checksum e estrutura de um backup sem restaurar.
-- Opção global `--json` com resultado (ou erro e exit code) em uma linha JSON no stdout.
-- Manifesto versionado `<dump>.meta.json` (`manifest_version` 1): SGBD, formato, nome do arquivo, versão do utilitário, tamanho e SHA-256, sem credenciais. `backup verify` e `restore run` conferem versão, nome, tamanho e checksum, e funcionam sem o histórico SQLite. Manifestos sem versão ou de versão desconhecida são recusados.
-- Senha por arquivo (`--password-file` ou `DBU_PG_PASSWORD_FILE`) para agendadores, aceito só com permissão `600`/`400`, sem symlink, até 4 KiB. Mais de uma fonte de senha definida passa a ser erro explícito, e o histórico registra só a origem (`prompt`, `env:...`, `file:...`).
-- Logs estruturados com `tracing` no stderr (horário, operação, IDs, status e duração, sem credenciais), configuráveis por `--log-level` ou `RUST_LOG`.
-
-### Fixed
-- Cancelar um backup ou restore no runner Docker logo no início (Ctrl+C ou timeout) podia deixar um container `dbu-pg-*` criado e nunca removido. Agora o cliente `docker run` é encerrado antes e a remoção do container é repetida por até 2 segundos.
-
-### Changed
-- `backup run` avisa no stderr quando o diretório de saída já existe e é acessível por grupo ou outros usuários. Os backups continuam com permissão `0600`, e o modo do diretório não é alterado.
-
-### Security
-- GitHub Actions fixadas por commit SHA em todos os workflows.
-- Clippy proíbe `unwrap()`/`expect()` fora de testes (`[workspace.lints.clippy]`).
-- `pg_dump`/`pg_restore` passam a receber o nome do banco como valor entre aspas (`dbname='...'`). Antes, um nome de banco contendo `=` (por exemplo `dbname=postgres`) era interpretado pelo libpq como string de conexão e podia levar o backup ou o restore para outro banco.
-
 <!-- Ao concluir uma funcionalidade relevante, registre-a aqui usando:
 ### Added
 - Mensagem da mudança validada.
 
 Para publicar, mova as entradas para uma nova seção com data real:
-Seção versionada: `[0.1.0] - AAAA-MM-DD`
+Seção versionada: `[X.Y.Z] - AAAA-MM-DD`
 O workflow manual rejeita releases sem seção publicada e sem mudanças reais. -->
+
+## [0.1.0] - 2026-10-21
+
+Primeira versão: CLI de backup e restauração de PostgreSQL para Linux x86_64. Requer o cliente
+PostgreSQL (`pg_dump`/`pg_restore`) com versão maior ou igual à do servidor, ou Docker.
+
+### Added
+- CLI `database-backup` organizada em `connection test`, `backup run|list|verify` e `restore run|list`, com exemplos em cada `--help` e exit codes documentados por tipo de falha.
+- `connection test`: valida parâmetros e testa a conexão PostgreSQL, com TLS e certificado verificados para hosts remotos.
+- `backup run`: backup full com `pg_dump` (formato custom) em streaming, pelo cliente instalado ou via Docker. O arquivo é finalizado de forma atômica (`.partial` + `rename`), com permissão `0600`, SHA-256, manifesto ao lado e registro no histórico SQLite. Ctrl+C ou timeout não deixam arquivo parcial nem container do runner. O comando avisa quando o diretório de saída é acessível por outros usuários.
+- Manifesto versionado `<dump>.meta.json` (`manifest_version` 1): SGBD, formato, nome do arquivo, versão do utilitário, tamanho e SHA-256, sem credenciais.
+- `backup verify`: confere manifesto, tamanho, SHA-256 e estrutura (`pg_restore --list`) sem restaurar e sem depender do histórico.
+- `restore run`: restaura depois de conferir origem, manifesto, checksum, estrutura e versão. Cria um banco novo por padrão e só substitui um banco com dados com `--overwrite` e confirmação do nome. Nesse caso restaura antes em um banco temporário e mantém o anterior como `<destino>__previous_<data>`. O `pg_restore` roda em uma única transação. Arquivos sem checksum conhecido exigem `--allow-unverified`, e o restore fica marcado como não verificado.
+- `backup list` e `restore list` consultam o histórico interno.
+- Senha por prompt sem eco, `DBU_PG_PASSWORD` ou arquivo (`--password-file`/`DBU_PG_PASSWORD_FILE`, só com permissão `600`/`400`). Mais de uma fonte definida é erro. O histórico registra só a origem da senha, nunca o valor.
+- Opção global `--json` com o resultado (ou erro e exit code) em uma linha JSON no stdout.
+- Logs estruturados com `tracing` no stderr (horário, operação, IDs, status e duração, sem credenciais), configuráveis por `--log-level` ou `RUST_LOG`.
+- Licença dupla **MIT OR Apache-2.0** (`LICENSE-MIT`, `LICENSE-APACHE`), incluída no tarball da release junto com o README.
+
+### Security
+- Senhas nunca vão em argumentos de processo: os utilitários recebem um `.pgpass` temporário e privado.
+- O nome do banco é passado aos utilitários sempre como valor entre aspas (`dbname='...'`), para que nomes contendo `=` não sejam interpretados como string de conexão.
+- Origens de restore recusadas: links simbólicos e arquivos (ou manifestos) graváveis por grupo ou outros.
+- GitHub Actions fixadas por commit SHA; Clippy proíbe `unwrap()`/`expect()` fora de testes.
+- Controles, evidências e riscos aceitos documentados em `docs/seguranca.md`.

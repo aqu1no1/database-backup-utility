@@ -6,7 +6,7 @@ flowchart TD
   DESKTOP[apps/desktop - Angular/Tauri futuro] --> CORE
   CLI --> ADAPTERS[crates/database-adapters]
   DESKTOP --> ADAPTERS
-  ADAPTERS --> DB[(PostgreSQL / MySQL / MongoDB / SQLite)]
+  ADAPTERS --> DB[(PostgreSQL — implementado<br/>MySQL / MongoDB / SQLite — planejados)]
   CORE -. regras e contratos .-> ADAPTERS
 ```
 
