@@ -434,6 +434,11 @@ existirem. Confirme os nomes reais no `package.json`; não invente comandos.
   inclui `Closes DB-N` para vincular e fechar a issue do Linear no merge.
 - **Merge** com Squash & Merge depois da CI verde. Depois de um merge, a próxima branch volta
   a partir da `main` atualizada.
+- **Linear após o merge.** Ao confirmar que o PR foi mergeado (por exemplo, com `gh pr view <N>`
+  ou o merge commit na `main`), atualize o card no Linear: mova para **Done**, anexe o link do PR
+  se ainda não estiver lá e comente um resumo curto do que foi entregue e dos riscos restantes.
+  Não dependa do `Closes DB-N` para fechar o card, porque a integração nem sempre o move. Nunca
+  marque como Done um card cujo PR ainda não foi mergeado.
 
 ## 10. Antes de concluir qualquer tarefa
 
