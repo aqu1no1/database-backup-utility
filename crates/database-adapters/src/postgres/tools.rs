@@ -3,6 +3,7 @@ use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
+use std::time::Duration;
 
 use database_backup_core::{Password, PostgresConnectionConfig, TlsRequirement};
 use tempfile::TempDir;
@@ -15,6 +16,8 @@ const STDERR_LIMIT: usize = 8 * 1024;
 const CONTAINER_PGPASS: &str = "/run/dbu/pgpass";
 const CONTAINER_ARCHIVE: &str = "/run/dbu/archive.dump";
 const CONTAINER_PREFIX: &str = "dbu-pg-";
+const REMOVE_ATTEMPTS: u32 = 10;
+const REMOVE_INTERVAL: Duration = Duration::from_millis(200);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RunnerChoice {
@@ -473,17 +476,24 @@ impl ToolProcess {
     }
 
     pub async fn cancel(mut self) {
-        if let Some(name) = &self.container {
-            let _ = Command::new(&self.docker)
-                .args(["rm", "--force", name])
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()
-                .await;
-        }
         let _ = self.child.start_kill();
         let _ = self.child.wait().await;
+        if let Some(name) = &self.container {
+            for attempt in 0..REMOVE_ATTEMPTS {
+                let removed = Command::new(&self.docker)
+                    .args(["rm", "--force", name])
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                    .await
+                    .is_ok_and(|status| status.success());
+                if removed || attempt + 1 == REMOVE_ATTEMPTS {
+                    break;
+                }
+                tokio::time::sleep(REMOVE_INTERVAL).await;
+            }
+        }
         self.finished = true;
     }
 }
