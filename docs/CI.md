@@ -16,9 +16,15 @@
 
 | Workflow | Gatilho | Escopo |
 | --- | --- | --- |
-| `.github/workflows/ci.yml` | PR e push na main | Rustfmt, Clippy, testes unitários, build, integração PostgreSQL; Angular quando disponível |
+| `.github/workflows/ci.yml` | PR e push na main | Rustfmt, Clippy, testes unitários, build, integração PostgreSQL e E2E de backup/restore; Angular quando disponível |
 | `.github/workflows/audit.yml` | Semanal + manual | Auditoria de dependências Rust |
 | `.github/workflows/release.yml` | **Apenas `workflow_dispatch`** | Validação, testes, build Linux, tag e GitHub Release |
+
+O job `Rust / PostgreSQL Integration` roda `cargo test --workspace --tests` com o cliente
+PostgreSQL 17 instalado e `DBU_REQUIRE_NATIVE=1`, então os cenários E2E rodam com os runners
+`docker` e `native`. Se o job falhar, o artefato **`e2e-logs`** (retenção de 7 dias) traz stdout e
+stderr de cada passo da CLI nos cenários que falharam. Os testes conferem que nenhuma senha aparece
+nessas saídas antes de gravá-las.
 
 Configure em Settings → Rules → Rulesets a obrigatoriedade de PR e dos checks
 `Rust / Quality & Unit` e `Rust / PostgreSQL Integration`. Confira os nomes reais
