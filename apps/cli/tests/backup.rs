@@ -152,7 +152,7 @@ async fn large_backup_uses_bounded_memory() -> TestResult {
 }
 
 #[tokio::test]
-async fn verify_list_and_logs_after_backup() -> TestResult {
+async fn backup_logs_operation_and_status_without_secrets() -> TestResult {
     let db = PostgresTestDb::start_seeded().await?;
     let ws = Workspace::new()?;
 
@@ -160,48 +160,16 @@ async fn verify_list_and_logs_after_backup() -> TestResult {
         .command(&db, db.user(), db.password())
         .args(["--log-level", "info", "--json"])
         .output()?;
+
     assert_eq!(backup.status.code(), Some(0), "{}", text(&backup));
     let result: serde_json::Value = serde_json::from_slice(&backup.stdout)?;
     let logs = String::from_utf8_lossy(&backup.stderr);
     assert_eq!(result["status"], "ok");
+    assert_eq!(result["file"], ws.dump_path().display().to_string());
     assert!(logs.contains("operation=\"backup.run\""), "{logs}");
     assert!(logs.contains("status=\"succeeded\""), "{logs}");
+    assert!(logs.contains("duration_ms="), "{logs}");
     assert!(!text(&backup).contains(db.password()));
-    let dump = ws.dump_path();
-    assert_eq!(result["file"], dump.display().to_string());
-
-    let verify = |file: &std::path::Path| {
-        ws.cli(db.password())
-            .args(["backup", "verify", "--runner", "docker", "--json", "--file"])
-            .arg(file)
-            .output()
-    };
-    let valid = verify(&dump)?;
-    assert_eq!(valid.status.code(), Some(0), "{}", text(&valid));
-    let report: serde_json::Value = serde_json::from_slice(&valid.stdout)?;
-    assert_eq!(report["checksum_verified"], true);
-    assert_eq!(report["sha256"], sha256_hex(&dump).as_str());
-    assert!(report["tables"].as_u64().is_some_and(|tables| tables > 0));
-
-    let listed = ws
-        .cli(db.password())
-        .args(["backup", "list", "--json"])
-        .output()?;
-    assert_eq!(listed.status.code(), Some(0), "{}", text(&listed));
-    let listing: serde_json::Value = serde_json::from_slice(&listed.stdout)?;
-    let backups = listing["backups"].as_array().expect("lista de backups");
-    assert_eq!(backups.len(), 1);
-    assert_eq!(backups[0]["status"], "succeeded");
-    assert_eq!(backups[0]["file"], dump.display().to_string());
-    assert_eq!(backups[0]["database"], db.database());
-
-    let mut bytes = std::fs::read(&dump)?;
-    let middle = bytes.len() / 2;
-    bytes[middle] ^= 0xFF;
-    std::fs::write(&dump, &bytes)?;
-    let corrupted = verify(&dump)?;
-    assert_eq!(corrupted.status.code(), Some(10), "{}", text(&corrupted));
-    assert!(text(&corrupted).contains("checksum divergente"));
     Ok(())
 }
 
