@@ -6,7 +6,7 @@ flowchart TD
   DESKTOP[apps/desktop - Angular/Tauri futuro] --> CORE
   CLI --> ADAPTERS[crates/database-adapters]
   DESKTOP --> ADAPTERS
-  ADAPTERS --> DB[(PostgreSQL — implementado<br/>MySQL / MongoDB / SQLite — planejados)]
+  ADAPTERS --> DB[(PostgreSQL / SQLite — implementados<br/>MySQL / MongoDB — planejados)]
   CORE -. regras e contratos .-> ADAPTERS
 ```
 
@@ -32,7 +32,29 @@ flowchart TD
 - O comando `backup run` da CLI monta as peças: conexão → runner → storage → histórico.
 - O comando `restore run` faz o caminho inverso: checksum (storage/histórico) → `pg_restore --list` →
   estado do destino (`postgres/admin.rs`) → `pg_restore` em um banco novo ou temporário → troca de nomes.
-- SQLite interno será usado para histórico; não confundir com suporte futuro a backup de bancos SQLite.
+- `crates/core/src/engine.rs` define o `DatabaseEngine` (`postgres`, `sqlite`). Os nomes são os
+  mesmos do `CHECK` da tabela `connections` do histórico e do campo `engine` do manifesto v2. O
+  legado `postgresql` (manifesto v1) é lido como `postgres`. MySQL e MongoDB entram com seus cards.
+- `crates/database-adapters/src/sqlite.rs` faz backup e restore de SQLite com a Online Backup API do
+  `rusqlite`, sem ferramenta externa:
+  - a origem é aberta só para leitura e precisa ser um arquivo regular com o cabeçalho
+    `SQLite format 3`;
+  - o destino é sempre um `.partial` já criado (`0600`), aberto sem `CREATE`, com
+    `journal_mode=OFF` durante a cópia (não gera `-journal`) e `DELETE` no fim. Sem isso, uma origem
+    WAL deixaria o artefato marcado como WAL, e abrir o artefato criaria `-wal`/`-shm`;
+  - a cópia anda em passos de 256 páginas, com cancelamento entre os passos. Se outra conexão gravar
+    entre dois passos, o SQLite reinicia a cópia; na primeira reinicialização detectada, o restante
+    vai num passo só (snapshot consistente), para um escritor contínuo não impedir o fim (livelock).
+    Em WAL esse passo não bloqueia escritores; em modo rollback, eles esperam até o fim da cópia;
+  - `inspect_backup` roda `PRAGMA integrity_check` e conta objetos e tabelas;
+  - `check_not_in_use` recusa um destino de `--overwrite` aberto por outro processo: tenta
+    `BEGIN EXCLUSIVE` sem espera e, no Linux, procura o `(dev, inode)` do arquivo em `/proc/<pid>/fd`.
+- Todo `.partial` (dump, manifesto e destino de restore SQLite) fica com um lock exclusivo
+  (`File::try_lock`, `flock` no Unix) enquanto está em uso. Como o SO solta o lock quando o
+  processo morre, `LocalTarget::remove_orphan_partials` consegue distinguir um órfão de um backup
+  em andamento sem adivinhar.
+- O histórico interno (`crates/history`) também é SQLite, mas é outro arquivo: a CLI recusa usá-lo
+  como origem ou destino de backup e restore.
 - Agendamento invoca a CLI com mecanismo independente da janela desktop, não incluído no MVP.
 
 ## Organização da CLI
@@ -43,8 +65,9 @@ flowchart TD
 | --- | --- |
 | `main.rs` | Árvore de comandos (`connection test`, `backup run/list/verify`, `restore run/list`), opções globais `--json`/`--log-level`, leitura de senha e mapeamento de erros para exit codes. |
 | `output.rs` | Único ponto de saída. `success` imprime o texto ou `{"status":"ok",...}`; `fail` escreve `Erro: ...` no stderr e, com `--json`, `{"status":"error","code":N,"error":"..."}` no stdout. Também configura o `tracing`. |
-| `archive.rs` | Validações de arquivo compartilhadas por `restore run` e `backup verify`: checksum contra `.meta.json`/histórico, leitura com `pg_restore --list` e compatibilidade de versões. |
-| `backup.rs`, `restore.rs`, `verify.rs`, `listing.rs` | Um comando (ou par de `list`) por arquivo. |
+| `archive.rs` | Validações de arquivo compartilhadas por `restore run` e `backup verify`: SGBD do arquivo, checksum contra `.meta.json`/histórico, leitura com `pg_restore --list` e compatibilidade de versões. |
+| `backup.rs`, `restore.rs`, `verify.rs`, `listing.rs` | Um comando (ou par de `list`) por arquivo. `backup.rs` e `restore.rs` escolhem o fluxo pelo `--engine`. |
+| `sqlite.rs` | Fluxos de backup e restore do SQLite: chama o adaptador em `spawn_blocking`, repassa Ctrl+C e `--timeout` pela flag de cancelamento e publica o resultado com o storage e o histórico. |
 
 Regras da saída:
 
@@ -59,6 +82,8 @@ Regras da saída:
 versão do PostgreSQL de origem gravada no manifesto (`.meta.json`) ou, na falta dele, a versão
 registrada no histórico. Sem nenhuma das duas, o arquivo é recusado (código 10). Com o manifesto,
 verify e restore não dependem do histórico SQLite. As checagens estão em [`manifesto.md`](manifesto.md).
+Para SQLite não há versão de ferramenta a escolher: o `verify` usa o `integrity_check` do próprio
+`rusqlite`.
 
 ## Fluxo alvo de backup
 

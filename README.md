@@ -4,10 +4,11 @@ Ferramenta multiplataforma de backup e restauração de bancos de dados. O produ
 **CLI independente em Rust** e, futuramente, um **desktop Tauri + Angular + Tailwind v4**,
 ambos utilizando as mesmas crates de negócio.
 
-> **Estado atual (v0.1.1):** CLI para PostgreSQL com teste de conexão, backup full, verificação e
-> restore, histórico interno em SQLite, manifesto versionado e testes E2E. **Ainda não existem:**
-> desktop Angular/Tauri, MySQL, MongoDB, SQLite (como banco de origem), agendamento, nuvem,
-> compressão extra e criptografia. Esses itens estão planejados em [`docs/RELEASES.md`](docs/RELEASES.md).
+> **Estado atual (v0.1.1 + `Unreleased`):** CLI para PostgreSQL com teste de conexão, backup full,
+> verificação e restore, histórico interno em SQLite, manifesto versionado e testes E2E. Em
+> `Unreleased` (ainda sem release): backup, verificação e restore de bancos **SQLite** como origem.
+> **Ainda não existem:** desktop Angular/Tauri, MySQL, MongoDB, agendamento, nuvem, compressão extra
+> e criptografia. Esses itens estão planejados em [`docs/RELEASES.md`](docs/RELEASES.md).
 
 ## Stack
 
@@ -109,6 +110,20 @@ DBU_PG_PASSWORD='...' cargo run -p database-backup-cli -- backup run \
 - Destino padrão: `backups/` na pasta de dados do aplicativo (`~/.local/share/database-backup-utility/backups/` no Linux).
 - `--runner auto` usa o `pg_dump` instalado se for compatível; senão, o Docker.
 
+Gerar um backup de um banco SQLite (Online Backup API, sem servidor, usuário nem senha):
+
+```bash
+cargo run -p database-backup-cli -- backup run --engine sqlite --source ./app.db [--output-dir DIR]
+```
+
+- O arquivo de origem é aberto só para leitura. A cópia é consistente mesmo com a aplicação
+  gravando, inclusive em modo WAL, e passa por `PRAGMA integrity_check` antes de virar
+  `<arquivo>-<AAAAMMDDTHHMMSSZ>.sqlite3`. O artefato fica em modo `DELETE` (sem `-wal`/`-shm`).
+- Recusa links simbólicos, arquivos que não são SQLite, o próprio histórico interno do utilitário e
+  origens dentro do diretório de backups.
+- Em modo WAL, o próprio SQLite cria `-wal`/`-shm` ao lado da origem, como faz com qualquer leitor.
+  Os dados da origem não são alterados.
+
 Consultar o histórico e verificar um backup sem restaurar:
 
 ```bash
@@ -119,7 +134,8 @@ cargo run -p database-backup-cli -- restore list
 
 - `backup verify` recusa symlinks e arquivos graváveis por outros, confere o manifesto (versão, nome
   do arquivo, tamanho e SHA-256) ou, sem ele, o histórico, e valida a estrutura com
-  `pg_restore --list`. Com o manifesto funciona sem o histórico SQLite, por exemplo depois de copiar
+  `pg_restore --list` (PostgreSQL) ou `PRAGMA integrity_check` (SQLite). O SGBD vem do manifesto
+  ou, sem ele, do cabeçalho do arquivo. Com o manifesto funciona sem o histórico SQLite, por exemplo depois de copiar
   o par para outra máquina. Sai com 10 se o arquivo estiver ausente, alterado ou inválido.
 
 Restaurar um backup:
@@ -142,16 +158,33 @@ DBU_PG_PASSWORD='...' cargo run -p database-backup-cli -- restore run \
   assume o nome. Se falhar, o destino não é tocado.
 - O `pg_restore` roda em uma única transação: uma falha no meio desfaz tudo.
 
+Restaurar um backup SQLite em um arquivo:
+
+```bash
+cargo run -p database-backup-cli -- restore run --engine sqlite \
+  --file ~/.local/share/database-backup-utility/backups/app-20261022T120000Z.sqlite3 --target ./app_copia.db
+```
+
+- O restore é gravado em `<destino>.partial` (`0600`), conferido com `integrity_check` e pela
+  contagem de tabelas, e só então publicado. Um destino novo nunca substitui um arquivo criado por
+  outro processo no meio do caminho.
+- Arquivo de destino existente exige `--overwrite` e a confirmação do caminho (`--confirm <caminho>`
+  em scripts). O atual é mantido como `<destino>.previous-<data>`. Se existir `-wal`, `-shm` ou
+  `-journal` ao lado do destino, o banco parece em uso e o restore é recusado. Também é recusado
+  (código 11, com o PID) se outro processo estiver com o arquivo aberto ou numa transação. A
+  checagem de arquivo aberto só existe no Linux e só vê processos do mesmo usuário; fora disso,
+  feche a aplicação antes de sobrescrever.
+
 | Exit code | Significado |
 | --- | --- |
 | 0 | Sucesso |
 | 1 | Erro não classificado (ex.: histórico ou pasta de destino inacessível) |
 | 2 | Parâmetro inválido ou senha ausente |
 | 3 | Autenticação recusada |
-| 4 | Banco inexistente |
+| 4 | Banco inexistente (ou arquivo SQLite de origem inexistente) |
 | 5 | Servidor inacessível ou tempo esgotado |
 | 6 | Falha de TLS |
-| 7 | `pg_dump`/`pg_restore` ausente ou incompatível (e Docker indisponível) |
+| 7 | `pg_dump`/`pg_restore` ausente ou incompatível (e Docker indisponível); não se aplica ao SQLite |
 | 8 | O backup falhou |
 | 9 | Backup ou restore cancelado (Ctrl+C) |
 | 10 | Arquivo de backup ausente, corrompido, sem checksum conhecido ou incompatível |

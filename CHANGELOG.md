@@ -10,6 +10,19 @@ versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+### Added
+- Backup, verificação e restore de bancos **SQLite** como origem: `backup run --engine sqlite --source <arquivo>` e `restore run --engine sqlite --file <backup> --target <arquivo>`. A cópia usa a Online Backup API, é consistente com a aplicação gravando (inclusive em WAL) e passa por `PRAGMA integrity_check`. O restore nunca sobrescreve sem `--overwrite` e confirmação e mantém o arquivo anterior.
+- `backup verify` identifica o SGBD pelo manifesto ou pelo cabeçalho do arquivo.
+- `backup run` remove os arquivos `.partial` deixados por backups interrompidos à força (sem lock e parados há mais de 10 minutos), sem tocar em backups em andamento.
+- `restore run --engine sqlite --overwrite` recusa um destino aberto por outro processo ou com transação aberta, informando o PID quando possível.
+
+### Changed
+- Manifesto passa para a versão 2: campos de servidor (`host`, `port`, `pg_dump_version`, `runner`) ficam opcionais e `engine` passa de `postgresql` para `postgres`. Manifestos v1 continuam aceitos; a v0.1.x recusa manifestos v2.
+- Histórico: migration `0004` permite restores sem host e porta e registra o SGBD de cada restore.
+
+### Fixed
+- Um backup que coincide no nome com um `.partial` deixado no mesmo segundo agora falha com "já existe um arquivo em …", em vez de um erro de E/S sem explicação.
+
 <!-- Ao concluir uma funcionalidade relevante, registre-a aqui usando:
 ### Added
 - Mensagem da mudança validada.

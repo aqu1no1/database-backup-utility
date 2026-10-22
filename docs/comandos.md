@@ -20,7 +20,20 @@ cargo run -p database-backup-cli -- backup list --json
 cargo run -p database-backup-cli -- backup verify --file <arquivo.dump>
 DBU_PG_PASSWORD='...' cargo run -p database-backup-cli -- restore run --file <arquivo.dump> --target-database my_database_copy --user postgres
 cargo run -p database-backup-cli -- restore list
+cargo run -p database-backup-cli -- backup run --engine sqlite --source ./app.db
+cargo run -p database-backup-cli -- backup verify --file <arquivo.sqlite3>
+cargo run -p database-backup-cli -- restore run --engine sqlite --file <arquivo.sqlite3> --target ./app_copia.db
 ```
+
+`--engine` vale `postgres` (padrão) ou `sqlite`. Com `sqlite` não há servidor nem senha: `--source`
+(backup) e `--target` (restore) indicam os arquivos, e as opções de conexão do PostgreSQL são recusadas.
+
+Arquivos `.partial` que sobram no diretório de backups vêm de um backup interrompido à força
+(`kill -9`, queda de energia). Ctrl+C, timeout e erros os removem na hora. Cada backup em andamento
+segura um lock no próprio `.partial`, e o sistema solta esse lock quando o processo morre. O
+`backup run` remove sozinho os `.partial` que aceitam o lock (ninguém está usando) e estão parados há
+mais de 10 minutos, e registra isso no log. Um `<destino>.partial` órfão de um restore SQLite também
+é removido no próximo restore.
 
 Opções globais: `--json` (resultado em JSON no stdout) e `--log-level error|warn|info|debug|trace`
 (logs no stderr; padrão `warn` ou `RUST_LOG`).

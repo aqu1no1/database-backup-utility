@@ -6,7 +6,8 @@
 | CLI | Clap, Tokio, rpassword, tracing, serde_json | `connection test`, `backup run/list/verify`, `restore run/list`, `--json` |
 | Conexão PostgreSQL | tokio-postgres, rustls (ring) + certificados do sistema | Implementado (TLS `verify-full` para hosts remotos) |
 | Motor PostgreSQL | Ferramentas oficiais `pg_dump`, `pg_restore` (runner native ou Docker) | Backup, verificação e restore implementados |
-| Histórico | SQLite (rusqlite, bundled) + rusqlite_migration | Implementado: conexões, backups, artefatos e restores (3 migrations) |
+| Motor SQLite | Online Backup API do SQLite via `rusqlite` (feature `backup`, SQLite embutido) | Backup, verificação e restore implementados (DB-22) |
+| Histórico | SQLite (rusqlite, bundled) + rusqlite_migration | Implementado: conexões, backups, artefatos e restores (4 migrations) |
 | Desenvolvimento | Docker Compose com PostgreSQL 17 | Arquivo criado |
 | Integração / E2E | Testcontainers para Rust (PostgreSQL efêmero) | Integração dos adaptadores e E2E da CLI com runners Docker e nativo |
 | Desktop | Tauri | Planejado, v0.3.0 |
