@@ -10,14 +10,6 @@ versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
-### Added
-- `THIRD-PARTY-LICENSES.md` no tarball da release, gerado com `cargo-about`, com os avisos de licença das dependências embutidas no binário.
-
-### Security
-- `unsafe` proibido em todo o workspace.
-- Dependências verificadas por `cargo-deny` em cada PR (advisories RustSec, licenças, fontes e wildcards), com triagem documentada em `docs/seguranca-rust.md`.
-- Toolchain do Rust fixada em `rust-toolchain.toml` e Cargo com `--locked` em toda a CI.
-
 <!-- Ao concluir uma funcionalidade relevante, registre-a aqui usando:
 ### Added
 - Mensagem da mudança validada.
@@ -25,6 +17,21 @@ versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 Para publicar, mova as entradas para uma nova seção com data real:
 Seção versionada: `[X.Y.Z] - AAAA-MM-DD`
 O workflow manual rejeita releases sem seção publicada e sem mudanças reais. -->
+
+## [0.1.1] - 2026-10-22
+
+Release de correção: o código do projeto é o mesmo da v0.1.0, com o Tokio atualizado para corrigir
+uma vulnerabilidade. O tarball passa a trazer os avisos de licença das dependências, que faltavam
+na v0.1.0.
+
+### Added
+- `THIRD-PARTY-LICENSES.md` no tarball da release, gerado com `cargo-about`, com os avisos de licença das dependências embutidas no binário.
+
+### Security
+- Tokio atualizado de 1.54.0 para 1.54.1, corrigindo a race condition em `tokio::time::Interval` ([RUSTSEC-2026-0384](https://rustsec.org/advisories/RUSTSEC-2026-0384)).
+- `unsafe` proibido em todo o workspace.
+- Dependências verificadas por `cargo-deny` em cada PR (advisories RustSec, licenças, fontes e wildcards), com triagem documentada em `docs/seguranca-rust.md`.
+- Toolchain do Rust fixada em `rust-toolchain.toml` e Cargo com `--locked` em toda a CI.
 
 ## [0.1.0] - 2026-10-21
 
