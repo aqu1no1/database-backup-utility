@@ -914,8 +914,8 @@ async fn verify_and_restore_without_history() -> TestResult {
         assert_eq!(verified.status.code(), Some(0), "{}", text(&verified));
         let report = json(&verified);
         assert_eq!(report["checksum_verified"], true);
-        assert_eq!(report["manifest_version"], 1);
-        assert_eq!(report["engine"], "postgresql");
+        assert_eq!(report["manifest_version"], 2);
+        assert_eq!(report["engine"], "postgres");
         assert_eq!(report["tool_version"], env!("CARGO_PKG_VERSION"));
 
         let restored = session.run(
@@ -928,6 +928,31 @@ async fn verify_and_restore_without_history() -> TestResult {
             snapshot(&target, "sem_historico").await?,
             snapshot(&source, source.database()).await?
         );
+
+        let v2_manifest = std::fs::read_to_string(&manifest)?;
+        let mut v1: serde_json::Value = serde_json::from_str(&v2_manifest)?;
+        v1["manifest_version"] = serde_json::Value::from(1);
+        v1["engine"] = serde_json::Value::from("postgresql");
+        v1["tool"]["version"] = serde_json::Value::from("0.1.1");
+        std::fs::write(&manifest, v1.to_string())?;
+        let legacy = verify("verify-v1-manifest");
+        assert_eq!(legacy.status.code(), Some(0), "{}", text(&legacy));
+        assert_eq!(json(&legacy)["manifest_version"], 1);
+        let legacy_restore = session.run(
+            "restore-v1-manifest",
+            &mut restore(&fresh, &target, &dump, "manifesto_v1", "docker"),
+        );
+        assert_eq!(
+            legacy_restore.status.code(),
+            Some(0),
+            "{}",
+            text(&legacy_restore)
+        );
+        assert_eq!(
+            snapshot(&target, "manifesto_v1").await?,
+            snapshot(&source, source.database()).await?
+        );
+        std::fs::write(&manifest, &v2_manifest)?;
 
         let pristine = std::fs::read(&dump)?;
         let mut flipped = pristine.clone();

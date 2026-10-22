@@ -1,6 +1,7 @@
 use std::fmt::Write as _;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -13,7 +14,9 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 const BUFFER_SIZE: usize = 64 * 1024;
 const PARTIAL_SUFFIX: &str = ".partial";
 pub const METADATA_SUFFIX: &str = ".meta.json";
-pub const MANIFEST_VERSION: u32 = 1;
+pub const MANIFEST_VERSION: u32 = 2;
+pub const ORPHAN_MIN_AGE: Duration = Duration::from_secs(10 * 60);
+const SUPPORTED_MANIFEST_VERSIONS: [u32; 2] = [1, 2];
 
 #[derive(Debug, Error)]
 pub enum StorageError {
@@ -43,7 +46,7 @@ fn unsupported_manifest(found: Option<u32>) -> String {
             "o manifesto não informa manifest_version (esperado {MANIFEST_VERSION}); gere o backup de novo ou use --allow-unverified"
         ),
         Some(version) => format!(
-            "versão {version} do manifesto não é suportada por esta versão do utilitário (suporta {MANIFEST_VERSION})"
+            "versão {version} do manifesto não é suportada por esta versão do utilitário (suporta 1 e 2)"
         ),
     }
 }
@@ -64,11 +67,11 @@ pub struct ArtifactMetadata<'a> {
     pub sha256: &'a str,
     pub size_bytes: u64,
     pub database: &'a str,
-    pub host: &'a str,
-    pub port: u16,
+    pub host: Option<&'a str>,
+    pub port: Option<u16>,
     pub server_version: &'a str,
-    pub pg_dump_version: &'a str,
-    pub runner: &'a str,
+    pub pg_dump_version: Option<&'a str>,
+    pub runner: Option<&'a str>,
     pub created_at: &'a str,
     pub execution_id: &'a str,
 }
@@ -89,11 +92,15 @@ struct Manifest<'a> {
     sha256: &'a str,
     size_bytes: u64,
     database: &'a str,
-    host: &'a str,
-    port: u16,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    host: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    port: Option<u16>,
     server_version: &'a str,
-    pg_dump_version: &'a str,
-    runner: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pg_dump_version: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    runner: Option<&'a str>,
     created_at: &'a str,
     execution_id: &'a str,
 }
@@ -115,7 +122,7 @@ pub struct StoredMetadata {
     pub size_bytes: u64,
     pub database: String,
     pub server_version: String,
-    pub pg_dump_version: String,
+    pub pg_dump_version: Option<String>,
     pub created_at: String,
 }
 
@@ -158,6 +165,19 @@ impl LocalTarget {
         &self.dir
     }
 
+    pub async fn remove_orphan_partials(
+        &self,
+        min_age: Duration,
+    ) -> Result<PartialCleanup, StorageError> {
+        let dir = self.dir.clone();
+        tokio::task::spawn_blocking(move || remove_orphans(&dir, min_age))
+            .await
+            .map_err(|error| StorageError::Io {
+                path: self.dir.clone(),
+                source: io::Error::other(error),
+            })?
+    }
+
     pub async fn begin(&self, file_name: &str) -> Result<PendingArtifact, StorageError> {
         let final_path = self.dir.join(file_name);
         if fs::try_exists(&final_path).await.unwrap_or(false) {
@@ -168,12 +188,23 @@ impl LocalTarget {
         options.write(true).create_new(true);
         #[cfg(unix)]
         options.mode(0o600);
-        let file = options
-            .open(&partial_path)
-            .await
-            .map_err(io_error(&partial_path))?;
+        let file = match options.open(&partial_path).await {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                return Err(StorageError::AlreadyExists(partial_path));
+            }
+            Err(source) => return Err(io_error(&partial_path)(source)),
+        };
+        let lock = match lock_partial(&partial_path) {
+            Ok(lock) => lock,
+            Err(error) => {
+                let _ = std::fs::remove_file(&partial_path);
+                return Err(error);
+            }
+        };
         Ok(PendingArtifact {
             file: Some(file),
+            lock: Some(lock),
             partial_path,
             final_path,
             hasher: Sha256::new(),
@@ -185,6 +216,7 @@ impl LocalTarget {
 
 pub struct PendingArtifact {
     file: Option<File>,
+    lock: Option<std::fs::File>,
     partial_path: PathBuf,
     final_path: PathBuf,
     hasher: Sha256,
@@ -216,6 +248,31 @@ impl PendingArtifact {
             let chunk = &buffer[..read];
             self.hasher.update(chunk);
             file.write_all(chunk).await.map_err(io_error(&path))?;
+            self.size_bytes += read as u64;
+        }
+        Ok(self.size_bytes)
+    }
+
+    pub async fn adopt_written_file(&mut self) -> Result<u64, StorageError> {
+        drop(self.file.take());
+        let mut file = File::open(&self.partial_path)
+            .await
+            .map_err(io_error(&self.partial_path))?;
+        file.sync_all()
+            .await
+            .map_err(io_error(&self.partial_path))?;
+        self.hasher = Sha256::new();
+        self.size_bytes = 0;
+        let mut buffer = vec![0_u8; BUFFER_SIZE];
+        loop {
+            let read = file
+                .read(&mut buffer)
+                .await
+                .map_err(io_error(&self.partial_path))?;
+            if read == 0 {
+                break;
+            }
+            self.hasher.update(&buffer[..read]);
             self.size_bytes += read as u64;
         }
         Ok(self.size_bytes)
@@ -256,6 +313,7 @@ impl Drop for PendingArtifact {
             drop(self.file.take());
             let _ = std::fs::remove_file(&self.partial_path);
         }
+        drop(self.lock.take());
     }
 }
 
@@ -302,6 +360,7 @@ pub async fn write_metadata(
         .open(&partial_path)
         .await
         .map_err(io_error(&partial_path))?;
+    let _lock = lock_partial(&partial_path)?;
     file.write_all(&json)
         .await
         .map_err(io_error(&partial_path))?;
@@ -374,7 +433,10 @@ async fn check_source_file(path: &Path) -> Result<bool, StorageError> {
 
 fn parse_manifest(bytes: &[u8]) -> Result<StoredMetadata, StorageError> {
     let probe: ManifestVersion = serde_json::from_slice(bytes).map_err(StorageError::Metadata)?;
-    if probe.manifest_version != Some(MANIFEST_VERSION) {
+    if !probe
+        .manifest_version
+        .is_some_and(|version| SUPPORTED_MANIFEST_VERSIONS.contains(&version))
+    {
         return Err(StorageError::UnsupportedManifest {
             found: probe.manifest_version,
         });
@@ -399,7 +461,7 @@ pub async fn sha256_file(path: &Path) -> Result<(u64, String), StorageError> {
 }
 
 #[must_use]
-pub fn backup_file_name(database: &str, at: OffsetDateTime) -> String {
+pub fn backup_file_name(database: &str, at: OffsetDateTime, extension: &str) -> String {
     let safe: String = database
         .chars()
         .map(|c| {
@@ -416,7 +478,68 @@ pub fn backup_file_name(database: &str, at: OffsetDateTime) -> String {
             "[year][month][day]T[hour][minute][second]Z"
         ))
         .unwrap_or_else(|_| at.unix_timestamp().to_string());
-    format!("{safe}-{stamp}.dump")
+    format!("{safe}-{stamp}.{extension}")
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct PartialCleanup {
+    pub removed: Vec<PathBuf>,
+    pub in_use: Vec<PathBuf>,
+    pub recent: Vec<PathBuf>,
+}
+
+fn lock_partial(path: &Path) -> Result<std::fs::File, StorageError> {
+    let file = std::fs::File::open(path).map_err(io_error(path))?;
+    file.try_lock().map_err(|error| StorageError::Io {
+        path: path.to_owned(),
+        source: io::Error::from(error),
+    })?;
+    Ok(file)
+}
+
+fn remove_orphans(dir: &Path, min_age: Duration) -> Result<PartialCleanup, StorageError> {
+    let mut cleanup = PartialCleanup::default();
+    for entry in std::fs::read_dir(dir).map_err(io_error(dir))?.flatten() {
+        if !entry
+            .file_name()
+            .to_string_lossy()
+            .ends_with(PARTIAL_SUFFIX)
+        {
+            continue;
+        }
+        let path = entry.path();
+        let Ok(metadata) = std::fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if !metadata.is_file() {
+            continue;
+        }
+        let Ok(file) = std::fs::File::open(&path) else {
+            continue;
+        };
+        match file.try_lock() {
+            Ok(()) => {}
+            Err(std::fs::TryLockError::WouldBlock) => {
+                cleanup.in_use.push(path);
+                continue;
+            }
+            Err(std::fs::TryLockError::Error(_)) => continue,
+        }
+        let old_enough = metadata
+            .modified()
+            .ok()
+            .and_then(|modified| modified.elapsed().ok())
+            .is_some_and(|age| age >= min_age);
+        if !old_enough {
+            cleanup.recent.push(path);
+        } else if std::fs::remove_file(&path).is_ok() {
+            cleanup.removed.push(path);
+        }
+    }
+    cleanup.removed.sort();
+    cleanup.in_use.sort();
+    cleanup.recent.sort();
+    Ok(cleanup)
 }
 
 fn to_hex(bytes: &[u8]) -> String {
@@ -448,7 +571,7 @@ async fn restrict_dir(dir: &Path) -> Result<(), StorageError> {
     Ok(())
 }
 
-async fn sync_dir(file: &Path) -> Result<(), StorageError> {
+pub async fn sync_dir(file: &Path) -> Result<(), StorageError> {
     #[cfg(unix)]
     if let Some(dir) = file.parent() {
         let handle = File::open(dir).await.map_err(io_error(dir))?;
@@ -525,6 +648,25 @@ mod tests {
         assert!(matches!(result, Err(StorageError::AlreadyExists(_))));
     }
 
+    #[tokio::test]
+    async fn partial_left_with_the_same_name_is_reported_and_kept() {
+        let (_dir, target) = target().await;
+        let partial = target.dir().join("db.dump.partial");
+        std::fs::write(&partial, b"backup interrompido").expect("arquivo existente");
+
+        let result = target.begin("db.dump").await;
+
+        assert!(
+            matches!(&result, Err(StorageError::AlreadyExists(path)) if *path == partial),
+            "{:?}",
+            result.err()
+        );
+        assert_eq!(
+            std::fs::read(&partial).expect("arquivo"),
+            b"backup interrompido"
+        );
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn created_directory_and_partial_are_private() {
@@ -575,16 +717,16 @@ mod tests {
         let metadata = ArtifactMetadata {
             tool_name: "database-backup",
             tool_version: "0.1.0",
-            engine: "postgresql",
+            engine: "postgres",
             format: "pg_dump-custom",
             sha256: "abc",
             size_bytes: 3,
             database: "db",
-            host: "localhost",
-            port: 5432,
+            host: Some("localhost"),
+            port: Some(5432),
             server_version: "17.11",
-            pg_dump_version: "17.11",
-            runner: "docker",
+            pg_dump_version: Some("17.11"),
+            runner: Some("docker"),
             created_at: "2026-10-20T19:00:00Z",
             execution_id: "exec-1",
         };
@@ -599,7 +741,7 @@ mod tests {
         assert_eq!(json["manifest_version"], MANIFEST_VERSION);
         assert_eq!(json["tool"]["name"], "database-backup");
         assert_eq!(json["tool"]["version"], "0.1.0");
-        assert_eq!(json["engine"], "postgresql");
+        assert_eq!(json["engine"], "postgres");
         assert_eq!(json["file_name"], "db.dump");
         assert_eq!(json["sha256"], "abc");
         assert_eq!(json["runner"], "docker");
@@ -639,16 +781,16 @@ mod tests {
         let metadata = ArtifactMetadata {
             tool_name: "database-backup",
             tool_version: "0.1.0",
-            engine: "postgresql",
-            format: "pg_dump-custom",
+            engine: "sqlite",
+            format: "sqlite-backup-api",
             sha256: &stored.sha256,
             size_bytes: stored.size_bytes,
             database: "db",
-            host: "localhost",
-            port: 5432,
-            server_version: "17.11",
-            pg_dump_version: "17.11",
-            runner: "docker",
+            host: None,
+            port: None,
+            server_version: "3.50.4",
+            pg_dump_version: None,
+            runner: None,
             created_at: "2026-10-20T19:00:00Z",
             execution_id: "exec-1",
         };
@@ -662,8 +804,18 @@ mod tests {
             .expect("metadados presentes");
         let (size, sha256) = sha256_file(&stored.path).await.expect("checksum");
 
+        let json: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(metadata_path(&stored.path)).expect("manifesto"))
+                .expect("json");
+        for absent in ["host", "port", "pg_dump_version", "runner"] {
+            assert!(
+                json.get(absent).is_none(),
+                "{absent} não deveria ser gravado"
+            );
+        }
         assert_eq!(read.manifest_version, MANIFEST_VERSION);
-        assert_eq!(read.engine, "postgresql");
+        assert_eq!(read.engine, "sqlite");
+        assert_eq!(read.pg_dump_version, None);
         assert_eq!(read.file_name, "db.dump");
         assert_eq!(read.tool.version, "0.1.0");
         assert_eq!(read.sha256, stored.sha256);
@@ -683,7 +835,7 @@ mod tests {
         let artifact = target.dir().join("db.dump");
         let cases = [
             (r#"{"sha256":"abc"}"#, None),
-            (r#"{"manifest_version":2,"sha256":"abc"}"#, Some(2)),
+            (r#"{"manifest_version":3,"sha256":"abc"}"#, Some(3)),
         ];
 
         for (body, expected) in cases {
@@ -701,16 +853,108 @@ mod tests {
         ));
     }
 
+    fn age(path: &Path, by: Duration) {
+        let file = std::fs::File::options()
+            .write(true)
+            .open(path)
+            .expect("arquivo");
+        file.set_modified(std::time::SystemTime::now() - by)
+            .expect("mtime");
+    }
+
+    #[tokio::test]
+    async fn only_unlocked_and_old_partials_are_removed() {
+        let (_dir, target) = target().await;
+        let active = target
+            .begin("ativo.dump")
+            .await
+            .expect("backup em andamento");
+        let old = target.dir().join("abandonado.dump.partial");
+        let recent = target.dir().join("recente.sqlite3.partial");
+        std::fs::write(&old, b"x").expect("arquivo");
+        std::fs::write(&recent, b"x").expect("arquivo");
+        let hour = Duration::from_secs(3600);
+        age(active.partial_path(), hour);
+        age(&old, hour);
+
+        let cleanup = target
+            .remove_orphan_partials(ORPHAN_MIN_AGE)
+            .await
+            .expect("limpeza");
+
+        assert_eq!(
+            cleanup,
+            PartialCleanup {
+                removed: vec![old.clone()],
+                in_use: vec![active.partial_path().to_owned()],
+                recent: vec![recent.clone()],
+            }
+        );
+        assert!(!old.exists());
+        assert!(active.partial_path().exists());
+        assert!(recent.exists());
+    }
+
+    #[tokio::test]
+    async fn manifest_written_by_v0_1_is_still_readable() {
+        let (_dir, target) = target().await;
+        let artifact = target.dir().join("db.dump");
+        let v1 = serde_json::json!({
+            "manifest_version": 1,
+            "tool": { "name": "database-backup", "version": "0.1.1" },
+            "engine": "postgresql",
+            "format": "pg_dump-custom",
+            "file_name": "db.dump",
+            "sha256": "abc",
+            "size_bytes": 3,
+            "database": "db",
+            "host": "localhost",
+            "port": 5432,
+            "server_version": "17.11",
+            "pg_dump_version": "17.11",
+            "runner": "docker",
+            "created_at": "2026-10-21T12:00:00Z",
+            "execution_id": "exec-1"
+        });
+        std::fs::write(metadata_path(&artifact), v1.to_string()).expect("manifesto");
+
+        let read = read_metadata(&artifact)
+            .await
+            .expect("v1 continua suportado")
+            .expect("manifesto presente");
+
+        assert_eq!(read.manifest_version, 1);
+        assert_eq!(read.engine, "postgresql");
+        assert_eq!(read.pg_dump_version.as_deref(), Some("17.11"));
+    }
+
+    #[tokio::test]
+    async fn adopted_file_written_by_another_writer_is_hashed_and_published() {
+        let (_dir, target) = target().await;
+        let mut pending = target.begin("db.sqlite3").await.expect("início");
+        std::fs::write(pending.partial_path(), b"hello world").expect("escrita externa");
+
+        let size = pending.adopt_written_file().await.expect("adoção");
+        let stored = pending.commit().await.expect("commit");
+
+        assert_eq!(size, 11);
+        assert_eq!(
+            stored.sha256,
+            "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
+        );
+        assert_eq!(stored.path, target.dir().join("db.sqlite3"));
+    }
+
     #[test]
     fn file_name_is_sanitized_and_timestamped() {
         let at = datetime!(2026-10-20 19:05:09 UTC);
         assert_eq!(
-            backup_file_name("my_database", at),
+            backup_file_name("my_database", at, "dump"),
             "my_database-20261020T190509Z.dump"
         );
         assert_eq!(
-            backup_file_name("../etc/passwd db", at),
-            "___etc_passwd_db-20261020T190509Z.dump"
+            backup_file_name("../etc/passwd db", at, "sqlite3"),
+            "___etc_passwd_db-20261020T190509Z.sqlite3"
         );
     }
 

@@ -8,6 +8,7 @@ As regras sobre **quais** testes escrever (relevância, nível, isolamento, temp
 | Unitários Rust | `cargo test --workspace --lib --bins` | Não |
 | Integração PostgreSQL | Testcontainers + tokio-postgres | Sim |
 | E2E backup/restore | CLI real, dois servidores PostgreSQL temporários | Sim |
+| Integração e E2E SQLite | `rusqlite` + arquivos em `tempfile` (`crates/database-adapters/tests/sqlite_backup.rs`, `apps/cli/tests/sqlite.rs`) | Não |
 | Angular unit/component (futuro) | Vitest + Angular TestBed | Não |
 | Desktop completo (futuro) | Ferramenta Tauri compatível | Conforme cenário |
 

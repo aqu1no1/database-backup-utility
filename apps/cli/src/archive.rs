@@ -1,10 +1,11 @@
 use std::path::Path;
 
 use database_backup_adapters::postgres::{ArchiveInfo, PgTools, PgVersion};
+use database_backup_adapters::sqlite::{SqliteError, check_database_file};
+use database_backup_core::DatabaseEngine;
 use database_backup_history::History;
 use database_backup_storage::{StoredMetadata, read_metadata, sha256_file};
 
-use crate::backup::ENGINE;
 use crate::describe;
 
 pub struct VerifiedSource {
@@ -15,16 +16,40 @@ pub struct VerifiedSource {
     pub manifest: Option<StoredMetadata>,
 }
 
+pub async fn detect_engine(file: &Path) -> Result<DatabaseEngine, String> {
+    if let Some(manifest) = read_metadata(file)
+        .await
+        .map_err(|error| describe(&error))?
+    {
+        return manifest.engine.parse().map_err(|_| {
+            format!(
+                "o manifesto descreve um backup de {}, que esta versão não suporta",
+                manifest.engine
+            )
+        });
+    }
+    let path = file.to_owned();
+    let header = tokio::task::spawn_blocking(move || check_database_file(&path))
+        .await
+        .map_err(|error| error.to_string())?;
+    match header {
+        Ok(()) => Ok(DatabaseEngine::Sqlite),
+        Err(SqliteError::NotSqlite(_)) => Ok(DatabaseEngine::Postgres),
+        Err(error) => Err(describe(&error)),
+    }
+}
+
 pub async fn verify_checksum(
     file: &Path,
     history: &History,
     allow_unverified: bool,
+    engine: DatabaseEngine,
 ) -> Result<VerifiedSource, String> {
     let metadata = read_metadata(file)
         .await
         .map_err(|error| describe(&error))?;
     if let Some(manifest) = &metadata {
-        check_manifest(file, manifest)?;
+        check_manifest(file, manifest, engine)?;
     }
     let artifact = history
         .find_artifact_by_location(&file.display().to_string())
@@ -69,7 +94,11 @@ pub async fn verify_checksum(
     }
 }
 
-fn check_manifest(file: &Path, manifest: &StoredMetadata) -> Result<(), String> {
+fn check_manifest(
+    file: &Path,
+    manifest: &StoredMetadata,
+    engine: DatabaseEngine,
+) -> Result<(), String> {
     let name = file
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
@@ -80,10 +109,11 @@ fn check_manifest(file: &Path, manifest: &StoredMetadata) -> Result<(), String> 
             manifest.file_name
         ));
     }
-    if manifest.engine != ENGINE {
+    if manifest.engine.parse::<DatabaseEngine>() != Ok(engine) {
         return Err(format!(
-            "o manifesto descreve um backup de {}, não de {ENGINE}",
-            manifest.engine
+            "o manifesto descreve um backup de {}, não de {}",
+            manifest.engine,
+            engine.display_name()
         ));
     }
     let size = std::fs::metadata(file)

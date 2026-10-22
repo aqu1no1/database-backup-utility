@@ -7,7 +7,7 @@ use clap::Args;
 use database_backup_adapters::postgres::{
     Admin, ArchiveInfo, DatabaseState, PgTools, PgVersion, Timeouts, derived_name, test_connection,
 };
-use database_backup_core::{Password, PostgresConnectionConfig};
+use database_backup_core::{DatabaseEngine, Password, PostgresConnectionConfig};
 use database_backup_history::{ExecutionStatus, History, NewRestore, RestoreMode};
 use database_backup_storage::check_restore_source;
 use serde::Serialize;
@@ -17,16 +17,31 @@ use tracing::{info, warn};
 
 use crate::archive::{check_target, read_archive, verify_checksum};
 use crate::output::{fail, success};
-use crate::{RunnerArg, TlsArg, describe, exit, exit_code_for, read_password};
+use crate::{EngineArg, RunnerArg, TlsArg, describe, exit, exit_code_for, read_password};
 
 const MAINTENANCE_DATABASE: &str = "postgres";
 
 #[derive(Debug, Args)]
 pub struct RestoreArgs {
-    #[arg(long, help = "Arquivo .dump gerado pelo comando backup")]
+    #[arg(
+        long,
+        value_enum,
+        default_value_t = EngineArg::Postgres,
+        help = "SGBD do backup"
+    )]
+    engine: EngineArg,
+    #[arg(long, help = "Arquivo gerado pelo comando backup run")]
     file: PathBuf,
-    #[arg(long, help = "Banco de destino")]
-    target_database: String,
+    #[arg(
+        long,
+        value_name = "ARQUIVO",
+        required_if_eq("engine", "sqlite"),
+        conflicts_with_all = ["target_database", "host", "port", "user", "tls", "runner", "password_file"],
+        help = "Arquivo SQLite de destino (com --engine sqlite)"
+    )]
+    target: Option<PathBuf>,
+    #[arg(long, required_unless_present = "target", help = "Banco de destino")]
+    target_database: Option<String>,
     #[arg(
         long,
         default_value = "localhost",
@@ -35,8 +50,8 @@ pub struct RestoreArgs {
     host: String,
     #[arg(long, default_value_t = 5432, help = "Porta do servidor de destino")]
     port: u16,
-    #[arg(long, help = "Usuário")]
-    user: String,
+    #[arg(long, required_unless_present = "target", help = "Usuário")]
+    user: Option<String>,
     #[arg(
         long,
         value_enum,
@@ -59,7 +74,7 @@ pub struct RestoreArgs {
     #[arg(
         long,
         value_name = "NOME",
-        help = "Confirma a sobrescrita repetindo o nome do banco de destino"
+        help = "Confirma a sobrescrita repetindo o nome do banco (ou o caminho do arquivo SQLite) de destino"
     )]
     confirm: Option<String>,
     #[arg(
@@ -84,14 +99,14 @@ struct Plan {
 }
 
 #[derive(Serialize)]
-struct RestoreResult<'a> {
-    restore_id: &'a str,
-    database: &'a str,
-    mode: &'static str,
-    previous_database: Option<&'a str>,
-    objects: usize,
-    checksum_verified: bool,
-    duration_ms: u128,
+pub struct RestoreResult<'a> {
+    pub restore_id: &'a str,
+    pub database: &'a str,
+    pub mode: &'static str,
+    pub previous_database: Option<&'a str>,
+    pub objects: usize,
+    pub checksum_verified: bool,
+    pub duration_ms: u128,
 }
 
 enum Outcome {
@@ -101,6 +116,37 @@ enum Outcome {
 }
 
 pub async fn run(args: RestoreArgs) -> ExitCode {
+    match (args.engine, &args.target) {
+        (EngineArg::Sqlite, Some(target)) => {
+            crate::sqlite::restore(&crate::sqlite::RestoreRequest {
+                file: &args.file,
+                target,
+                overwrite: args.overwrite,
+                confirm: args.confirm.as_deref(),
+                allow_unverified: args.allow_unverified,
+                timeout: args.timeout,
+            })
+            .await
+        }
+        (EngineArg::Sqlite, None) => fail(
+            exit::INVALID_INPUT,
+            "--target é obrigatório com --engine sqlite",
+        ),
+        (EngineArg::Postgres, Some(_)) => fail(
+            exit::INVALID_INPUT,
+            "--target só vale com --engine sqlite; para PostgreSQL use --target-database",
+        ),
+        (EngineArg::Postgres, None) => match (&args.target_database, &args.user) {
+            (Some(target_database), Some(user)) => run_postgres(&args, target_database, user).await,
+            _ => fail(
+                exit::INVALID_INPUT,
+                "--target-database e --user são obrigatórios com --engine postgres",
+            ),
+        },
+    }
+}
+
+async fn run_postgres(args: &RestoreArgs, target_database: &str, user: &str) -> ExitCode {
     let file = match std::path::absolute(&args.file) {
         Ok(path) => path,
         Err(error) => return fail(exit::INVALID_ARCHIVE, &error.to_string()),
@@ -113,13 +159,13 @@ pub async fn run(args: RestoreArgs) -> ExitCode {
         &args.host,
         args.port,
         MAINTENANCE_DATABASE,
-        &args.user,
+        user,
         args.tls.into(),
     ) {
         Ok(config) => config,
         Err(error) => return fail(exit::INVALID_INPUT, &error.to_string()),
     };
-    let target = match server.with_database(&args.target_database) {
+    let target = match server.with_database(target_database) {
         Ok(config) => config,
         Err(error) => return fail(exit::INVALID_INPUT, &error.to_string()),
     };
@@ -128,7 +174,14 @@ pub async fn run(args: RestoreArgs) -> ExitCode {
         Ok(history) => history,
         Err(error) => return fail(exit::FAILURE, &describe(&error)),
     };
-    let verified = match verify_checksum(&file, &history, args.allow_unverified).await {
+    let verified = match verify_checksum(
+        &file,
+        &history,
+        args.allow_unverified,
+        DatabaseEngine::Postgres,
+    )
+    .await
+    {
         Ok(verified) => verified,
         Err(message) => return fail(exit::INVALID_ARCHIVE, &message),
     };
@@ -170,7 +223,7 @@ pub async fn run(args: RestoreArgs) -> ExitCode {
 
     let admin = Admin::new(&server, &password, Timeouts::default());
     let stamp = timestamp();
-    let plan = match plan_target(&admin, &args, &stamp).await {
+    let plan = match plan_target(&admin, target_database, args, &stamp).await {
         Ok(plan) => plan,
         Err(code) => return code,
     };
@@ -181,8 +234,9 @@ pub async fn run(args: RestoreArgs) -> ExitCode {
         source_location: &file_location,
         source_sha256: Some(&verified.sha256),
         checksum_verified: verified.matched_reference,
-        target_host: target.host(),
-        target_port: target.port(),
+        engine: DatabaseEngine::Postgres.as_str(),
+        target_host: Some(target.host()),
+        target_port: Some(target.port()),
         target_database: target.database(),
         mode: plan.mode,
     }) {
@@ -266,8 +320,12 @@ pub async fn run(args: RestoreArgs) -> ExitCode {
     }
 }
 
-async fn plan_target(admin: &Admin, args: &RestoreArgs, stamp: &str) -> Result<Plan, ExitCode> {
-    let name = &args.target_database;
+async fn plan_target(
+    admin: &Admin,
+    name: &str,
+    args: &RestoreArgs,
+    stamp: &str,
+) -> Result<Plan, ExitCode> {
     let state = admin
         .database_state(name)
         .await
@@ -275,12 +333,12 @@ async fn plan_target(admin: &Admin, args: &RestoreArgs, stamp: &str) -> Result<P
     match state {
         DatabaseState::Missing => Ok(Plan {
             mode: RestoreMode::Create,
-            restore_into: name.clone(),
+            restore_into: name.to_owned(),
             created_by_us: true,
         }),
         DatabaseState::Empty => Ok(Plan {
             mode: RestoreMode::Create,
-            restore_into: name.clone(),
+            restore_into: name.to_owned(),
             created_by_us: false,
         }),
         DatabaseState::HasData { tables } => {
@@ -292,7 +350,13 @@ async fn plan_target(admin: &Admin, args: &RestoreArgs, stamp: &str) -> Result<P
                     ),
                 ));
             }
-            confirm_overwrite(name, tables, args.confirm.as_deref())?;
+            confirm_overwrite(
+                name,
+                &format!(
+                    "O banco {name} tem {tables} tabela(s) e será substituído; as conexões ativas nele serão encerradas.\nDigite o nome do banco para confirmar: "
+                ),
+                args.confirm.as_deref(),
+            )?;
             Ok(Plan {
                 mode: RestoreMode::Overwrite,
                 restore_into: derived_name(name, &format!("__restore_{stamp}")),
@@ -302,13 +366,11 @@ async fn plan_target(admin: &Admin, args: &RestoreArgs, stamp: &str) -> Result<P
     }
 }
 
-fn confirm_overwrite(name: &str, tables: i64, confirm: Option<&str>) -> Result<(), ExitCode> {
+pub fn confirm_overwrite(name: &str, prompt: &str, confirm: Option<&str>) -> Result<(), ExitCode> {
     let typed = match confirm {
         Some(value) => value.to_owned(),
         None if std::io::stdin().is_terminal() => {
-            eprint!(
-                "O banco {name} tem {tables} tabela(s) e será substituído; as conexões ativas nele serão encerradas.\nDigite o nome do banco para confirmar: "
-            );
+            eprint!("{prompt}");
             let _ = std::io::stderr().flush();
             let mut line = String::new();
             if std::io::stdin().lock().read_line(&mut line).is_err() {
@@ -455,7 +517,7 @@ async fn swap(admin: &Admin, target: &str, restored: &str, stamp: &str) -> Outco
     }
 }
 
-fn timestamp() -> String {
+pub fn timestamp() -> String {
     OffsetDateTime::now_utc()
         .format(format_description!(
             "[year][month][day]T[hour][minute][second]Z"

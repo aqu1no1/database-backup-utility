@@ -8,6 +8,7 @@ publish.workspace = true
 
 [dependencies]
 database-backup-core.workspace = true
+rusqlite.workspace = true
 rustls.workspace = true
 rustls-native-certs.workspace = true
 tempfile.workspace = true

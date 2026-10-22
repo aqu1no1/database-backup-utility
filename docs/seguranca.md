@@ -60,6 +60,22 @@ Todos os testes citados rodam na CI (`cargo test --workspace --tests`, job
 | Falha não deixa dados parciais | `--single-transaction`; `failed_restore_leaves_target_without_partial_data` | ok |
 | Erros sanitizados | mensagens via `describe` sem senha; E2E `Session` em todos os passos | ok |
 
+## SQLite (DB-22)
+
+| Controle | Evidência | Status |
+| --- | --- | --- |
+| Origem aberta só para leitura, arquivo regular com cabeçalho SQLite | `check_database_file`; `unsafe_or_foreign_sources_are_rejected_before_any_copy`, `symlinked_source_is_rejected` | ok (DB-22) |
+| Histórico interno nunca é origem nem destino | `same_file` em `apps/cli/src/sqlite.rs`; `invalid_sources_and_mixed_engine_arguments_are_rejected` | ok (DB-22) |
+| Cópia consistente com escritor ativo, sem livelock | Online Backup API com reinício detectado; `copy_of_wal_database_under_concurrent_writes_is_a_consistent_snapshot` (mutação manual: sem o fallback, o teste falha por prazo) | ok (DB-22) |
+| Origem corrompida não vira backup | `integrity_check` antes do `commit`; `damaged_sources_fail_without_publishing_a_backup` (truncada e com índice inconsistente; mutação manual: sem a checagem, o teste falha) | ok (DB-22) |
+| Artefato sem `-journal`/`-wal`/`-shm` | `journal_mode=OFF` na cópia e `DELETE` no fim; `inspect_backup` recusa artefato em WAL; mutação manual: sem o `DELETE`, 3 testes falham | ok (DB-22) |
+| Destino nunca criado pelo adaptador | destino aberto sem `CREATE`; `copy_never_creates_the_destination_file` | ok (DB-22) |
+| Sem sobrescrita silenciosa no restore | `--overwrite` + `--confirm <caminho>`, anterior mantido como `.previous-<data>`, publicação por `hard_link` (sem clobber) ou `rename`; `restore_never_replaces_an_existing_file_without_confirmation` | ok (DB-22) |
+| Destino em uso não é sobrescrito | `check_not_in_use`: `BEGIN EXCLUSIVE` sem espera (transação aberta) e, no Linux, varredura de `/proc/<pid>/fd` (até conexão parada); roda antes da confirmação e de novo antes da troca; `database_with_open_transaction_in_another_connection_is_in_use`, `database_held_open_by_another_process_is_in_use`, `restore_refuses_a_target_held_open_by_another_process` (mutação manual: sem cada checagem, o teste correspondente falha) | ok (DB-22) |
+| `.partial` órfão removido sem tocar em backup em andamento | lock exclusivo (`flock`) no `.partial` enquanto ele existe; o `backup run` só remove o que aceita o lock e está parado há 10 min; `only_unlocked_and_old_partials_are_removed`, `backup_removes_only_old_orphan_partials`, `orphan_partial_from_an_interrupted_restore_does_not_block_a_new_one` (mutação manual: sem o lock ou sem a idade mínima, os testes falham) | ok (DB-22) |
+| Backups da v0.1.x continuam restauráveis | leitor aceita manifesto v1; E2E `verify_and_restore_without_history` reescreve o manifesto de um dump real como v1 e roda verify e restore | ok (DB-22) |
+| Histórico de restore sem host/porta inventados | migration `0004_restore_targets.sql` (`target_host`/`target_port` nulos juntos, coluna `engine`); `upgrading_keeps_postgres_restores_and_accepts_file_targets` | ok (DB-22) |
+
 ## GitHub Actions e release
 
 | Controle | Evidência | Status |
@@ -118,6 +134,26 @@ Nenhum advisory RustSec ignorado.
 - **Dono do arquivo de senha não é conferido.** Só as permissões são.
 - **v0.1.0 sem avisos de terceiros.** O tarball publicado em 2026-10-21 não traz as notas de licença
   das dependências embutidas. Corrigido no workflow (DB-35); a v0.1.1 já inclui o arquivo. Use a v0.1.1 em vez da v0.1.0.
+- **SQLite: `-wal`/`-shm` ao lado da origem.** Em modo WAL, o próprio SQLite cria esses arquivos
+  ao lado da origem, mesmo numa abertura só para leitura, e eles podem ficar depois do backup. É o
+  comportamento de qualquer leitor WAL e não altera os dados. Apagá-los seria pior: se a aplicação
+  abrir o banco no meio, ela perde dados. A alternativa (`immutable=1`) daria leituras erradas com
+  um escritor ativo. O `backup run` avisa quando os criou.
+- **SQLite: limites da detecção de destino em uso.** A varredura de `/proc` só existe no Linux e só
+  enxerga processos do mesmo usuário (ou todos, como root). No macOS, no Windows ou com a aplicação
+  rodando como outro usuário, só a checagem de lock vale, e ela não vê uma conexão parada em modo
+  rollback. Nesses casos, feche a aplicação antes do `--overwrite`. Ainda resta uma janela pequena
+  entre a última checagem e a troca do arquivo.
+- **Manifesto v2 não é lido pela v0.1.x.** A v0.1.x recusa com código 10 e mensagem clara, sem
+  alterar nada. Use no restore uma versão igual ou mais nova que a do backup. O contrário é
+  garantido e testado: a versão atual lê manifestos v1.
+- **SQLite: escritores em modo rollback esperam.** Quando a cópia é reiniciada por escrita
+  concorrente, o restante é copiado num passo só e, em modo rollback (não WAL), os escritores esperam
+  até ele terminar. Em WAL, não.
+- **`.partial` órfão recente.** Um `.partial` deixado por `kill -9` ou queda de energia só é
+  removido pelo próximo `backup run` depois de 10 minutos parado. A espera protege um `.partial` de
+  uma v0.1.x, que não usa lock, rodando no mesmo diretório. Até lá ele só ocupa espaço: nunca vira
+  backup. Em sistemas de arquivos de rede, o `flock` pode não funcionar entre máquinas.
 - **Senhas de exemplo no Compose de desenvolvimento.** Os perfis opcionais `mysql` e `mongodb` têm
   valores padrão (`dev-change-me`). Exigir as variáveis quebraria o `docker compose` de quem só usa
   o PostgreSQL, porque o Compose interpola até os serviços de perfis desativados. Os serviços escutam

@@ -1,26 +1,30 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::Args;
 use database_backup_adapters::postgres::PgTools;
+use database_backup_core::DatabaseEngine;
 use database_backup_history::History;
 use database_backup_storage::check_restore_source;
 use serde::Serialize;
 use tracing::{info, warn};
 
-use crate::archive::{read_archive, verify_checksum};
+use crate::archive::{VerifiedSource, detect_engine, read_archive, verify_checksum};
 use crate::output::{fail, success};
 use crate::{RunnerArg, describe, exit};
 
 #[derive(Debug, Args)]
 pub struct VerifyArgs {
-    #[arg(long, help = "Arquivo .dump gerado pelo comando backup run")]
+    #[arg(
+        long,
+        help = "Arquivo gerado pelo comando backup run (.dump ou .sqlite3)"
+    )]
     file: PathBuf,
     #[arg(
         long,
         value_enum,
         default_value_t = RunnerArg::Auto,
-        help = "auto: pg_restore nativo se compatível, senão Docker"
+        help = "auto: pg_restore nativo se compatível, senão Docker (só PostgreSQL)"
     )]
     runner: RunnerArg,
     #[arg(
@@ -46,6 +50,14 @@ struct VerifyResult {
     tool_version: Option<String>,
 }
 
+struct Structure {
+    database: Option<String>,
+    objects: usize,
+    tables: usize,
+    dumped_from: Option<String>,
+    dumped_by: Option<String>,
+}
+
 pub async fn run(args: VerifyArgs) -> ExitCode {
     let file = match std::path::absolute(&args.file) {
         Ok(path) => path,
@@ -54,11 +66,15 @@ pub async fn run(args: VerifyArgs) -> ExitCode {
     if let Err(error) = check_restore_source(&file).await {
         return fail(exit::INVALID_ARCHIVE, &describe(&error));
     }
+    let engine = match detect_engine(&file).await {
+        Ok(engine) => engine,
+        Err(message) => return fail(exit::INVALID_ARCHIVE, &message),
+    };
     let history = match History::default_path().and_then(|path| History::open(&path)) {
         Ok(history) => history,
         Err(error) => return fail(exit::FAILURE, &describe(&error)),
     };
-    let verified = match verify_checksum(&file, &history, args.allow_unverified).await {
+    let verified = match verify_checksum(&file, &history, args.allow_unverified, engine).await {
         Ok(verified) => verified,
         Err(message) => return fail(exit::INVALID_ARCHIVE, &message),
     };
@@ -68,26 +84,21 @@ pub async fn run(args: VerifyArgs) -> ExitCode {
             "checksum não verificado (--allow-unverified); só a estrutura do arquivo será conferida"
         );
     }
-    let Some(source_version) = verified.source_version else {
-        return fail(
-            exit::INVALID_ARCHIVE,
-            "versão do PostgreSQL de origem desconhecida (sem .meta.json nem registro no histórico); não é possível escolher o pg_restore",
-        );
+    let structure = match engine {
+        DatabaseEngine::Sqlite => sqlite_structure(&file).await,
+        DatabaseEngine::Postgres => postgres_structure(&file, &verified, args.runner).await,
     };
-    let tools = match PgTools::detect(args.runner.into(), source_version).await {
-        Ok(tools) => tools,
-        Err(error) => return fail(exit::TOOLS, &error.to_string()),
-    };
-    let archive = match read_archive(&tools, &file).await {
-        Ok(archive) => archive,
-        Err(message) => return fail(exit::INVALID_ARCHIVE, &message),
+    let structure = match structure {
+        Ok(structure) => structure,
+        Err(code) => return code,
     };
 
     info!(
         operation = "backup.verify",
+        engine = engine.as_str(),
         status = "succeeded",
         checksum_verified = verified.matched_reference,
-        objects = archive.entries,
+        objects = structure.objects,
         "backup verificado"
     );
     let checksum = if verified.matched_reference {
@@ -96,10 +107,11 @@ pub async fn run(args: VerifyArgs) -> ExitCode {
         "checksum NÃO verificado"
     };
     let mut text = format!(
-        "Backup válido: {} ({} objetos, {} tabelas; {checksum}; sha256 {}…)",
+        "Backup {} válido: {} ({} objetos, {} tabelas; {checksum}; sha256 {}…)",
+        engine.display_name(),
         file.display(),
-        archive.entries,
-        archive.tables,
+        structure.objects,
+        structure.tables,
         &verified.sha256[..12]
     );
     if let Some(manifest) = &verified.manifest {
@@ -117,18 +129,59 @@ pub async fn run(args: VerifyArgs) -> ExitCode {
     success(
         &VerifyResult {
             file: file.display().to_string(),
-            sha256: verified.sha256,
+            sha256: verified.sha256.clone(),
             checksum_verified: verified.matched_reference,
-            database: archive.database,
-            objects: archive.entries,
-            tables: archive.tables,
-            dumped_from: archive.dumped_from.map(|v| v.to_string()),
-            dumped_by: archive.dumped_by.map(|v| v.to_string()),
+            database: structure
+                .database
+                .or_else(|| manifest.map(|m| m.database.clone())),
+            objects: structure.objects,
+            tables: structure.tables,
+            dumped_from: structure.dumped_from,
+            dumped_by: structure.dumped_by,
             manifest_version: manifest.map(|m| m.manifest_version),
-            engine: manifest.map(|m| m.engine.clone()),
+            engine: Some(engine.as_str().to_owned()),
             created_at: manifest.map(|m| m.created_at.clone()),
             tool_version: manifest.map(|m| m.tool.version.clone()),
         },
         &text,
     )
+}
+
+async fn sqlite_structure(file: &Path) -> Result<Structure, ExitCode> {
+    let info = crate::sqlite::inspect(file)
+        .await
+        .map_err(|message| fail(exit::INVALID_ARCHIVE, &message))?;
+    Ok(Structure {
+        database: None,
+        objects: info.objects,
+        tables: info.tables,
+        dumped_from: None,
+        dumped_by: None,
+    })
+}
+
+async fn postgres_structure(
+    file: &Path,
+    verified: &VerifiedSource,
+    runner: RunnerArg,
+) -> Result<Structure, ExitCode> {
+    let Some(source_version) = verified.source_version else {
+        return Err(fail(
+            exit::INVALID_ARCHIVE,
+            "versão do PostgreSQL de origem desconhecida (sem .meta.json nem registro no histórico); não é possível escolher o pg_restore",
+        ));
+    };
+    let tools = PgTools::detect(runner.into(), source_version)
+        .await
+        .map_err(|error| fail(exit::TOOLS, &error.to_string()))?;
+    let archive = read_archive(&tools, file)
+        .await
+        .map_err(|message| fail(exit::INVALID_ARCHIVE, &message))?;
+    Ok(Structure {
+        database: archive.database,
+        objects: archive.entries,
+        tables: archive.tables,
+        dumped_from: archive.dumped_from.map(|v| v.to_string()),
+        dumped_by: archive.dumped_by.map(|v| v.to_string()),
+    })
 }
