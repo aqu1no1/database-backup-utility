@@ -83,7 +83,7 @@ Todos os testes citados rodam na CI (`cargo test --workspace --tests`, job
 | Licenças compatíveis com MIT OR Apache-2.0 | `deny.toml` com allowlist das licenças em uso; mutação: tirar `ISC` ou a exceção do `option-ext` faz o check falhar | corrigido (DB-35) |
 | Só crates.io como fonte | `deny.toml` `[sources]`; git ou registry desconhecido falham | corrigido (DB-35) |
 | Sem versões wildcard | `deny.toml` `wildcards = "deny"`; caminhos internos liberados só porque as crates são `publish = false` | corrigido (DB-35) |
-| Avisos de licença de terceiros no binário | `THIRD-PARTY-LICENSES.md` gerado por `cargo-about` (só dependências de runtime) e incluído no tarball | corrigido a partir da próxima release (DB-35); **o tarball da v0.1.0 não tem esse arquivo** |
+| Avisos de licença de terceiros no binário | `THIRD-PARTY-LICENSES.md` gerado por `cargo-about` (só dependências de runtime) e incluído no tarball | corrigido a partir da v0.1.1 (DB-35); **o tarball da v0.1.0 não tem esse arquivo** |
 
 ### Exceções ativas
 
@@ -117,7 +117,7 @@ Nenhum advisory RustSec ignorado.
   Prefira `--password-file`.
 - **Dono do arquivo de senha não é conferido.** Só as permissões são.
 - **v0.1.0 sem avisos de terceiros.** O tarball publicado em 2026-10-21 não traz as notas de licença
-  das dependências embutidas. Corrigido no workflow (DB-35); a próxima release já inclui o arquivo.
+  das dependências embutidas. Corrigido no workflow (DB-35); a v0.1.1 já inclui o arquivo. Use a v0.1.1 em vez da v0.1.0.
 - **Senhas de exemplo no Compose de desenvolvimento.** Os perfis opcionais `mysql` e `mongodb` têm
   valores padrão (`dev-change-me`). Exigir as variáveis quebraria o `docker compose` de quem só usa
   o PostgreSQL, porque o Compose interpola até os serviços de perfis desativados. Os serviços escutam

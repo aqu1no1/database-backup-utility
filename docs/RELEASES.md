@@ -5,6 +5,7 @@
 | Versão | Objetivo | Escopo planejado |
 | --- | --- | --- |
 | `v0.1.0` | PostgreSQL CLI — **implementada, publicação pelo DB-14** | Conexões, backup full local com streaming, verificação, restore testado, histórico SQLite, manifesto versionado, testes E2E e CI |
+| `v0.1.1` | Correção da v0.1.0 | Mesmo binário; tarball com `THIRD-PARTY-LICENSES.md` (avisos de licença das dependências) |
 | `v0.2.0` | Multi-DBMS | MySQL, MongoDB, SQLite, testes por SGBD |
 | `v0.3.0` | Desktop Angular | Tauri, Angular standalone, Tailwind CSS v4, Transloco `pt-BR`/`en-US` |
 | `v0.4.0` | Agendamento e cloud | Scheduler independente do desktop, S3 compatível, retenção, Slack |

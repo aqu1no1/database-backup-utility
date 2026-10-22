@@ -10,14 +10,6 @@ versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
-### Added
-- `THIRD-PARTY-LICENSES.md` no tarball da release, gerado com `cargo-about`, com os avisos de licença das dependências embutidas no binário.
-
-### Security
-- `unsafe` proibido em todo o workspace.
-- Dependências verificadas por `cargo-deny` em cada PR (advisories RustSec, licenças, fontes e wildcards), com triagem documentada em `docs/seguranca-rust.md`.
-- Toolchain do Rust fixada em `rust-toolchain.toml` e Cargo com `--locked` em toda a CI.
-
 <!-- Ao concluir uma funcionalidade relevante, registre-a aqui usando:
 ### Added
 - Mensagem da mudança validada.
@@ -25,6 +17,19 @@ versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 Para publicar, mova as entradas para uma nova seção com data real:
 Seção versionada: `[X.Y.Z] - AAAA-MM-DD`
 O workflow manual rejeita releases sem seção publicada e sem mudanças reais. -->
+
+## [0.1.1] - 2026-10-22
+
+Release de correção: o binário é o mesmo código da v0.1.0. O tarball passa a trazer os avisos de
+licença das dependências, que faltavam na v0.1.0.
+
+### Added
+- `THIRD-PARTY-LICENSES.md` no tarball da release, gerado com `cargo-about`, com os avisos de licença das dependências embutidas no binário.
+
+### Security
+- `unsafe` proibido em todo o workspace.
+- Dependências verificadas por `cargo-deny` em cada PR (advisories RustSec, licenças, fontes e wildcards), com triagem documentada em `docs/seguranca-rust.md`.
+- Toolchain do Rust fixada em `rust-toolchain.toml` e Cargo com `--locked` em toda a CI.
 
 ## [0.1.0] - 2026-10-21
 

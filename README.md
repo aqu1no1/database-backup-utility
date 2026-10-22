@@ -4,7 +4,7 @@ Ferramenta multiplataforma de backup e restauração de bancos de dados. O produ
 **CLI independente em Rust** e, futuramente, um **desktop Tauri + Angular + Tailwind v4**,
 ambos utilizando as mesmas crates de negócio.
 
-> **Estado atual (v0.1.0):** CLI para PostgreSQL com teste de conexão, backup full, verificação e
+> **Estado atual (v0.1.1):** CLI para PostgreSQL com teste de conexão, backup full, verificação e
 > restore, histórico interno em SQLite, manifesto versionado e testes E2E. **Ainda não existem:**
 > desktop Angular/Tauri, MySQL, MongoDB, SQLite (como banco de origem), agendamento, nuvem,
 > compressão extra e criptografia. Esses itens estão planejados em [`docs/RELEASES.md`](docs/RELEASES.md).
@@ -23,13 +23,13 @@ ambos utilizando as mesmas crates de negócio.
 Disponível para Linux x86_64 nos [GitHub Releases](https://github.com/aqu1no1/database-backup-utility/releases).
 
 ```bash
-VERSION=v0.1.0
+VERSION=v0.1.1
 curl -LO "https://github.com/aqu1no1/database-backup-utility/releases/download/$VERSION/database-backup-linux-x86_64-$VERSION.tar.gz"
 curl -LO "https://github.com/aqu1no1/database-backup-utility/releases/download/$VERSION/SHA256SUMS.txt"
 sha256sum -c SHA256SUMS.txt                         # precisa mostrar OK
 tar -xzf "database-backup-linux-x86_64-$VERSION.tar.gz"
 install -m 755 database-backup ~/.local/bin/        # ou outro diretório do PATH
-# o tarball traz LICENSE-MIT, LICENSE-APACHE e, a partir da próxima release, THIRD-PARTY-LICENSES.md
+# o tarball traz LICENSE-MIT, LICENSE-APACHE e (a partir da v0.1.1) THIRD-PARTY-LICENSES.md
 database-backup --version
 ```
 
