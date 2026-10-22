@@ -19,6 +19,7 @@ const MIGRATIONS: &[M<'static>] = &[
     M::up(include_str!(
         "../migrations/0003_restore_checksum_verified.sql"
     )),
+    M::up(include_str!("../migrations/0004_restore_targets.sql")),
 ];
 
 #[derive(Debug, Error)]
@@ -128,8 +129,9 @@ pub struct NewRestore<'a> {
     pub source_sha256: Option<&'a str>,
     /// `false` quando o checksum foi aceito sem referência (`--allow-unverified`).
     pub checksum_verified: bool,
-    pub target_host: &'a str,
-    pub target_port: u16,
+    pub engine: &'a str,
+    pub target_host: Option<&'a str>,
+    pub target_port: Option<u16>,
     pub target_database: &'a str,
     pub mode: RestoreMode,
 }
@@ -389,15 +391,16 @@ impl History {
         let id = new_id();
         self.conn.execute(
             "INSERT INTO restore_executions
-                 (id, artifact_id, source_location, source_sha256, checksum_verified,
+                 (id, artifact_id, source_location, source_sha256, checksum_verified, engine,
                   target_host, target_port, target_database, mode, status, started_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'running', ?10)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'running', ?11)",
             params![
                 id,
                 restore.artifact_id,
                 restore.source_location,
                 restore.source_sha256,
                 restore.checksum_verified,
+                restore.engine,
                 restore.target_host,
                 restore.target_port,
                 restore.target_database,
@@ -807,6 +810,71 @@ mod tests {
     }
 
     #[test]
+    fn upgrading_keeps_postgres_restores_and_accepts_file_targets() {
+        let dir = TempDir::new().expect("diretório temporário");
+        let path = dir.path().join(DATABASE_FILE);
+        let before = History::open_with(&path, &Migrations::from_slice(&MIGRATIONS[..3]))
+            .expect("schema 0003");
+        before
+            .conn
+            .execute(
+                "INSERT INTO restore_executions
+                     (id, source_location, target_host, target_port, target_database, mode,
+                      status, started_at, checksum_verified)
+                 VALUES ('r1', '/backups/db.dump', 'localhost', 5432, 'db', 'create',
+                         'succeeded', '2026-10-21T12:00:00Z', 0)",
+                [],
+            )
+            .expect("restore antigo");
+        drop(before);
+
+        let upgraded = History::open(&path).expect("schema atual");
+        let engine: String = upgraded
+            .conn
+            .query_row(
+                "SELECT engine FROM restore_executions WHERE id = 'r1'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("restore preservado");
+        let sqlite_restore = upgraded
+            .start_restore(&NewRestore {
+                artifact_id: None,
+                source_location: "/backups/app.sqlite3",
+                source_sha256: None,
+                checksum_verified: true,
+                engine: "sqlite",
+                target_host: None,
+                target_port: None,
+                target_database: "/dados/app_copia.db",
+                mode: RestoreMode::Create,
+            })
+            .expect("restore SQLite sem host");
+        let half_target = upgraded.start_restore(&NewRestore {
+            artifact_id: None,
+            source_location: "/backups/db.dump",
+            source_sha256: None,
+            checksum_verified: true,
+            engine: "postgres",
+            target_host: Some("localhost"),
+            target_port: None,
+            target_database: "db",
+            mode: RestoreMode::Create,
+        });
+
+        let restores = upgraded.list_restores(10).expect("restores");
+        assert_eq!(engine, "postgres");
+        assert_eq!(restores.len(), 2);
+        assert!(
+            restores
+                .iter()
+                .any(|r| r.id == "r1" && !r.checksum_verified)
+        );
+        assert!(restores.iter().any(|r| r.id == sqlite_restore));
+        assert!(half_target.is_err(), "host sem porta deveria ser recusado");
+    }
+
+    #[test]
     fn lists_backups_with_artifacts_and_filters_by_database() {
         let (_dir, _path, history) = temp_history();
         let connection_id = history
@@ -891,8 +959,9 @@ mod tests {
                 source_location: &found.location,
                 source_sha256: found.checksum_sha256.as_deref(),
                 checksum_verified: true,
-                target_host: "localhost",
-                target_port: 5432,
+                engine: "postgres",
+                target_host: Some("localhost"),
+                target_port: Some(5432),
                 target_database: "db",
                 mode: RestoreMode::Overwrite,
             })

@@ -178,14 +178,14 @@ fn verify_rejects_unsupported_or_foreign_manifest() {
     let manifest = dir.path().join("app.dump.meta.json");
     private_file(&dump, b"PGDMP");
 
-    private_file(&manifest, br#"{"manifest_version":2,"sha256":"x"}"#);
+    private_file(&manifest, br#"{"manifest_version":3,"sha256":"x"}"#);
     let future = cli(
         &dir,
         &["backup", "verify", "--file", dump.to_str().expect("utf-8")],
     );
     assert_eq!(future.status.code(), Some(10), "{}", stderr(&future));
     assert!(
-        stderr(&future).contains("versão 2 do manifesto"),
+        stderr(&future).contains("versão 3 do manifesto"),
         "{}",
         stderr(&future)
     );

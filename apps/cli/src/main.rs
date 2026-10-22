@@ -4,6 +4,7 @@ mod credentials;
 mod listing;
 mod output;
 mod restore;
+mod sqlite;
 mod verify;
 
 use std::error::Error;
@@ -37,9 +38,11 @@ macro_rules! password_note {
     after_help = "Exemplos:
   database-backup connection test --database app --user postgres
   database-backup backup run --database app --user postgres
+  database-backup backup run --engine sqlite --source ./app.db
   database-backup backup list --json
   database-backup backup verify --file app-20261021T120000Z.dump
   database-backup restore run --file app-20261021T120000Z.dump --target-database app_copia --user postgres
+  database-backup restore run --engine sqlite --file app-20261021T120000Z.sqlite3 --target ./app_copia.db
 
 Exit codes: 0 ok, 1 falha geral, 2 parâmetro inválido, 3 autenticação, 4 banco inexistente,
 5 inacessível/timeout, 6 TLS, 7 ferramentas ausentes, 8 backup falhou, 9 cancelado,
@@ -92,11 +95,13 @@ enum ConnectionCommand {
 #[derive(Debug, Subcommand)]
 enum BackupCommand {
     #[command(
-        about = "Gera um backup completo (pg_dump, formato custom) de um PostgreSQL.",
+        about = "Gera um backup completo de um PostgreSQL (pg_dump, formato custom) ou de um SQLite (Online Backup API).",
         after_help = concat!(
             "Exemplos:\n",
             "  database-backup backup run --database app --user postgres\n",
-            "  database-backup backup run --database app --user postgres --output-dir /srv/backups --runner docker\n\n",
+            "  database-backup backup run --database app --user postgres --output-dir /srv/backups --runner docker\n",
+            "  database-backup backup run --engine sqlite --source ./app.db\n\n",
+            "Com --engine sqlite não há servidor, usuário nem senha: o arquivo de origem é aberto só para leitura.\n",
             password_note!()
         )
     )]
@@ -112,6 +117,7 @@ enum BackupCommand {
         about = "Verifica checksum e estrutura de um arquivo de backup, sem restaurar.",
         after_help = "Exemplos:
   database-backup backup verify --file app-20261021T120000Z.dump
+  database-backup backup verify --file app-20261021T120000Z.sqlite3
   database-backup backup verify --file externo.dump --allow-unverified --json"
     )]
     Verify(verify::VerifyArgs),
@@ -120,13 +126,14 @@ enum BackupCommand {
 #[derive(Debug, Subcommand)]
 enum RestoreCommand {
     #[command(
-        about = "Restaura um backup PostgreSQL validado em um banco de destino.",
+        about = "Restaura um backup validado de PostgreSQL ou SQLite em um destino.",
         after_help = concat!(
             "Por padrão só cria um banco novo. Sobrescrever um banco com dados exige --overwrite e confirmação;\n",
-            "o banco anterior é mantido como <destino>__previous_<data>.\n\n",
+            "o anterior é mantido como <destino>__previous_<data> (PostgreSQL) ou <arquivo>.previous-<data> (SQLite).\n\n",
             "Exemplos:\n",
             "  database-backup restore run --file app-20261021T120000Z.dump --target-database app_copia --user postgres\n",
-            "  database-backup restore run --file app-20261021T120000Z.dump --target-database app --user postgres --overwrite --confirm app\n\n",
+            "  database-backup restore run --file app-20261021T120000Z.dump --target-database app --user postgres --overwrite --confirm app\n",
+            "  database-backup restore run --engine sqlite --file app-20261021T120000Z.sqlite3 --target ./app_copia.db\n\n",
             password_note!()
         )
     )]
@@ -184,6 +191,12 @@ struct TestConnectionArgs {
     connection: ConnectionArgs,
     #[arg(long, default_value_t = 10, value_parser = clap::value_parser!(u64).range(1..=300), help = "Timeout em segundos para conexão e consulta")]
     timeout: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum EngineArg {
+    Postgres,
+    Sqlite,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
