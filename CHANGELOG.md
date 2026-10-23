@@ -23,6 +23,9 @@ versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 ### Fixed
 - Um backup que coincide no nome com um `.partial` deixado no mesmo segundo agora falha com "já existe um arquivo em …", em vez de um erro de E/S sem explicação.
 
+### Security
+- `ctutils` atualizado de 0.4.3 para 0.4.4 (dependência do cliente PostgreSQL), corrigindo comparações e máscaras que não eram de tempo constante ([RUSTSEC-2026-0385](https://rustsec.org/advisories/RUSTSEC-2026-0385)).
+
 <!-- Ao concluir uma funcionalidade relevante, registre-a aqui usando:
 ### Added
 - Mensagem da mudança validada.
