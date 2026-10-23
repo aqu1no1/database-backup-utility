@@ -5,8 +5,11 @@ use database_backup_adapters::sqlite::{SqliteError, check_database_file};
 use database_backup_core::DatabaseEngine;
 use database_backup_history::History;
 use database_backup_storage::{StoredMetadata, read_metadata, sha256_file};
+use tokio::io::AsyncReadExt;
 
 use crate::describe;
+
+const MYSQL_DUMP_HEADER: &[u8] = b"-- MySQL dump ";
 
 pub struct VerifiedSource {
     pub artifact_id: Option<String>,
@@ -34,8 +37,23 @@ pub async fn detect_engine(file: &Path) -> Result<DatabaseEngine, String> {
         .map_err(|error| error.to_string())?;
     match header {
         Ok(()) => Ok(DatabaseEngine::Sqlite),
+        Err(SqliteError::NotSqlite(_)) if starts_with(file, MYSQL_DUMP_HEADER).await? => {
+            Ok(DatabaseEngine::Mysql)
+        }
         Err(SqliteError::NotSqlite(_)) => Ok(DatabaseEngine::Postgres),
         Err(error) => Err(describe(&error)),
+    }
+}
+
+async fn starts_with(file: &Path, prefix: &[u8]) -> Result<bool, String> {
+    let mut head = vec![0_u8; prefix.len()];
+    let mut opened = tokio::fs::File::open(file)
+        .await
+        .map_err(|error| format!("não foi possível ler {}: {error}", file.display()))?;
+    match opened.read_exact(&mut head).await {
+        Ok(_) => Ok(head == prefix),
+        Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => Ok(false),
+        Err(error) => Err(format!("não foi possível ler {}: {error}", file.display())),
     }
 }
 

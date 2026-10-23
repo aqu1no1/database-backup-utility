@@ -2,12 +2,14 @@ mod archive;
 mod backup;
 mod credentials;
 mod listing;
+mod mysql;
 mod output;
 mod restore;
 mod sqlite;
 mod verify;
 
 use std::error::Error;
+use std::fmt;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
@@ -17,7 +19,7 @@ use database_backup_adapters::postgres::{
     ConnectionError, RunnerChoice, Timeouts, test_connection,
 };
 use database_backup_core::{
-    Password, PostgresConnectionConfig, SecretProvider, SecretSource, TlsMode,
+    DatabaseEngine, Password, PostgresConnectionConfig, SecretProvider, SecretSource, TlsMode,
 };
 use serde::Serialize;
 use tracing::info;
@@ -26,7 +28,7 @@ use output::{LogLevel, fail, success};
 
 macro_rules! password_note {
     () => {
-        "A senha vem de --password-file, DBU_PG_PASSWORD_FILE ou DBU_PG_PASSWORD (só uma delas; mais de uma é erro)\nou, sem nenhuma, de um prompt sem eco. O arquivo de senha precisa ter permissão 600 ou 400."
+        "A senha vem de --password-file, DBU_PG_PASSWORD_FILE ou DBU_PG_PASSWORD (MySQL: DBU_MYSQL_PASSWORD_FILE ou\nDBU_MYSQL_PASSWORD), só uma delas (mais de uma é erro), ou, sem nenhuma, de um prompt sem eco.\nO arquivo de senha precisa ter permissão 600 ou 400."
     };
 }
 
@@ -38,10 +40,12 @@ macro_rules! password_note {
     after_help = "Exemplos:
   database-backup connection test --database app --user postgres
   database-backup backup run --database app --user postgres
+  database-backup backup run --engine mysql --database app --user backup
   database-backup backup run --engine sqlite --source ./app.db
   database-backup backup list --json
   database-backup backup verify --file app-20261021T120000Z.dump
   database-backup restore run --file app-20261021T120000Z.dump --target-database app_copia --user postgres
+  database-backup restore run --engine mysql --file app-20261021T120000Z.sql --target-database app_copia --user backup
   database-backup restore run --engine sqlite --file app-20261021T120000Z.sqlite3 --target ./app_copia.db
 
 Exit codes: 0 ok, 1 falha geral, 2 parâmetro inválido, 3 autenticação, 4 banco inexistente,
@@ -81,10 +85,11 @@ enum Commands {
 #[derive(Debug, Subcommand)]
 enum ConnectionCommand {
     #[command(
-        about = "Valida a configuração e testa a conexão com um PostgreSQL.",
+        about = "Valida a configuração e testa a conexão com um PostgreSQL ou MySQL.",
         after_help = concat!(
             "Exemplos:\n",
             "  database-backup connection test --database app --user postgres\n",
+            "  database-backup connection test --engine mysql --database app --user backup\n",
             "  database-backup connection test --host db.interno --tls verify-full --database app --user backup\n\n",
             password_note!()
         )
@@ -95,11 +100,12 @@ enum ConnectionCommand {
 #[derive(Debug, Subcommand)]
 enum BackupCommand {
     #[command(
-        about = "Gera um backup completo de um PostgreSQL (pg_dump, formato custom) ou de um SQLite (Online Backup API).",
+        about = "Gera um backup completo de um PostgreSQL (pg_dump, formato custom), de um MySQL (mysqldump, SQL) ou de um SQLite (Online Backup API).",
         after_help = concat!(
             "Exemplos:\n",
             "  database-backup backup run --database app --user postgres\n",
             "  database-backup backup run --database app --user postgres --output-dir /srv/backups --runner docker\n",
+            "  database-backup backup run --engine mysql --database app --user backup\n",
             "  database-backup backup run --engine sqlite --source ./app.db\n\n",
             "Com --engine sqlite não há servidor, usuário nem senha: o arquivo de origem é aberto só para leitura.\n",
             password_note!()
@@ -118,6 +124,7 @@ enum BackupCommand {
         after_help = "Exemplos:
   database-backup backup verify --file app-20261021T120000Z.dump
   database-backup backup verify --file app-20261021T120000Z.sqlite3
+  database-backup backup verify --file app-20261021T120000Z.sql
   database-backup backup verify --file externo.dump --allow-unverified --json"
     )]
     Verify(verify::VerifyArgs),
@@ -126,13 +133,15 @@ enum BackupCommand {
 #[derive(Debug, Subcommand)]
 enum RestoreCommand {
     #[command(
-        about = "Restaura um backup validado de PostgreSQL ou SQLite em um destino.",
+        about = "Restaura um backup validado de PostgreSQL, MySQL ou SQLite em um destino.",
         after_help = concat!(
             "Por padrão só cria um banco novo. Sobrescrever um banco com dados exige --overwrite e confirmação;\n",
-            "o anterior é mantido como <destino>__previous_<data> (PostgreSQL) ou <arquivo>.previous-<data> (SQLite).\n\n",
+            "o anterior é mantido como <destino>__previous_<data> (PostgreSQL) ou <arquivo>.previous-<data> (SQLite).\n",
+            "No MySQL só é possível restaurar em um banco que ainda não existe (--overwrite não é suportado).\n\n",
             "Exemplos:\n",
             "  database-backup restore run --file app-20261021T120000Z.dump --target-database app_copia --user postgres\n",
             "  database-backup restore run --file app-20261021T120000Z.dump --target-database app --user postgres --overwrite --confirm app\n",
+            "  database-backup restore run --engine mysql --file app-20261021T120000Z.sql --target-database app_copia --user backup\n",
             "  database-backup restore run --engine sqlite --file app-20261021T120000Z.sqlite3 --target ./app_copia.db\n\n",
             password_note!()
         )
@@ -151,8 +160,8 @@ enum RestoreCommand {
 struct ConnectionArgs {
     #[arg(long, default_value = "localhost", help = "Host do servidor")]
     host: String,
-    #[arg(long, default_value_t = 5432, help = "Porta do servidor")]
-    port: u16,
+    #[arg(long, help = PORT_HELP)]
+    port: Option<u16>,
     #[arg(long, help = "Nome do banco")]
     database: String,
     #[arg(long, help = "Usuário")]
@@ -176,7 +185,7 @@ impl ConnectionArgs {
     fn config(&self) -> Result<PostgresConnectionConfig, ExitCode> {
         PostgresConnectionConfig::new(
             &self.host,
-            self.port,
+            self.port.unwrap_or(POSTGRES_PORT),
             &self.database,
             &self.user,
             self.tls.into(),
@@ -185,8 +194,19 @@ impl ConnectionArgs {
     }
 }
 
+const POSTGRES_PORT: u16 = 5432;
+const MYSQL_PORT: u16 = 3306;
+const PORT_HELP: &str = "Porta do servidor (padrão: 5432 no PostgreSQL, 3306 no MySQL)";
+
 #[derive(Debug, Args)]
 struct TestConnectionArgs {
+    #[arg(
+        long,
+        value_enum,
+        default_value_t = EngineArg::Postgres,
+        help = "SGBD do servidor (postgres ou mysql)"
+    )]
+    engine: EngineArg,
     #[command(flatten)]
     connection: ConnectionArgs,
     #[arg(long, default_value_t = 10, value_parser = clap::value_parser!(u64).range(1..=300), help = "Timeout em segundos para conexão e consulta")]
@@ -196,6 +216,7 @@ struct TestConnectionArgs {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum EngineArg {
     Postgres,
+    Mysql,
     Sqlite,
 }
 
@@ -269,11 +290,25 @@ async fn main() -> ExitCode {
 }
 
 async fn run_test_connection(args: TestConnectionArgs) -> ExitCode {
+    match args.engine {
+        EngineArg::Postgres => {}
+        EngineArg::Mysql => return mysql::test(&args.connection, args.timeout).await,
+        EngineArg::Sqlite => {
+            return fail(
+                exit::INVALID_INPUT,
+                "connection test vale para postgres e mysql; o SQLite não tem servidor",
+            );
+        }
+    }
     let config = match args.connection.config() {
         Ok(config) => config,
         Err(code) => return code,
     };
-    let password = match read_password(&config, args.connection.password_file.clone()) {
+    let password = match read_password(
+        DatabaseEngine::Postgres,
+        &config,
+        args.connection.password_file.clone(),
+    ) {
         Ok((password, _)) => password,
         Err(message) => return fail(exit::INVALID_INPUT, &message),
     };
@@ -311,12 +346,16 @@ async fn run_test_connection(args: TestConnectionArgs) -> ExitCode {
 }
 
 fn read_password(
-    config: &PostgresConnectionConfig,
+    engine: DatabaseEngine,
+    target: &dyn fmt::Display,
     password_file: Option<PathBuf>,
 ) -> Result<(Password, SecretSource), String> {
-    credentials::CliSecrets { password_file }
-        .password(config)
-        .map_err(|error| describe(&error))
+    credentials::CliSecrets {
+        password_file,
+        engine,
+    }
+    .password(target)
+    .map_err(|error| describe(&error))
 }
 
 fn exit_code_for(error: &ConnectionError) -> u8 {

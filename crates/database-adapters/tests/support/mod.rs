@@ -5,6 +5,7 @@ use std::error::Error;
 use std::hash::{BuildHasher, Hasher};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use mysql_async::prelude::Queryable;
 use testcontainers::{
     ContainerAsync, GenericImage, ImageExt,
     core::{IntoContainerPort, WaitFor},
@@ -27,6 +28,17 @@ pub const E2E_SQL: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../tests/fixtures/postgres/e2e.sql"
 ));
+
+pub const MYSQL_SEED_SQL: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../tests/fixtures/mysql/seed.sql"
+));
+
+const MYSQL_IMAGE: &str = "mysql";
+const MYSQL_TAG: &str = "8.4";
+const MYSQL_USER: &str = "root";
+const MYSQL_DATABASE: &str = "backup_test";
+const MYSQL_READY: &str = "port: 3306  MySQL Community Server";
 
 pub type TestResult<T = ()> = Result<T, Box<dyn Error + Send + Sync>>;
 
@@ -124,6 +136,122 @@ impl PostgresTestDb {
 impl Drop for PostgresTestDb {
     fn drop(&mut self) {
         self.connection_task.abort();
+    }
+}
+
+pub struct MysqlTestDb {
+    host: String,
+    port: u16,
+    password: String,
+    _container: ContainerAsync<GenericImage>,
+}
+
+impl MysqlTestDb {
+    pub async fn start() -> TestResult<Self> {
+        let password = random_password();
+        let container = GenericImage::new(MYSQL_IMAGE, MYSQL_TAG)
+            .with_exposed_port(3306.tcp())
+            .with_wait_for(WaitFor::message_on_stderr(MYSQL_READY))
+            .with_env_var("MYSQL_ROOT_PASSWORD", &password)
+            .with_env_var("MYSQL_DATABASE", MYSQL_DATABASE)
+            .start()
+            .await
+            .map_err(|error| {
+                format!("falha ao iniciar o container {MYSQL_IMAGE}:{MYSQL_TAG}: {error}")
+            })?;
+        let host = container.get_host().await?.to_string();
+        let port = container.get_host_port_ipv4(3306.tcp()).await?;
+        let db = Self {
+            host,
+            port,
+            password,
+            _container: container,
+        };
+        db.conn(MYSQL_DATABASE).await?.disconnect().await?;
+        Ok(db)
+    }
+
+    pub async fn start_seeded() -> TestResult<Self> {
+        let db = Self::start().await?;
+        let mut conn = db.conn(MYSQL_DATABASE).await?;
+        for statement in MYSQL_SEED_SQL.split(";\n").filter(|s| !s.trim().is_empty()) {
+            conn.query_drop(statement).await.map_err(|error| {
+                format!("falha ao aplicar a fixture mysql/seed.sql ({statement}): {error}")
+            })?;
+        }
+        conn.disconnect().await?;
+        Ok(db)
+    }
+
+    pub async fn conn(&self, database: &str) -> TestResult<mysql_async::Conn> {
+        let opts = mysql_async::OptsBuilder::default()
+            .ip_or_hostname(self.host.as_str())
+            .tcp_port(self.port)
+            .user(Some(MYSQL_USER))
+            .pass(Some(self.password.as_str()))
+            .db_name(Some(database))
+            .prefer_socket(false);
+        let mut last = None;
+        for _ in 0..30 {
+            match mysql_async::Conn::new(opts.clone()).await {
+                Ok(conn) => return Ok(conn),
+                Err(error) => last = Some(error),
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+        Err(format!(
+            "falha ao conectar no MySQL de teste em {}:{}: {last:?}",
+            self.host, self.port
+        )
+        .into())
+    }
+
+    pub async fn execute(&self, database: &str, sql: &str) -> TestResult {
+        let mut conn = self.conn(database).await?;
+        conn.query_drop(sql).await?;
+        conn.disconnect().await?;
+        Ok(())
+    }
+
+    pub async fn rows(&self, database: &str, sql: &str) -> TestResult<Vec<Vec<String>>> {
+        let mut conn = self.conn(database).await?;
+        let rows: Vec<mysql_async::Row> = conn.query(sql).await?;
+        conn.disconnect().await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                row.unwrap()
+                    .into_iter()
+                    .map(|value| match value {
+                        mysql_async::Value::NULL => "NULL".to_owned(),
+                        mysql_async::Value::Bytes(bytes) => {
+                            String::from_utf8_lossy(&bytes).into_owned()
+                        }
+                        other => other.as_sql(true),
+                    })
+                    .collect()
+            })
+            .collect())
+    }
+
+    pub fn host(&self) -> &str {
+        &self.host
+    }
+
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
+    pub fn user(&self) -> &str {
+        MYSQL_USER
+    }
+
+    pub fn database(&self) -> &str {
+        MYSQL_DATABASE
+    }
+
+    pub fn password(&self) -> &str {
+        &self.password
     }
 }
 

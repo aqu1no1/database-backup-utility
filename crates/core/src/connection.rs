@@ -4,6 +4,8 @@ use std::net::IpAddr;
 use thiserror::Error;
 
 const MAX_IDENTIFIER_BYTES: usize = 63;
+const MYSQL_MAX_DATABASE_CHARS: usize = 64;
+const MYSQL_MAX_USER_CHARS: usize = 32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TlsMode {
@@ -29,8 +31,14 @@ pub enum ConfigError {
     InvalidPort,
     #[error("o {field} não pode ser vazio")]
     EmptyField { field: &'static str },
-    #[error("o {field} excede {MAX_IDENTIFIER_BYTES} bytes")]
-    FieldTooLong { field: &'static str },
+    #[error("o {field} excede {max} {unit}")]
+    FieldTooLong {
+        field: &'static str,
+        max: usize,
+        unit: &'static str,
+    },
+    #[error("o {field} contém caracteres não permitidos pelo MySQL (/, \\, . ou espaço no fim)")]
+    InvalidName { field: &'static str },
     #[error("conexão sem TLS só é permitida para localhost; use --tls verify-full para {host}")]
     PlainTlsForRemoteHost { host: String },
 }
@@ -52,32 +60,11 @@ impl PostgresConnectionConfig {
         user: &str,
         tls: TlsMode,
     ) -> Result<Self, ConfigError> {
-        let host = host.trim();
-        if host.is_empty() {
-            return Err(ConfigError::EmptyHost);
-        }
-        if host.chars().any(|c| c.is_whitespace() || c.is_control()) {
-            return Err(ConfigError::InvalidHost);
-        }
-        if port == 0 {
-            return Err(ConfigError::InvalidPort);
-        }
+        let (host, tls) = validate_server(host, port, tls)?;
         validate_identifier("database", database)?;
         validate_identifier("usuário", user)?;
-
-        let tls = match (tls, is_local_host(host)) {
-            (TlsMode::Auto, true) => TlsRequirement::Plain,
-            (TlsMode::Auto, false) | (TlsMode::VerifyFull, _) => TlsRequirement::VerifyFull,
-            (TlsMode::Disable, true) => TlsRequirement::Plain,
-            (TlsMode::Disable, false) => {
-                return Err(ConfigError::PlainTlsForRemoteHost {
-                    host: host.to_owned(),
-                });
-            }
-        };
-
         Ok(Self {
-            host: host.to_owned(),
+            host,
             port,
             database: database.to_owned(),
             user: user.to_owned(),
@@ -134,6 +121,84 @@ impl fmt::Display for PostgresConnectionConfig {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MysqlConnectionConfig {
+    host: String,
+    port: u16,
+    database: String,
+    user: String,
+    tls: TlsRequirement,
+}
+
+impl MysqlConnectionConfig {
+    pub fn new(
+        host: &str,
+        port: u16,
+        database: &str,
+        user: &str,
+        tls: TlsMode,
+    ) -> Result<Self, ConfigError> {
+        let (host, tls) = validate_server(host, port, tls)?;
+        validate_mysql_database(database)?;
+        validate_chars("usuário", user, MYSQL_MAX_USER_CHARS)?;
+        Ok(Self {
+            host,
+            port,
+            database: database.to_owned(),
+            user: user.to_owned(),
+            tls,
+        })
+    }
+
+    #[must_use]
+    pub fn host(&self) -> &str {
+        &self.host
+    }
+
+    #[must_use]
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
+    #[must_use]
+    pub fn database(&self) -> &str {
+        &self.database
+    }
+
+    #[must_use]
+    pub fn user(&self) -> &str {
+        &self.user
+    }
+
+    #[must_use]
+    pub fn tls(&self) -> TlsRequirement {
+        self.tls
+    }
+
+    #[must_use]
+    pub fn is_local(&self) -> bool {
+        is_local_host(&self.host)
+    }
+
+    pub fn with_database(&self, database: &str) -> Result<Self, ConfigError> {
+        validate_mysql_database(database)?;
+        Ok(Self {
+            database: database.to_owned(),
+            ..self.clone()
+        })
+    }
+}
+
+impl fmt::Display for MysqlConnectionConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}@{}:{}/{}",
+            self.user, self.host, self.port, self.database
+        )
+    }
+}
+
 pub struct Password(String);
 
 impl Password {
@@ -162,12 +227,66 @@ impl Drop for Password {
     }
 }
 
+fn validate_server(
+    host: &str,
+    port: u16,
+    tls: TlsMode,
+) -> Result<(String, TlsRequirement), ConfigError> {
+    let host = host.trim();
+    if host.is_empty() {
+        return Err(ConfigError::EmptyHost);
+    }
+    if host.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return Err(ConfigError::InvalidHost);
+    }
+    if port == 0 {
+        return Err(ConfigError::InvalidPort);
+    }
+    let tls = match (tls, is_local_host(host)) {
+        (TlsMode::Auto, true) => TlsRequirement::Plain,
+        (TlsMode::Auto, false) | (TlsMode::VerifyFull, _) => TlsRequirement::VerifyFull,
+        (TlsMode::Disable, true) => TlsRequirement::Plain,
+        (TlsMode::Disable, false) => {
+            return Err(ConfigError::PlainTlsForRemoteHost {
+                host: host.to_owned(),
+            });
+        }
+    };
+    Ok((host.to_owned(), tls))
+}
+
 fn validate_identifier(field: &'static str, value: &str) -> Result<(), ConfigError> {
     if value.trim().is_empty() {
         return Err(ConfigError::EmptyField { field });
     }
     if value.len() > MAX_IDENTIFIER_BYTES {
-        return Err(ConfigError::FieldTooLong { field });
+        return Err(ConfigError::FieldTooLong {
+            field,
+            max: MAX_IDENTIFIER_BYTES,
+            unit: "bytes",
+        });
+    }
+    Ok(())
+}
+
+fn validate_mysql_database(value: &str) -> Result<(), ConfigError> {
+    validate_chars("database", value, MYSQL_MAX_DATABASE_CHARS)?;
+    if value.ends_with(' ') || value.contains(['/', '\\', '.', '\0']) {
+        return Err(ConfigError::InvalidName { field: "database" });
+    }
+    Ok(())
+}
+
+fn validate_chars(field: &'static str, value: &str, max: usize) -> Result<(), ConfigError> {
+    if value.trim().is_empty() {
+        return Err(ConfigError::EmptyField { field });
+    }
+    if value.chars().count() > max {
+        return Err(ConfigError::FieldTooLong {
+            field,
+            max,
+            unit: "caracteres",
+        });
     }
     Ok(())
 }
@@ -251,8 +370,63 @@ mod tests {
         let long = "a".repeat(MAX_IDENTIFIER_BYTES + 1);
         assert_eq!(
             PostgresConnectionConfig::new("localhost", 5432, &long, "user", TlsMode::Auto),
-            Err(ConfigError::FieldTooLong { field: "database" })
+            Err(ConfigError::FieldTooLong {
+                field: "database",
+                max: MAX_IDENTIFIER_BYTES,
+                unit: "bytes"
+            })
         );
+    }
+
+    #[test]
+    fn mysql_config_applies_mysql_name_limits_and_tls_rules() {
+        let ok = MysqlConnectionConfig::new("localhost", 3306, "app", "root", TlsMode::Auto)
+            .expect("configuração válida");
+        assert_eq!(ok.tls(), TlsRequirement::Plain);
+        assert_eq!(ok.to_string(), "root@localhost:3306/app");
+        let accented = "ç".repeat(MYSQL_MAX_DATABASE_CHARS);
+        assert!(ok.with_database(&accented).is_ok());
+
+        let too_long = "a".repeat(MYSQL_MAX_DATABASE_CHARS + 1);
+        let long_user = "u".repeat(MYSQL_MAX_USER_CHARS + 1);
+        let cases = [
+            (
+                ("localhost", too_long.as_str(), "root", TlsMode::Auto),
+                ConfigError::FieldTooLong {
+                    field: "database",
+                    max: MYSQL_MAX_DATABASE_CHARS,
+                    unit: "caracteres",
+                },
+            ),
+            (
+                ("localhost", "app", long_user.as_str(), TlsMode::Auto),
+                ConfigError::FieldTooLong {
+                    field: "usuário",
+                    max: MYSQL_MAX_USER_CHARS,
+                    unit: "caracteres",
+                },
+            ),
+            (
+                ("localhost", "../etc", "root", TlsMode::Auto),
+                ConfigError::InvalidName { field: "database" },
+            ),
+            (
+                ("localhost", "app ", "root", TlsMode::Auto),
+                ConfigError::InvalidName { field: "database" },
+            ),
+            (
+                ("db.example.com", "app", "root", TlsMode::Disable),
+                ConfigError::PlainTlsForRemoteHost {
+                    host: "db.example.com".to_owned(),
+                },
+            ),
+        ];
+        for ((host, database, user, tls), expected) in cases {
+            assert_eq!(
+                MysqlConnectionConfig::new(host, 3306, database, user, tls),
+                Err(expected)
+            );
+        }
     }
 
     #[test]

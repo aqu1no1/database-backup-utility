@@ -2,46 +2,22 @@ use std::ffi::OsString;
 use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{ExitStatus, Stdio};
-use std::time::Duration;
+use std::process::Stdio;
 
 use database_backup_core::{Password, PostgresConnectionConfig, TlsRequirement};
 use tempfile::TempDir;
-use thiserror::Error;
-use tokio::io::AsyncReadExt;
-use tokio::process::{Child, ChildStderr, ChildStdout, Command};
-use tokio::task::JoinHandle;
+use tokio::process::Command;
 
-const STDERR_LIMIT: usize = 8 * 1024;
+use crate::process::{
+    DumpProcess, Launch, RestoreProcess, RunnerChoice, RunnerKind, ToolError, ToolProcess,
+    absolute, container_name, docker_available, exit_code, mount, sanitize, secret_dir, tail,
+    write_private,
+};
+
 const CONTAINER_PGPASS: &str = "/run/dbu/pgpass";
 const CONTAINER_ARCHIVE: &str = "/run/dbu/archive.dump";
 const CONTAINER_PREFIX: &str = "dbu-pg-";
-const REMOVE_ATTEMPTS: u32 = 10;
-const REMOVE_INTERVAL: Duration = Duration::from_millis(200);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum RunnerChoice {
-    #[default]
-    Auto,
-    Native,
-    Docker,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RunnerKind {
-    Native,
-    Docker,
-}
-
-impl RunnerKind {
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Native => "native",
-            Self::Docker => "docker",
-        }
-    }
-}
+const CLIENT: &str = "PostgreSQL";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PgVersion {
@@ -85,44 +61,6 @@ impl Default for ToolPaths {
     }
 }
 
-#[derive(Debug, Error)]
-pub enum ToolError {
-    #[error(
-        "{tool} não encontrado; instale o cliente PostgreSQL {required} ou use --runner docker"
-    )]
-    NotFound { tool: &'static str, required: u32 },
-    #[error(
-        "{tool} {found} é incompatível com o servidor; é necessária a versão {required} ou superior"
-    )]
-    Incompatible {
-        tool: &'static str,
-        found: PgVersion,
-        required: u32,
-    },
-    #[error("nem o cliente PostgreSQL nativo nem o Docker estão disponíveis")]
-    NoRunner,
-    #[error("o Docker não está disponível")]
-    DockerUnavailable,
-    #[error("falha ao executar {tool}")]
-    Spawn {
-        tool: &'static str,
-        #[source]
-        source: io::Error,
-    },
-    #[error("falha ao preparar as credenciais temporárias")]
-    Credentials(#[source] io::Error),
-    #[error("{tool} terminou com código {code}: {stderr}")]
-    Failed {
-        tool: &'static str,
-        code: String,
-        stderr: String,
-    },
-    #[error("tempo esgotado executando {tool}")]
-    Timeout { tool: &'static str },
-    #[error("{tool} foi cancelado")]
-    Canceled { tool: &'static str },
-}
-
 #[derive(Debug, Clone)]
 pub struct PgTools {
     kind: RunnerKind,
@@ -150,7 +88,7 @@ impl PgTools {
                     Ok(tools) => Ok(tools),
                     Err(ToolError::DockerUnavailable) => match native_error {
                         ToolError::Incompatible { .. } => Err(native_error),
-                        _ => Err(ToolError::NoRunner),
+                        _ => Err(ToolError::NoRunner { client: CLIENT }),
                     },
                     Err(error) => Err(error),
                 },
@@ -172,14 +110,7 @@ impl PgTools {
     }
 
     async fn docker(server: PgVersion, paths: ToolPaths) -> Result<Self, ToolError> {
-        let status = Command::new(&paths.docker)
-            .args(["version", "--format", "{{.Server.Version}}"])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .await;
-        if !status.is_ok_and(|status| status.success()) {
+        if !docker_available(&paths.docker).await {
             return Err(ToolError::DockerUnavailable);
         }
         let image = format!("postgres:{}", server.major);
@@ -209,12 +140,8 @@ impl PgTools {
                 stderr: sanitize(&tail(&output.stderr), &[]),
             });
         }
-        let version = PgVersion::parse(&String::from_utf8_lossy(&output.stdout)).ok_or(
-            ToolError::NotFound {
-                tool: "pg_dump",
-                required: server.major,
-            },
-        )?;
+        let version = PgVersion::parse(&String::from_utf8_lossy(&output.stdout))
+            .ok_or_else(|| not_found("pg_dump", server.major))?;
         check_compatible("pg_dump", version, server)?;
         Ok(Self {
             kind: RunnerKind::Docker,
@@ -310,7 +237,7 @@ impl PgTools {
     ) -> Result<ToolProcess, ToolError> {
         let secrets = PgPass::write(config, password)?;
 
-        let (mut command, container) = match self.kind {
+        let (command, container) = match self.kind {
             RunnerKind::Native => {
                 let program = match tool {
                     "pg_restore" => &self.paths.pg_restore,
@@ -328,7 +255,7 @@ impl PgTools {
                 (command, None)
             }
             RunnerKind::Docker => {
-                let name = container_name();
+                let name = container_name(CONTAINER_PREFIX);
                 let mut command = Command::new(&self.paths.docker);
                 command.args(["run", "--rm", "-i", "--name", &name]);
                 if config.is_local() {
@@ -358,34 +285,18 @@ impl PgTools {
             }
         };
 
-        let stdout = if capture_stdout {
-            Stdio::piped()
-        } else {
-            Stdio::null()
-        };
-        let mut child = command
-            .stdin(Stdio::null())
-            .stdout(stdout)
-            .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(|source| ToolError::Spawn { tool, source })?;
-        let stdout = child.stdout.take();
-        let stderr = child.stderr.take().map(collect_stderr);
-
-        Ok(ToolProcess {
+        ToolProcess::spawn(Launch {
             tool,
-            child,
-            stdout,
-            stderr,
+            command,
+            stdin: Stdio::null(),
+            capture_stdout,
             container,
             docker: self.paths.docker.clone(),
             redact: vec![
                 password.expose().to_owned(),
                 secrets.path().display().to_string(),
             ],
-            _secrets: secrets,
-            finished: false,
+            secrets: secrets.dir,
         })
     }
 
@@ -428,114 +339,19 @@ impl ArchiveInfo {
     }
 }
 
-pub type DumpProcess = ToolProcess;
-pub type RestoreProcess = ToolProcess;
-
-pub struct ToolProcess {
-    tool: &'static str,
-    child: Child,
-    stdout: Option<ChildStdout>,
-    stderr: Option<JoinHandle<Vec<u8>>>,
-    container: Option<String>,
-    docker: PathBuf,
-    redact: Vec<String>,
-    _secrets: PgPass,
-    finished: bool,
-}
-
-impl ToolProcess {
-    pub fn take_stdout(&mut self) -> Option<ChildStdout> {
-        self.stdout.take()
-    }
-
-    #[must_use]
-    pub fn container_name(&self) -> Option<&str> {
-        self.container.as_deref()
-    }
-
-    pub async fn wait(&mut self) -> Result<(), ToolError> {
-        let tool = self.tool;
-        let status = self
-            .child
-            .wait()
-            .await
-            .map_err(|source| ToolError::Spawn { tool, source })?;
-        self.finished = true;
-        let stderr = match self.stderr.take() {
-            Some(task) => task.await.unwrap_or_default(),
-            None => Vec::new(),
-        };
-        if status.success() {
-            return Ok(());
-        }
-        Err(ToolError::Failed {
-            tool,
-            code: exit_code(status),
-            stderr: sanitize(&tail(&stderr), &self.redact),
-        })
-    }
-
-    pub async fn cancel(mut self) {
-        let _ = self.child.start_kill();
-        let _ = self.child.wait().await;
-        if let Some(name) = &self.container {
-            for attempt in 0..REMOVE_ATTEMPTS {
-                let removed = Command::new(&self.docker)
-                    .args(["rm", "--force", name])
-                    .stdin(Stdio::null())
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status()
-                    .await
-                    .is_ok_and(|status| status.success());
-                if removed || attempt + 1 == REMOVE_ATTEMPTS {
-                    break;
-                }
-                tokio::time::sleep(REMOVE_INTERVAL).await;
-            }
-        }
-        self.finished = true;
-    }
-}
-
-impl Drop for ToolProcess {
-    fn drop(&mut self) {
-        if self.finished {
-            return;
-        }
-        if let Some(name) = &self.container {
-            let _ = std::process::Command::new(&self.docker)
-                .args(["rm", "--force", name])
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn();
-        }
-    }
-}
-
 struct PgPass {
     dir: TempDir,
 }
 
 impl PgPass {
     fn write(config: &PostgresConnectionConfig, password: &Password) -> Result<Self, ToolError> {
-        let dir = tempfile::Builder::new()
-            .prefix("dbu-")
-            .tempdir()
-            .map_err(ToolError::Credentials)?;
+        let dir = secret_dir()?;
         let line = format!(
             "*:*:*:{}:{}\n",
             escape_pgpass(config.user()),
             escape_pgpass(password.expose()),
         );
-        let path = dir.path().join("pgpass");
-        let mut options = std::fs::OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-        let mut file = options.open(&path).map_err(ToolError::Credentials)?;
-        io::Write::write_all(&mut file, line.as_bytes()).map_err(ToolError::Credentials)?;
+        write_private(&dir.path().join("pgpass"), &line)?;
         Ok(Self { dir })
     }
 
@@ -555,14 +371,21 @@ async fn tool_version(
         .output()
         .await
         .map_err(|source| match source.kind() {
-            io::ErrorKind::NotFound => ToolError::NotFound { tool, required },
+            io::ErrorKind::NotFound => not_found(tool, required),
             _ => ToolError::Spawn { tool, source },
         })?;
     if !output.status.success() {
-        return Err(ToolError::NotFound { tool, required });
+        return Err(not_found(tool, required));
     }
     PgVersion::parse(&String::from_utf8_lossy(&output.stdout))
-        .ok_or(ToolError::NotFound { tool, required })
+        .ok_or_else(|| not_found(tool, required))
+}
+
+fn not_found(tool: &'static str, required: u32) -> ToolError {
+    ToolError::NotFound {
+        tool,
+        required: format!("{CLIENT} {required}"),
+    }
 }
 
 fn check_compatible(
@@ -575,8 +398,8 @@ fn check_compatible(
     } else {
         Err(ToolError::Incompatible {
             tool,
-            found,
-            required: server.major,
+            found: found.to_string(),
+            required: server.major.to_string(),
         })
     }
 }
@@ -607,10 +430,6 @@ fn dbname_conninfo(database: &str) -> String {
     format!("dbname='{escaped}'")
 }
 
-fn absolute(tool: &'static str, path: &Path) -> Result<PathBuf, ToolError> {
-    std::path::absolute(path).map_err(|source| ToolError::Spawn { tool, source })
-}
-
 fn ssl_mode(tls: TlsRequirement) -> &'static str {
     match tls {
         TlsRequirement::Plain => "disable",
@@ -618,58 +437,8 @@ fn ssl_mode(tls: TlsRequirement) -> &'static str {
     }
 }
 
-fn container_name() -> String {
-    format!("{CONTAINER_PREFIX}{}", uuid::Uuid::now_v7().simple())
-}
-
-fn mount(host: &Path, container: &str) -> OsString {
-    let mut value = host.as_os_str().to_owned();
-    value.push(format!(":{container}:ro"));
-    value
-}
-
 fn escape_pgpass(value: &str) -> String {
     value.replace('\\', "\\\\").replace(':', "\\:")
-}
-
-fn collect_stderr(mut stderr: ChildStderr) -> JoinHandle<Vec<u8>> {
-    tokio::spawn(async move {
-        let mut kept = Vec::new();
-        let mut buffer = [0_u8; 4096];
-        loop {
-            match stderr.read(&mut buffer).await {
-                Ok(0) | Err(_) => break,
-                Ok(read) => {
-                    kept.extend_from_slice(&buffer[..read]);
-                    if kept.len() > STDERR_LIMIT {
-                        kept.drain(..kept.len() - STDERR_LIMIT);
-                    }
-                }
-            }
-        }
-        kept
-    })
-}
-
-fn tail(bytes: &[u8]) -> String {
-    let start = bytes.len().saturating_sub(STDERR_LIMIT);
-    String::from_utf8_lossy(&bytes[start..]).trim().to_owned()
-}
-
-fn sanitize(text: &str, secrets: &[String]) -> String {
-    secrets
-        .iter()
-        .filter(|secret| !secret.is_empty())
-        .fold(text.to_owned(), |text, secret| {
-            text.replace(secret.as_str(), "***")
-        })
-}
-
-fn exit_code(status: ExitStatus) -> String {
-    status.code().map_or_else(
-        || "desconhecido (sinal)".to_owned(),
-        |code| code.to_string(),
-    )
 }
 
 #[cfg(test)]
@@ -739,7 +508,7 @@ mod tests {
                 },
                 server
             ),
-            Err(ToolError::Incompatible { required: 17, .. })
+            Err(ToolError::Incompatible { ref required, .. }) if required == "17"
         ));
     }
 
@@ -801,22 +570,6 @@ mod tests {
     #[test]
     fn escapes_pgpass_separators() {
         assert_eq!(escape_pgpass(r"a:b\c"), r"a\:b\\c");
-    }
-
-    #[test]
-    fn sanitize_removes_every_secret() {
-        let text = "falha para senha123 em /tmp/dbu-x/pgpass (senha123)";
-        let clean = sanitize(
-            text,
-            &["senha123".to_owned(), "/tmp/dbu-x/pgpass".to_owned()],
-        );
-        assert_eq!(clean, "falha para *** em *** (***)");
-    }
-
-    #[test]
-    fn stderr_tail_is_bounded() {
-        let big = vec![b'x'; STDERR_LIMIT * 3];
-        assert_eq!(tail(&big).len(), STDERR_LIMIT);
     }
 
     #[cfg(unix)]

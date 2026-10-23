@@ -48,8 +48,11 @@ pub struct RestoreArgs {
         help = "Host do servidor de destino"
     )]
     host: String,
-    #[arg(long, default_value_t = 5432, help = "Porta do servidor de destino")]
-    port: u16,
+    #[arg(
+        long,
+        help = "Porta do servidor de destino (padrão: 5432 no PostgreSQL, 3306 no MySQL)"
+    )]
+    port: Option<u16>,
     #[arg(long, required_unless_present = "target", help = "Usuário")]
     user: Option<String>,
     #[arg(
@@ -63,7 +66,7 @@ pub struct RestoreArgs {
         long,
         value_enum,
         default_value_t = RunnerArg::Auto,
-        help = "auto: pg_restore nativo se compatível, senão Docker"
+        help = "auto: pg_restore/mysql nativo se compatível, senão Docker"
     )]
     runner: RunnerArg,
     #[arg(
@@ -132,10 +135,32 @@ pub async fn run(args: RestoreArgs) -> ExitCode {
             exit::INVALID_INPUT,
             "--target é obrigatório com --engine sqlite",
         ),
-        (EngineArg::Postgres, Some(_)) => fail(
+        (EngineArg::Postgres | EngineArg::Mysql, Some(_)) => fail(
             exit::INVALID_INPUT,
-            "--target só vale com --engine sqlite; para PostgreSQL use --target-database",
+            "--target só vale com --engine sqlite; para PostgreSQL e MySQL use --target-database",
         ),
+        (EngineArg::Mysql, None) => match (&args.target_database, &args.user) {
+            (Some(target_database), Some(user)) => {
+                crate::mysql::restore(&crate::mysql::RestoreRequest {
+                    file: &args.file,
+                    host: &args.host,
+                    port: args.port,
+                    target_database,
+                    user,
+                    tls: args.tls,
+                    runner: args.runner,
+                    overwrite: args.overwrite,
+                    allow_unverified: args.allow_unverified,
+                    timeout: args.timeout,
+                    password_file: args.password_file.clone(),
+                })
+                .await
+            }
+            _ => fail(
+                exit::INVALID_INPUT,
+                "--target-database e --user são obrigatórios com --engine mysql",
+            ),
+        },
         (EngineArg::Postgres, None) => match (&args.target_database, &args.user) {
             (Some(target_database), Some(user)) => run_postgres(&args, target_database, user).await,
             _ => fail(
@@ -157,7 +182,7 @@ async fn run_postgres(args: &RestoreArgs, target_database: &str, user: &str) -> 
 
     let server = match PostgresConnectionConfig::new(
         &args.host,
-        args.port,
+        args.port.unwrap_or(crate::POSTGRES_PORT),
         MAINTENANCE_DATABASE,
         user,
         args.tls.into(),
@@ -192,7 +217,11 @@ async fn run_postgres(args: &RestoreArgs, target_database: &str, user: &str) -> 
         );
     }
 
-    let (password, _) = match read_password(&target, args.password_file.clone()) {
+    let (password, _) = match read_password(
+        DatabaseEngine::Postgres,
+        &target,
+        args.password_file.clone(),
+    ) {
         Ok(value) => value,
         Err(message) => return fail(exit::INVALID_INPUT, &message),
     };

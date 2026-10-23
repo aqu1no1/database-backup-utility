@@ -178,6 +178,7 @@ pub async fn backup(source: &Path, output_dir: Option<PathBuf>, timeout: Option<
                     size_bytes: artifact.size_bytes,
                     sha256: &artifact.sha256,
                     duration_ms: elapsed.as_millis(),
+                    non_transactional_tables: None,
                 },
                 &text,
             )
@@ -248,6 +249,8 @@ async fn execute_backup(
         port: None,
         server_version: adapter::library_version(),
         pg_dump_version: None,
+        mysqldump_version: None,
+        non_transactional_tables: None,
         runner: None,
         created_at: &created_at,
         execution_id,

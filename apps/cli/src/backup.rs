@@ -18,7 +18,8 @@ use tracing::{info, warn};
 
 use crate::output::{fail, success};
 use crate::{
-    ConnectionArgs, EngineArg, RunnerArg, TlsArg, describe, exit, exit_code_for, read_password,
+    ConnectionArgs, EngineArg, PORT_HELP, RunnerArg, TlsArg, describe, exit, exit_code_for,
+    read_password,
 };
 
 const FORMAT: &str = "pg_dump-custom";
@@ -51,7 +52,7 @@ pub struct BackupArgs {
         long,
         value_enum,
         default_value_t = RunnerArg::Auto,
-        help = "auto: pg_dump nativo se compatível, senão Docker"
+        help = "auto: pg_dump/mysqldump nativo se compatível, senão Docker"
     )]
     runner: RunnerArg,
     #[arg(long, value_parser = clap::value_parser!(u64).range(1..), help = "Tempo máximo do backup em segundos (padrão: sem limite)")]
@@ -62,8 +63,8 @@ pub struct BackupArgs {
 struct ServerArgs {
     #[arg(long, default_value = "localhost", help = "Host do servidor")]
     host: String,
-    #[arg(long, default_value_t = 5432, help = "Porta do servidor")]
-    port: u16,
+    #[arg(long, help = PORT_HELP)]
+    port: Option<u16>,
     #[arg(long, required_unless_present = "source", help = "Nome do banco")]
     database: Option<String>,
     #[arg(long, required_unless_present = "source", help = "Usuário")]
@@ -104,6 +105,8 @@ pub struct BackupResult<'a> {
     pub size_bytes: u64,
     pub sha256: &'a str,
     pub duration_ms: u128,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub non_transactional_tables: Option<&'a [String]>,
 }
 
 enum Failure {
@@ -132,9 +135,16 @@ pub async fn run(args: BackupArgs) -> ExitCode {
             exit::INVALID_INPUT,
             "--source é obrigatório com --engine sqlite",
         ),
-        (EngineArg::Postgres, Some(_)) => {
+        (EngineArg::Postgres | EngineArg::Mysql, Some(_)) => {
             fail(exit::INVALID_INPUT, "--source só vale com --engine sqlite")
         }
+        (EngineArg::Mysql, None) => match server.into_connection() {
+            Some(connection) => crate::mysql::backup(connection, output_dir, runner, timeout).await,
+            None => fail(
+                exit::INVALID_INPUT,
+                "--database e --user são obrigatórios com --engine mysql",
+            ),
+        },
         (EngineArg::Postgres, None) => match server.into_connection() {
             Some(connection) => run_postgres(connection, output_dir, runner, timeout).await,
             None => fail(
@@ -155,7 +165,11 @@ async fn run_postgres(
         Ok(config) => config,
         Err(code) => return code,
     };
-    let (password, source) = match read_password(&config, connection.password_file.clone()) {
+    let (password, source) = match read_password(
+        DatabaseEngine::Postgres,
+        &config,
+        connection.password_file.clone(),
+    ) {
         Ok(value) => value,
         Err(message) => return fail(exit::INVALID_INPUT, &message),
     };
@@ -254,6 +268,7 @@ async fn run_postgres(
                     size_bytes: artifact.size_bytes,
                     sha256: &artifact.sha256,
                     duration_ms: elapsed.as_millis(),
+                    non_transactional_tables: None,
                 },
                 &text,
             )
@@ -354,6 +369,8 @@ async fn execute(
         port: Some(config.port()),
         server_version,
         pg_dump_version: Some(&pg_dump_version),
+        mysqldump_version: None,
+        non_transactional_tables: None,
         runner: Some(tools.kind().as_str()),
         created_at: &created_at,
         execution_id,

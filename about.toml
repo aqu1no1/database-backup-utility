@@ -12,3 +12,6 @@ accepted = [
 ]
 ignore-dev-dependencies = true
 ignore-build-dependencies = true
+
+[webpki-roots]
+accepted = ["CDLA-Permissive-2.0"]
