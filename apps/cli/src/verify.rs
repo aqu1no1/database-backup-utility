@@ -17,7 +17,7 @@ use crate::{RunnerArg, describe, exit};
 pub struct VerifyArgs {
     #[arg(
         long,
-        help = "Arquivo gerado pelo comando backup run (.dump ou .sqlite3)"
+        help = "Arquivo gerado pelo comando backup run (.dump, .sql ou .sqlite3)"
     )]
     file: PathBuf,
     #[arg(
@@ -86,6 +86,7 @@ pub async fn run(args: VerifyArgs) -> ExitCode {
     }
     let structure = match engine {
         DatabaseEngine::Sqlite => sqlite_structure(&file).await,
+        DatabaseEngine::Mysql => mysql_structure(&file).await,
         DatabaseEngine::Postgres => postgres_structure(&file, &verified, args.runner).await,
     };
     let structure = match structure {
@@ -157,6 +158,19 @@ async fn sqlite_structure(file: &Path) -> Result<Structure, ExitCode> {
         tables: info.tables,
         dumped_from: None,
         dumped_by: None,
+    })
+}
+
+async fn mysql_structure(file: &Path) -> Result<Structure, ExitCode> {
+    let dump = crate::mysql::inspect(file)
+        .await
+        .map_err(|message| fail(exit::INVALID_ARCHIVE, &message))?;
+    Ok(Structure {
+        objects: dump.objects(),
+        tables: dump.tables,
+        dumped_from: dump.dumped_from.map(|v| v.to_string()),
+        dumped_by: dump.dumped_by.map(|v| v.to_string()),
+        database: dump.database,
     })
 }
 

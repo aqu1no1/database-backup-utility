@@ -119,10 +119,15 @@ async fn missing_native_client_is_reported() {
         native,
         Err(ToolError::NotFound {
             tool: "pg_dump",
-            required: 17
+            ref required,
+        }) if required == "PostgreSQL 17"
+    ));
+    assert!(matches!(
+        auto,
+        Err(ToolError::NoRunner {
+            client: "PostgreSQL"
         })
     ));
-    assert!(matches!(auto, Err(ToolError::NoRunner)));
     assert!(matches!(docker, Err(ToolError::DockerUnavailable)));
 }
 

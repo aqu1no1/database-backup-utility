@@ -71,6 +71,8 @@ pub struct ArtifactMetadata<'a> {
     pub port: Option<u16>,
     pub server_version: &'a str,
     pub pg_dump_version: Option<&'a str>,
+    pub mysqldump_version: Option<&'a str>,
+    pub non_transactional_tables: Option<&'a [String]>,
     pub runner: Option<&'a str>,
     pub created_at: &'a str,
     pub execution_id: &'a str,
@@ -100,6 +102,10 @@ struct Manifest<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pg_dump_version: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    mysqldump_version: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    non_transactional_tables: Option<&'a [String]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     runner: Option<&'a str>,
     created_at: &'a str,
     execution_id: &'a str,
@@ -123,6 +129,8 @@ pub struct StoredMetadata {
     pub database: String,
     pub server_version: String,
     pub pg_dump_version: Option<String>,
+    pub mysqldump_version: Option<String>,
+    pub non_transactional_tables: Option<Vec<String>>,
     pub created_at: String,
 }
 
@@ -341,6 +349,8 @@ pub async fn write_metadata(
         port: metadata.port,
         server_version: metadata.server_version,
         pg_dump_version: metadata.pg_dump_version,
+        mysqldump_version: metadata.mysqldump_version,
+        non_transactional_tables: metadata.non_transactional_tables,
         runner: metadata.runner,
         created_at: metadata.created_at,
         execution_id: metadata.execution_id,
@@ -726,6 +736,8 @@ mod tests {
             port: Some(5432),
             server_version: "17.11",
             pg_dump_version: Some("17.11"),
+            mysqldump_version: None,
+            non_transactional_tables: None,
             runner: Some("docker"),
             created_at: "2026-10-20T19:00:00Z",
             execution_id: "exec-1",
@@ -790,6 +802,8 @@ mod tests {
             port: None,
             server_version: "3.50.4",
             pg_dump_version: None,
+            mysqldump_version: None,
+            non_transactional_tables: None,
             runner: None,
             created_at: "2026-10-20T19:00:00Z",
             execution_id: "exec-1",
@@ -807,7 +821,14 @@ mod tests {
         let json: serde_json::Value =
             serde_json::from_slice(&std::fs::read(metadata_path(&stored.path)).expect("manifesto"))
                 .expect("json");
-        for absent in ["host", "port", "pg_dump_version", "runner"] {
+        for absent in [
+            "host",
+            "port",
+            "pg_dump_version",
+            "mysqldump_version",
+            "non_transactional_tables",
+            "runner",
+        ] {
             assert!(
                 json.get(absent).is_none(),
                 "{absent} não deveria ser gravado"
