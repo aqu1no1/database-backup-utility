@@ -76,6 +76,26 @@ Todos os testes citados rodam na CI (`cargo test --workspace --tests`, job
 | Backups da v0.1.x continuam restauráveis | leitor aceita manifesto v1; E2E `verify_and_restore_without_history` reescreve o manifesto de um dump real como v1 e roda verify e restore | ok (DB-22) |
 | Histórico de restore sem host/porta inventados | migration `0004_restore_targets.sql` (`target_host`/`target_port` nulos juntos, coluna `engine`); `upgrading_keeps_postgres_restores_and_accepts_file_targets` | ok (DB-22) |
 
+## MySQL (DB-20)
+
+| Controle | Evidência | Status |
+| --- | --- | --- |
+| Senha nunca em argumentos nem no ambiente do processo | arquivo de opções `[client]` temporário (`0600`, apagado com o processo) via `--defaults-extra-file`, `env_remove("MYSQL_PWD")` (`crates/database-adapters/src/mysql/tools.rs`); testes `options_file_is_private_and_removed_on_drop`, `options_file_is_the_first_argument_and_password_never_is_an_argument`, `password_never_reaches_container_arguments_environment_or_errors` (inspeciona `Args`/`Env` do container durante o dump) | ok (DB-20) |
+| Senha fora de stdout, stderr, erros, manifesto e histórico | `sanitize` com senha e caminho do arquivo de opções; `backup_verify_and_restore_round_trip_preserves_data` varre todas as saídas e o manifesto; erros de conexão sem a senha em `Display`/`Debug` (`connection_outcomes_are_classified_without_leaking_secrets`) | ok (DB-20) |
+| Variáveis de senha separadas por SGBD | `DBU_MYSQL_PASSWORD`/`DBU_MYSQL_PASSWORD_FILE` (`apps/cli/src/credentials.rs`); uma senha do PostgreSQL exportada no shell não é enviada a um MySQL | ok (DB-20) |
+| Host remoto exige TLS validado, sem fallback | mesma regra do `TlsMode`; `mysql_async` com rustls e os certificados do sistema (raízes embutidas desligadas); `mysql`/`mysqldump` com `--ssl-mode=VERIFY_IDENTITY --ssl-ca=<pacote do sistema>`; teste `connection_outcomes_…` recusa o certificado autoassinado do container | ok (DB-20) |
+| Dump não executa comandos no cliente | `mysql --binary-mode` (recusa `\!`, `system` e demais comandos do cliente) e `--local-infile=0` (o arquivo não consegue ler arquivos locais com `LOAD DATA LOCAL`); teste `restore_refuses_client_commands_embedded_in_the_dump` (mutação manual: sem `--binary-mode`, o comando de shell roda e o teste falha) | ok (DB-20) |
+| Dump não troca de banco | `inspect_dump` recusa `USE`, `CREATE DATABASE` e `DROP DATABASE` no início de linha; o dump é gerado sem `--databases`; teste `dumps_that_switch_or_create_databases_are_rejected` | ok (DB-20) |
+| Dump truncado ou de outra ferramenta não vira backup nem é restaurado | cabeçalho do `mysqldump` e linha final `-- Dump completed` conferidos antes do `commit` e antes do restore; testes `truncated_dump_without_footer_is_incomplete`, `damaged_dumps_are_rejected_and_failed_restore_leaves_no_database` | ok (DB-20) |
+| Leitura do dump com memória limitada | `dump.rs` guarda só 256 bytes por linha; `huge_lines_are_scanned_without_being_kept` | ok (DB-20) |
+| Nome do banco não vira opção nem caminho | `--` antes do nome no `mysqldump`, `--database=<nome>` no `mysql`; nomes com `/`, `\`, `.` ou espaço final recusados (`mysql_config_applies_mysql_name_limits_and_tls_rules`) | ok (DB-20) |
+| Sem sobrescrita: restore só em banco novo | banco existente (mesmo vazio) e `--overwrite` recusados com código 2; `existing_database_and_overwrite_are_refused_without_changes` | ok (DB-20) |
+| Restore com falha não deixa banco incompleto | o restore apaga só o banco que ele criou, em falha, cancelamento ou contagem de tabelas divergente; `damaged_dumps_…` (mutação manual: sem o `DROP`, o teste falha) | ok (DB-20) |
+| Backup que o MySQL não restauraria não é publicado | trigger ou evento com o corpo terminado em `;` (criado por cliente que envia vários comandos de uma vez) é detectado na leitura do dump; `backup run` falha com código 8 e `verify` com 10, citando o objeto; testes `trigger_or_event_body_ending_in_semicolon_is_unrestorable`, `long_trigger_body_is_judged_by_its_end`, `trigger_saved_with_trailing_semicolon_is_flagged_as_unrestorable` (confirma que o próprio `mysql` falha nesse dump), `risky_mysql_objects_…` (mutação manual: sem a detecção, os testes falham) | ok (DB-20) |
+| `DEFINER` sem privilégio detectado antes de restaurar dados | o dump informa os `DEFINER` por tipo de objeto; logo depois de criar o banco, o restore cria e apaga um objeto de cada tipo com cada `DEFINER` (sonda real, que cobre roles, binlog e `SYSTEM_USER`, o que uma consulta a `USER_PRIVILEGES` não cobriria); se falhar, apaga o banco e sai com código 2; testes `definer_probe_refuses_a_user_that_cannot_recreate_the_objects` (também confere que a sonda não deixa objetos), `probe_quotes_definer_and_names_from_the_dump`, `risky_mysql_objects_…` (mutação manual: sem a sonda, o teste falha) | ok (DB-20) |
+| Tabelas fora do InnoDB visíveis para scripts | lista `non_transactional_tables` no JSON do `backup run` e no manifesto (vazia quando todas são InnoDB), além do aviso no log; `risky_mysql_objects_…`, `backup_verify_and_restore_round_trip_preserves_data` | ok (DB-20) |
+| MariaDB não é tratado como MySQL | `MysqlVersion::parse` recusa versões MariaDB (servidor e cliente); `parses_client_and_server_versions`; suporte planejado no DB-37 | ok (DB-20) |
+
 ## GitHub Actions e release
 
 | Controle | Evidência | Status |
@@ -108,6 +128,7 @@ Toda exceção na política de dependências fica aqui, com motivo e condição 
 
 | Exceção | Tipo | Alcance | Motivo | Condição de remoção | Revisar em |
 | --- | --- | --- | --- | --- | --- |
+| `webpki-roots` — CDLA-Permissive-2.0 | licença (por crate) | runtime (`mysql_async` → `webpki-roots`, puxada pela feature `rustls-tls`, sem como desligar) | Licença permissiva de dados (a lista de CAs da Mozilla); o código usa os certificados do sistema e desliga as raízes embutidas (`with_disable_built_in_roots(true)`), então a lista só entra no binário. `about.toml` aceita a licença só para esta crate | `mysql_async` permitir rustls sem `webpki-roots`, ou trocarmos de cliente | próxima atualização de Rust (DB-36) |
 | `option-ext` — MPL-2.0 | licença (por crate) | runtime (`directories` → `dirs-sys` → `option-ext`, usado pelo histórico) | MPL-2.0 é copyleft fraco por arquivo; usamos a crate sem modificação e a fonte está disponível no crates.io; o texto vai no `THIRD-PARTY-LICENSES.md` | `directories`/`dirs-sys` deixarem de depender dela, ou trocarmos `directories` por código próprio | próxima atualização de Rust (DB-36) |
 
 Nenhum advisory RustSec ignorado.
@@ -118,7 +139,7 @@ Nenhum advisory RustSec ignorado.
 | --- | --- | --- |
 | Serviços de desenvolvimento só em loopback | `infra/docker/compose.yml` publica em `127.0.0.1` | ok |
 | Sem segredos reais versionados | `.env` no `.gitignore`; `.env.example` com placeholders | ok |
-| Testes isolados, sem volumes reais | Testcontainers com senha aleatória e portas dinâmicas; E2E verifica ausência de containers `dbu-pg-*` | ok |
+| Testes isolados, sem volumes reais | Testcontainers com senha aleatória e portas dinâmicas (PostgreSQL e MySQL); E2E verifica ausência de containers `dbu-pg-*`; `password_never_…` verifica a remoção do container `dbu-my-*` cancelado | ok |
 
 ## Riscos aceitos e limites
 
@@ -154,6 +175,35 @@ Nenhum advisory RustSec ignorado.
   removido pelo próximo `backup run` depois de 10 minutos parado. A espera protege um `.partial` de
   uma v0.1.x, que não usa lock, rodando no mesmo diretório. Até lá ele só ocupa espaço: nunca vira
   backup. Em sistemas de arquivos de rede, o `flock` pode não funcionar entre máquinas.
+- **MySQL: consistência só para InnoDB.** O `--single-transaction` dá um snapshot consistente só de
+  tabelas transacionais. Tabelas MyISAM, MEMORY etc. podem ficar inconsistentes entre si se houver
+  escrita durante o backup. O `backup run` lista essas tabelas no log, no JSON e no manifesto
+  (`non_transactional_tables`); não usamos `--lock-all-tables` porque ele bloqueia escritas no
+  servidor inteiro.
+- **MySQL: restore não transacional e sem sobrescrita.** O dump SQL é aplicado comando a comando;
+  uma falha no meio deixa o banco parcial, que o restore apaga em seguida. Se o `DROP` falhar (por
+  exemplo, sem permissão), a mensagem avisa que o banco incompleto ficou. Restaurar sobre um banco
+  existente ainda não é possível.
+- **MySQL: `DEFINER` e privilégios.** Triggers, views e rotinas levam o `DEFINER` da origem. Para
+  recriá-los com outro usuário, o destino exige `SET_ANY_DEFINER` (MySQL 8.2+; `SET_USER_ID` antes)
+  ou `SUPER`; com o binlog ligado (padrão), triggers e functions exigem `SUPER` ou
+  `log_bin_trust_function_creators=1`. A sonda recusa o restore antes de carregar dados, mas a
+  solução continua sendo conceder o privilégio ou restaurar com o usuário certo. O backup de eventos
+  e rotinas exige `EVENT` e `SHOW_ROUTINE`.
+- **MySQL: trigger ou evento com `;` no fim do corpo.** É um defeito do MySQL: o objeto criado por um
+  cliente que envia vários comandos de uma vez gera um dump que o próprio `mysql` não reaplica. O
+  `backup run` agora recusa esse dump (código 8) e diz qual objeto recriar. A detecção olha o fim
+  do comando (últimos 32 bytes); uma variação que o `mysqldump` não gera hoje passaria despercebida
+  e cairia na falha limpa do restore (código 11, banco apagado).
+- **MySQL: chave RSA sem TLS em `localhost`.** Sem TLS (permitido só em `localhost`), o
+  `caching_sha2_password` precisa da chave pública do servidor, pedida com
+  `--get-server-public-key`. Ela não é validada, o que só é aceitável porque o tráfego não sai da
+  máquina.
+- **MySQL com `--allow-unverified` executa SQL de terceiros.** Um `.sql` sem checksum conhecido roda
+  com as permissões do usuário informado, dentro do banco novo. As recusas de `USE`/`CREATE DATABASE`
+  e os comandos do cliente desligados reduzem o alcance, mas não substituem a confiança na origem
+  do arquivo: o SQL ainda pode, por exemplo, alterar outros bancos com nome qualificado se o usuário
+  tiver permissão. Use um usuário de restore com privilégios só no banco de destino.
 - **Senhas de exemplo no Compose de desenvolvimento.** Os perfis opcionais `mysql` e `mongodb` têm
   valores padrão (`dev-change-me`). Exigir as variáveis quebraria o `docker compose` de quem só usa
   o PostgreSQL, porque o Compose interpola até os serviços de perfis desativados. Os serviços escutam

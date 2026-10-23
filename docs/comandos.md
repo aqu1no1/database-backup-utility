@@ -23,10 +23,16 @@ cargo run -p database-backup-cli -- restore list
 cargo run -p database-backup-cli -- backup run --engine sqlite --source ./app.db
 cargo run -p database-backup-cli -- backup verify --file <arquivo.sqlite3>
 cargo run -p database-backup-cli -- restore run --engine sqlite --file <arquivo.sqlite3> --target ./app_copia.db
+DBU_MYSQL_PASSWORD='...' cargo run -p database-backup-cli -- connection test --engine mysql --database my_database --user backup
+DBU_MYSQL_PASSWORD='...' cargo run -p database-backup-cli -- backup run --engine mysql --database my_database --user backup
+cargo run -p database-backup-cli -- backup verify --file <arquivo.sql>
+DBU_MYSQL_PASSWORD='...' cargo run -p database-backup-cli -- restore run --engine mysql --file <arquivo.sql> --target-database my_database_copy --user backup
 ```
 
-`--engine` vale `postgres` (padrão) ou `sqlite`. Com `sqlite` não há servidor nem senha: `--source`
+`--engine` vale `postgres` (padrão), `mysql` ou `sqlite`. Com `sqlite` não há servidor nem senha: `--source`
 (backup) e `--target` (restore) indicam os arquivos, e as opções de conexão do PostgreSQL são recusadas.
+Com `mysql`, a porta padrão é 3306 e o restore só cria bancos novos (`--overwrite` é recusado).
+`backup verify` descobre o SGBD pelo manifesto ou pelo cabeçalho do arquivo, sem `--engine`.
 
 Arquivos `.partial` que sobram no diretório de backups vêm de um backup interrompido à força
 (`kill -9`, queda de energia). Ctrl+C, timeout e erros os removem na hora. Cada backup em andamento
@@ -38,7 +44,7 @@ mais de 10 minutos, e registra isso no log. Um `<destino>.partial` órfão de um
 Opções globais: `--json` (resultado em JSON no stdout) e `--log-level error|warn|info|debug|trace`
 (logs no stderr; padrão `warn` ou `RUST_LOG`).
 
-A senha vem de `--password-file`, `DBU_PG_PASSWORD_FILE` ou `DBU_PG_PASSWORD` (só uma); sem nenhuma, é pedida sem eco. Exit codes: 0 ok, 2 parâmetro inválido,
+A senha vem de `--password-file`, `DBU_PG_PASSWORD_FILE` ou `DBU_PG_PASSWORD` (MySQL: `DBU_MYSQL_PASSWORD_FILE` ou `DBU_MYSQL_PASSWORD`), só uma; sem nenhuma, é pedida sem eco. Exit codes: 0 ok, 2 parâmetro inválido,
 3 autenticação, 4 banco inexistente, 5 inacessível/timeout, 6 TLS, 7 ferramentas ausentes,
 8 backup falhou, 9 cancelado, 10 arquivo inválido, 11 restore falhou,
 12 confirmação necessária. `restore run` e `backup verify` recusam (código 10) symlinks e
