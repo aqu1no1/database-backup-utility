@@ -40,6 +40,8 @@ docker compose --env-file .env -f infra/docker/compose.yml \
 | --- | --- |
 | `DBU_PG_PASSWORD` | Senha usada por `connection test`, `backup run` e `restore run` em scripts. |
 | `DBU_PG_PASSWORD_FILE` | Caminho de um arquivo com a senha (equivale a `--password-file`). Recomendado para agendadores. |
+| `DBU_MYSQL_PASSWORD` | O mesmo que `DBU_PG_PASSWORD`, para `--engine mysql`. |
+| `DBU_MYSQL_PASSWORD_FILE` | O mesmo que `DBU_PG_PASSWORD_FILE`, para `--engine mysql`. |
 | `DBU_DATA_DIR` | Diretório do histórico SQLite, no lugar do padrão do sistema. Útil para testes e uso portátil. |
 | `RUST_LOG` | Filtro dos logs no stderr (ex.: `info`, `database_backup=debug`) quando `--log-level` não é informado. Padrão: `warn`. |
 
@@ -47,7 +49,8 @@ docker compose --env-file .env -f infra/docker/compose.yml \
 
 ## Credenciais
 
-A senha do PostgreSQL vem de **uma** destas fontes:
+A senha do PostgreSQL vem de **uma** destas fontes (no MySQL, as variáveis são `DBU_MYSQL_PASSWORD_FILE`
+e `DBU_MYSQL_PASSWORD`; as `DBU_PG_*` são ignoradas com `--engine mysql` e vice-versa):
 
 | Fonte | Quando usar |
 | --- | --- |
@@ -77,6 +80,10 @@ install -m 600 /dev/null ~/.config/dbu/pg.pass
 printf '%s\n' 'a-senha' > ~/.config/dbu/pg.pass
 DBU_PG_PASSWORD_FILE=~/.config/dbu/pg.pass database-backup backup run --database app --user backup
 ```
+
+No MySQL, a senha lida por essas fontes vai para o `mysqldump`/`mysql` num arquivo de opções
+temporário (`[client]`, `0600`, apagado ao fim do processo) passado com `--defaults-extra-file`.
+`MYSQL_PWD` é removida do ambiente do processo filho. No modo Docker, o arquivo é montado só leitura.
 
 ### Keyring do sistema (futuro)
 

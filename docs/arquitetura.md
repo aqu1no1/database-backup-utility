@@ -6,7 +6,7 @@ flowchart TD
   DESKTOP[apps/desktop - Angular/Tauri futuro] --> CORE
   CLI --> ADAPTERS[crates/database-adapters]
   DESKTOP --> ADAPTERS
-  ADAPTERS --> DB[(PostgreSQL / SQLite — implementados<br/>MySQL / MongoDB — planejados)]
+  ADAPTERS --> DB[(PostgreSQL / MySQL / SQLite — implementados<br/>MongoDB — planejado)]
   CORE -. regras e contratos .-> ADAPTERS
 ```
 
@@ -27,14 +27,35 @@ flowchart TD
   o caso em que o daemon termina de criar o container depois que o cliente morreu (container em
   estado "Created" não é removido pelo `--rm`).
   Distribuição nativa das ferramentas será avaliada por SO.
+- `crates/database-adapters/src/process.rs` é o runner comum de ferramentas externas (PostgreSQL e
+  MySQL): `RunnerChoice`/`RunnerKind`, `ToolError`, o `ToolProcess` com stderr limitado a 8 KiB e
+  sanitizado, cancelamento com `docker rm --force` repetido e o diretório temporário de credenciais
+  (`0600`, apagado junto com o processo). Os adaptadores só montam os argumentos de cada ferramenta.
+- `crates/database-adapters/src/mysql/` segue o mesmo desenho do PostgreSQL:
+  - `connection.rs` testa a conexão com `mysql_async` (TLS via rustls com os certificados do
+    sistema; as raízes embutidas da `webpki-roots` ficam desligadas) e classifica os erros nos
+    mesmos `ConnectionError` do PostgreSQL (1045/1044 → autenticação, 1049 → banco inexistente);
+  - `admin.rs` consulta `information_schema` (existência do banco, tabelas, tabelas fora do InnoDB)
+    e cria/apaga bancos com identificadores entre crases;
+  - `tools.rs` roda `mysqldump`/`mysql` em `native` ou `docker` (imagem `mysql:<major.minor>`), com
+    `--defaults-extra-file` como primeiro argumento, `--protocol=TCP` (em `localhost` o cliente
+    usaria o socket Unix) e o nome do banco depois de `--` no `mysqldump`, para um nome que começa
+    com `-` não virar opção. O restore usa `--binary-mode` e `--local-infile=0`;
+  - `dump.rs` lê o dump SQL em streaming, guardando só os primeiros 256 bytes de cada linha:
+    cabeçalho do `mysqldump`, banco, versões, contagem de tabelas/views/triggers/rotinas/eventos,
+    linha final `-- Dump completed` e recusa de `USE`/`CREATE DATABASE`/`DROP DATABASE`.
 - `crates/storage` grava o backup localmente: arquivo `.partial`, SHA-256 em streaming,
   `fsync` e `rename` atômico, além do manifesto versionado `.meta.json` ([`manifesto.md`](manifesto.md)). Destinos em nuvem entram nessa crate.
 - O comando `backup run` da CLI monta as peças: conexão → runner → storage → histórico.
 - O comando `restore run` faz o caminho inverso: checksum (storage/histórico) → `pg_restore --list` →
   estado do destino (`postgres/admin.rs`) → `pg_restore` em um banco novo ou temporário → troca de nomes.
-- `crates/core/src/engine.rs` define o `DatabaseEngine` (`postgres`, `sqlite`). Os nomes são os
+- `crates/core/src/engine.rs` define o `DatabaseEngine` (`postgres`, `mysql`, `sqlite`). Os nomes são os
   mesmos do `CHECK` da tabela `connections` do histórico e do campo `engine` do manifesto v2. O
-  legado `postgresql` (manifesto v1) é lido como `postgres`. MySQL e MongoDB entram com seus cards.
+  legado `postgresql` (manifesto v1) é lido como `postgres`. MongoDB entra com seu card.
+- `crates/core/src/connection.rs` tem um tipo de configuração por servidor
+  (`PostgresConnectionConfig`, `MysqlConnectionConfig`) com a mesma regra de TLS (sem TLS só em
+  `localhost`) e os limites de nome de cada SGBD. O `SecretProvider` recebe só o destino exibível
+  (`&dyn Display`), e a CLI escolhe as variáveis de ambiente pelo SGBD.
 - `crates/database-adapters/src/sqlite.rs` faz backup e restore de SQLite com a Online Backup API do
   `rusqlite`, sem ferramenta externa:
   - a origem é aberta só para leitura e precisa ser um arquivo regular com o cabeçalho
@@ -83,7 +104,13 @@ versão do PostgreSQL de origem gravada no manifesto (`.meta.json`) ou, na falta
 registrada no histórico. Sem nenhuma das duas, o arquivo é recusado (código 10). Com o manifesto,
 verify e restore não dependem do histórico SQLite. As checagens estão em [`manifesto.md`](manifesto.md).
 Para SQLite não há versão de ferramenta a escolher: o `verify` usa o `integrity_check` do próprio
-`rusqlite`.
+`rusqlite`. Para MySQL também não: o dump é SQL puro e o `verify` o lê em Rust (`mysql/dump.rs`),
+sem `mysql` nem Docker.
+
+O restore MySQL não tem troca atômica: o MySQL não tem `RENAME DATABASE`, e um `RENAME TABLE` não
+leva views, rotinas nem triggers. Por isso ele só cria um banco novo (`apps/cli/src/mysql.rs`):
+confere que o destino não existe, cria, aplica o dump, compara a contagem de tabelas com o dump e,
+em falha ou cancelamento, apaga só o banco que ele mesmo criou.
 
 ## Fluxo alvo de backup
 

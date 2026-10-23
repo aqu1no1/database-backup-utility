@@ -15,10 +15,17 @@ versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 - `backup verify` identifica o SGBD pelo manifesto ou pelo cabeçalho do arquivo.
 - `backup run` remove os arquivos `.partial` deixados por backups interrompidos à força (sem lock e parados há mais de 10 minutos), sem tocar em backups em andamento.
 - `restore run --engine sqlite --overwrite` recusa um destino aberto por outro processo ou com transação aberta, informando o PID quando possível.
+- Backup, verificação e restore de **MySQL** com `--engine mysql` em `connection test`, `backup run` e `restore run` (porta padrão 3306). O backup usa o `mysqldump` (`--single-transaction`, com rotinas, triggers e eventos), nativo ou via Docker (`mysql:<major.minor>`), e gera `<banco>-<data>.sql` com manifesto. `backup verify` confere o dump SQL sem ferramentas externas.
+- O restore MySQL só cria bancos novos: recusa banco existente e `--overwrite`, e apaga o banco criado se o restore falhar ou for cancelado. O cliente `mysql` roda com `--binary-mode` e `--local-infile=0`, e dumps com `USE`/`CREATE DATABASE` são recusados.
+- Senha do MySQL por `--password-file`, `DBU_MYSQL_PASSWORD_FILE` ou `DBU_MYSQL_PASSWORD`, entregue às ferramentas por um arquivo de opções temporário (`0600`), nunca por argumento.
+- O backup MySQL lista as tabelas fora do InnoDB, que não entram no snapshot consistente, no log, no `--json` e no manifesto (`non_transactional_tables`).
+- O backup MySQL falha (código 8) quando um trigger ou evento tem o corpo terminado em `;`, caso em que o próprio MySQL não conseguiria restaurar o dump; a mensagem diz qual objeto recriar.
+- O restore MySQL testa, antes de carregar dados, se o usuário consegue recriar os objetos com os `DEFINER` do dump; se não, para com código 2 e apaga o banco criado.
 
 ### Changed
 - Manifesto passa para a versão 2: campos de servidor (`host`, `port`, `pg_dump_version`, `runner`) ficam opcionais e `engine` passa de `postgresql` para `postgres`. Manifestos v1 continuam aceitos; a v0.1.x recusa manifestos v2.
 - Histórico: migration `0004` permite restores sem host e porta e registra o SGBD de cada restore.
+- Manifesto v2 ganha os campos opcionais `mysqldump_version` e `non_transactional_tables` (só em backups MySQL); a versão do formato continua 2.
 
 ### Fixed
 - Um backup que coincide no nome com um `.partial` deixado no mesmo segundo agora falha com "já existe um arquivo em …", em vez de um erro de E/S sem explicação.
