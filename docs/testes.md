@@ -8,6 +8,7 @@ As regras sobre **quais** testes escrever (relevância, nível, isolamento, temp
 | Unitários Rust | `cargo test --workspace --lib --bins` | Não |
 | Integração PostgreSQL | Testcontainers + tokio-postgres | Sim |
 | E2E backup/restore | CLI real, dois servidores PostgreSQL temporários | Sim |
+| Integração e E2E MySQL | Testcontainers (`mysql:8.4`) + mysql_async (`crates/database-adapters/tests/mysql_*.rs`, `apps/cli/tests/mysql.rs`) | Sim |
 | Integração e E2E SQLite | `rusqlite` + arquivos em `tempfile` (`crates/database-adapters/tests/sqlite_backup.rs`, `apps/cli/tests/sqlite.rs`) | Não |
 | Angular unit/component (futuro) | Vitest + Angular TestBed | Não |
 | Desktop completo (futuro) | Ferramenta Tauri compatível | Conforme cenário |
@@ -54,6 +55,30 @@ async fn exemplo() -> TestResult {
 
 O harness não tem testes próprios. Todos os testes de integração e E2E dependem dele, então uma
 falha em subir o container ou aplicar a fixture derruba esses testes com a mensagem do harness.
+
+## Integração MySQL
+
+O harness `MysqlTestDb` (mesmo `support/mod.rs`) sobe um `mysql:8.4` efêmero com senha de root
+gerada a cada execução e porta escolhida pelo Docker. `start_seeded()` aplica
+`tests/fixtures/mysql/seed.sql` comando a comando, como faz o cliente `mysql` (tabelas InnoDB com
+FK, view, trigger, UTF-8 e `VARBINARY`).
+
+- `mysql_connection.rs`: senha errada, banco inexistente, `verify-full` contra o certificado
+  autoassinado do container, porta fechada e servidor mudo.
+- `mysql_tools.rs`: dump e restore preservam dados, view e trigger nos dois runners; a senha não
+  aparece em argumentos, ambiente do container nem erros; `\!`/`system` dentro do dump não executam
+  nada; cliente ausente; dump truncado.
+- `apps/cli/tests/mysql.rs`: ciclo `connection test` → `backup run` → `backup verify` →
+  `restore run` pela CLI, recusa de banco existente e de `--overwrite`, dump adulterado ou truncado
+  (código 10), restore que falha no meio (código 11, banco criado apagado), e
+  `risky_mysql_objects_are_caught_before_they_cost_a_backup_or_a_restore`: tabela MyISAM listada no
+  JSON e no manifesto, usuário sem privilégio de `DEFINER` recusado antes de restaurar dados e
+  trigger com `;` final recusado no backup (código 8, nenhum `.sql` publicado).
+
+O runner nativo só roda quando o `mysqldump`/`mysql` instalado é compatível com o servidor 8.4. O
+`ubuntu-latest` da CI traz o cliente 8.0, então lá os testes MySQL usam só o Docker. Para exigir o
+nativo localmente, defina `DBU_REQUIRE_NATIVE_MYSQL=1` (o `DBU_REQUIRE_NATIVE` da CI vale só para o
+PostgreSQL).
 
 ## E2E de backup e restauração
 
@@ -131,6 +156,11 @@ código foi restaurado. Todas as mutações foram detectadas:
 | Host remoto tratado como local (sem TLS) | `connection::remote_host_requires_tls` |
 | Diretório de saída aberto não detectado | `storage::reports_output_directory_shared_with_others` |
 | Sobrescrita sem conferir o nome confirmado | `e2e::destructive_restore_requires_confirmation` |
+| Restore MySQL sem `--binary-mode` (DB-20) | `mysql_tools::restore_refuses_client_commands_embedded_in_the_dump` |
+| Banco criado não apagado após restore MySQL com falha (DB-20) | `mysql::damaged_dumps_are_rejected_and_failed_restore_leaves_no_database` |
+| Detecção de trigger/evento com `;` final desligada (DB-20) | `dump::trigger_or_event_body_ending_in_semicolon_is_unrestorable`, `mysql::risky_mysql_objects_…` |
+| Sonda de `DEFINER` desligada (DB-20) | `mysql::risky_mysql_objects_…` |
+| Restore MySQL aceita banco existente (DB-20) | `mysql::existing_database_and_overwrite_are_refused_without_changes` |
 
 ## Regras
 

@@ -6,16 +6,17 @@ ambos utilizando as mesmas crates de negócio.
 
 > **Estado atual (v0.1.1 + `Unreleased`):** CLI para PostgreSQL com teste de conexão, backup full,
 > verificação e restore, histórico interno em SQLite, manifesto versionado e testes E2E. Em
-> `Unreleased` (ainda sem release): backup, verificação e restore de bancos **SQLite** como origem.
-> **Ainda não existem:** desktop Angular/Tauri, MySQL, MongoDB, agendamento, nuvem, compressão extra
-> e criptografia. Esses itens estão planejados em [`docs/RELEASES.md`](docs/RELEASES.md).
+> `Unreleased` (ainda sem release): backup, verificação e restore de bancos **SQLite** como origem e
+> de **MySQL** (`mysqldump`, restore só em banco novo).
+> **Ainda não existem:** desktop Angular/Tauri, MongoDB, sobrescrita no restore MySQL, agendamento,
+> nuvem, compressão extra e criptografia. Esses itens estão planejados em [`docs/RELEASES.md`](docs/RELEASES.md).
 
 ## Stack
 
 - CLI: Rust + Clap; bibliotecas compartilhadas no Cargo Workspace.
 - Desktop (planejado): Tauri + Angular standalone + TypeScript + Tailwind v4.
 - i18n desktop: Transloco, `pt-BR` e `en-US`.
-- Desenvolvimento: PostgreSQL no Docker Compose; MySQL/MongoDB opcionais; histórico interno em SQLite embutido.
+- Desenvolvimento: PostgreSQL no Docker Compose; MySQL/MongoDB em perfis opcionais; histórico interno em SQLite embutido.
 - Testes: Rust `cargo test`, integração com Testcontainers, Vitest futuramente no Angular.
 - GitHub Actions: CI em PRs/main, auditoria e releases **somente manuais** (`workflow_dispatch`).
 
@@ -124,6 +125,28 @@ cargo run -p database-backup-cli -- backup run --engine sqlite --source ./app.db
 - Em modo WAL, o próprio SQLite cria `-wal`/`-shm` ao lado da origem, como faz com qualquer leitor.
   Os dados da origem não são alterados.
 
+Gerar um backup de um MySQL (`mysqldump`, SQL puro, um banco por arquivo):
+
+```bash
+DBU_MYSQL_PASSWORD='...' cargo run -p database-backup-cli -- backup run --engine mysql \
+  --database my_database --user backup [--port 3306] [--output-dir DIR] [--runner auto|native|docker]
+```
+
+- A senha vem de `--password-file`, `DBU_MYSQL_PASSWORD_FILE` ou `DBU_MYSQL_PASSWORD` e chega ao
+  `mysqldump` por um arquivo de opções temporário (`0600`), nunca por argumento. A porta padrão é 3306.
+- Usa `--single-transaction`, que dá um snapshot consistente só para tabelas InnoDB. Tabelas de
+  outros motores (MyISAM etc.) geram um aviso no log, porque podem ficar inconsistentes se houver
+  escrita durante o backup; a lista também sai no `--json` e no manifesto
+  (`non_transactional_tables`). Rotinas, triggers, eventos e views entram no dump.
+- Um trigger ou evento com o corpo terminado em `;` (criado por ferramentas que enviam vários
+  comandos de uma vez) gera um dump que o próprio MySQL não restaura. Nesse caso o backup falha
+  (código 8) e diz qual objeto recriar, em vez de entregar um backup inútil.
+- O dump é gravado em `.partial`, conferido (cabeçalho do `mysqldump`, linha final
+  `-- Dump completed` e banco certo) e só então vira `<database>-<AAAAMMDDTHHMMSSZ>.sql`, com o
+  manifesto `.sql.meta.json` ao lado.
+- `--runner auto` usa o `mysqldump` instalado se a versão for igual ou maior que a do servidor
+  (major.minor); senão, a imagem `mysql:<major.minor>` no Docker. MariaDB ainda não é suportado (DB-37).
+
 Consultar o histórico e verificar um backup sem restaurar:
 
 ```bash
@@ -134,7 +157,8 @@ cargo run -p database-backup-cli -- restore list
 
 - `backup verify` recusa symlinks e arquivos graváveis por outros, confere o manifesto (versão, nome
   do arquivo, tamanho e SHA-256) ou, sem ele, o histórico, e valida a estrutura com
-  `pg_restore --list` (PostgreSQL) ou `PRAGMA integrity_check` (SQLite). O SGBD vem do manifesto
+  `pg_restore --list` (PostgreSQL), pela leitura do dump SQL (MySQL, sem ferramentas externas) ou
+  `PRAGMA integrity_check` (SQLite). O SGBD vem do manifesto
   ou, sem ele, do cabeçalho do arquivo. Com o manifesto funciona sem o histórico SQLite, por exemplo depois de copiar
   o par para outra máquina. Sai com 10 se o arquivo estiver ausente, alterado ou inválido.
 
@@ -175,6 +199,27 @@ cargo run -p database-backup-cli -- restore run --engine sqlite \
   checagem de arquivo aberto só existe no Linux e só vê processos do mesmo usuário; fora disso,
   feche a aplicação antes de sobrescrever.
 
+Restaurar um backup MySQL em um banco novo:
+
+```bash
+DBU_MYSQL_PASSWORD='...' cargo run -p database-backup-cli -- restore run --engine mysql \
+  --file ~/.local/share/database-backup-utility/backups/my_database-20261023T120000Z.sql \
+  --target-database my_database_copy --user backup
+```
+
+- Só restaura em um banco que **ainda não existe**: o restore cria o banco, aplica o dump e confere a
+  contagem de tabelas. Um banco existente, mesmo vazio, é recusado (código 2) e `--overwrite` ainda
+  não é suportado no MySQL.
+- O restore do MySQL não é transacional. Se falhar ou for cancelado, o banco criado pelo próprio
+  restore é apagado; nenhum outro banco é tocado.
+- O cliente `mysql` roda com `--binary-mode` (comandos do cliente como `\!`/`system` dentro do
+  arquivo são recusados) e `--local-infile=0`. Dumps que trocam ou criam bancos (`USE`,
+  `CREATE DATABASE`, gerados com `--databases`) são recusados.
+- Antes de carregar qualquer dado, o restore cria e apaga um objeto de teste de cada tipo com cada
+  `DEFINER` do dump. Se o usuário não puder recriá-los (falta `SET_ANY_DEFINER`/`SUPER`, ou o binlog
+  exige `SUPER` para triggers e functions), o restore para com código 2, apaga o banco criado e
+  explica o privilégio que falta.
+
 | Exit code | Significado |
 | --- | --- |
 | 0 | Sucesso |
@@ -184,7 +229,7 @@ cargo run -p database-backup-cli -- restore run --engine sqlite \
 | 4 | Banco inexistente (ou arquivo SQLite de origem inexistente) |
 | 5 | Servidor inacessível ou tempo esgotado |
 | 6 | Falha de TLS |
-| 7 | `pg_dump`/`pg_restore` ausente ou incompatível (e Docker indisponível); não se aplica ao SQLite |
+| 7 | `pg_dump`/`pg_restore`/`mysqldump`/`mysql` ausente ou incompatível (e Docker indisponível); não se aplica ao SQLite |
 | 8 | O backup falhou |
 | 9 | Backup ou restore cancelado (Ctrl+C) |
 | 10 | Arquivo de backup ausente, corrompido, sem checksum conhecido ou incompatível |

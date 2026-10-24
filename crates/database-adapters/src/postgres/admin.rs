@@ -3,7 +3,8 @@ use thiserror::Error;
 use tokio_postgres::Client;
 use tokio_postgres::error::SqlState;
 
-use super::connection::{ConnectionError, Timeouts, connect};
+use super::connection::connect;
+use crate::connection::{ConnectionError, Timeouts};
 
 const MAINTENANCE_DATABASE: &str = "postgres";
 

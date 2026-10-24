@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
-use crate::{Password, PostgresConnectionConfig};
+use crate::Password;
 
 pub const MAX_PASSWORD_FILE_BYTES: u64 = 4 * 1024;
 
@@ -59,10 +59,7 @@ pub enum SecretError {
 }
 
 pub trait SecretProvider {
-    fn password(
-        &self,
-        config: &PostgresConnectionConfig,
-    ) -> Result<(Password, SecretSource), SecretError>;
+    fn password(&self, target: &dyn fmt::Display) -> Result<(Password, SecretSource), SecretError>;
 }
 
 #[must_use]

@@ -6,10 +6,12 @@
 | CLI | Clap, Tokio, rpassword, tracing, serde_json | `connection test`, `backup run/list/verify`, `restore run/list`, `--json` |
 | Conexão PostgreSQL | tokio-postgres, rustls (ring) + certificados do sistema | Implementado (TLS `verify-full` para hosts remotos) |
 | Motor PostgreSQL | Ferramentas oficiais `pg_dump`, `pg_restore` (runner native ou Docker) | Backup, verificação e restore implementados |
+| Conexão MySQL | mysql_async (sem features padrão; rustls com ring, certificados do sistema, raízes embutidas desligadas) | Implementado (DB-20) |
+| Motor MySQL | Ferramentas oficiais `mysqldump`, `mysql` (runner native ou Docker `mysql:<major.minor>`) | Backup, verificação e restore em banco novo implementados (DB-20) |
 | Motor SQLite | Online Backup API do SQLite via `rusqlite` (feature `backup`, SQLite embutido) | Backup, verificação e restore implementados (DB-22) |
 | Histórico | SQLite (rusqlite, bundled) + rusqlite_migration | Implementado: conexões, backups, artefatos e restores (4 migrations) |
 | Desenvolvimento | Docker Compose com PostgreSQL 17 | Arquivo criado |
-| Integração / E2E | Testcontainers para Rust (PostgreSQL efêmero) | Integração dos adaptadores e E2E da CLI com runners Docker e nativo |
+| Integração / E2E | Testcontainers para Rust (PostgreSQL 17 e MySQL 8.4 efêmeros) | Integração dos adaptadores e E2E da CLI com runners Docker e nativo |
 | Desktop | Tauri | Planejado, v0.3.0 |
 | Frontend | Angular standalone, TypeScript estrito | Escolhido, ainda não criado |
 | Estilos | Tailwind CSS v4 | Escolhido, ainda não configurado |
