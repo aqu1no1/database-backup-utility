@@ -9,6 +9,7 @@ As regras sobre **quais** testes escrever (relevância, nível, isolamento, temp
 | Integração PostgreSQL | Testcontainers + tokio-postgres | Sim |
 | E2E backup/restore | CLI real, dois servidores PostgreSQL temporários | Sim |
 | Integração e E2E MySQL | Testcontainers (`mysql:8.4`) + mysql_async (`crates/database-adapters/tests/mysql_*.rs`, `apps/cli/tests/mysql.rs`) | Sim |
+| Integração e E2E MongoDB | Testcontainers (`mongo:7.0`, standalone e replica set) + driver `mongodb` (`crates/database-adapters/tests/mongo_*.rs`, `apps/cli/tests/mongo.rs`) | Sim |
 | Integração e E2E SQLite | `rusqlite` + arquivos em `tempfile` (`crates/database-adapters/tests/sqlite_backup.rs`, `apps/cli/tests/sqlite.rs`) | Não |
 | Angular unit/component (futuro) | Vitest + Angular TestBed | Não |
 | Desktop completo (futuro) | Ferramenta Tauri compatível | Conforme cenário |
@@ -79,6 +80,36 @@ O runner nativo só roda quando o `mysqldump`/`mysql` instalado é compatível c
 `ubuntu-latest` da CI traz o cliente 8.0, então lá os testes MySQL usam só o Docker. Para exigir o
 nativo localmente, defina `DBU_REQUIRE_NATIVE_MYSQL=1` (o `DBU_REQUIRE_NATIVE` da CI vale só para o
 PostgreSQL).
+
+## Integração MongoDB
+
+O harness `MongoTestDb` (mesmo `support/mod.rs`) sobe um `mongo:7.0` efêmero com senha de root
+gerada a cada execução e porta escolhida pelo Docker. `start_seeded()` aplica
+`tests/fixtures/mongodb/seed.js` pelo `docker-entrypoint-initdb.d` (standalone);
+`start_replica_set_seeded()` inicia um replica set de um membro, espera o primário e aplica a mesma
+fixture. A fixture tem coleções com índice único, `Decimal128`, `Int64` acima de 2^53, binários,
+UTF-8, uma coleção com validador e um documento legado que o viola, uma coleção vazia e uma view.
+
+- `mongo_connection.rs`: senha errada, banco inexistente e `verify-full` classificados sem vazar a
+  senha, primário de replica set detectado, porta fechada e servidor mudo.
+- `mongo_tools.rs`: dump e restore preservam documentos, índices, validador e view em todos os
+  runners disponíveis; caracteres especiais na senha chegam intactos às ferramentas; a senha não
+  aparece em argumentos, ambiente do container nem erros (com usuário contendo `;touch …` e
+  `$(touch …)`, sem efeito); ferramentas ausentes; ferramentas nativas antigas ou legadas (`r4.x`)
+  recusadas (scripts falsos, só Unix).
+- `apps/cli/tests/mongo.rs`: ciclo `connection test` → `backup run` → `backup verify` →
+  `restore run` pela CLI no standalone e no replica set, conferindo manifesto, histórico, ausência da
+  senha nas saídas e `TMPDIR` vazio; recusa de banco existente, de `--overwrite` e de banco
+  reservado; archive adulterado ou truncado (código 10); restore que falha no meio por `_id`
+  duplicado (código 11, banco criado apagado); ferramentas ausentes (código 7, sugere
+  `--runner docker`).
+
+A imagem pode ser trocada com `DBU_MONGO_TAG` (por exemplo `DBU_MONGO_TAG=8.0`). O padrão é o 7.0
+porque o MongoDB 8.0 se recusa a iniciar em kernels Linux 6.19 ou mais novos
+([SERVER-121912](https://jira.mongodb.org/browse/SERVER-121912)), e os testes falham na subida do
+container nessas máquinas. O runner nativo só roda quando o Database Tools instalado atende à versão
+do servidor; para exigi-lo, defina `DBU_REQUIRE_NATIVE_MONGO=1`. O `ubuntu-latest` da CI não traz o
+Database Tools, então lá os testes MongoDB usam só o Docker.
 
 ## E2E de backup e restauração
 

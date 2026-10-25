@@ -6,6 +6,10 @@ use thiserror::Error;
 const MAX_IDENTIFIER_BYTES: usize = 63;
 const MYSQL_MAX_DATABASE_CHARS: usize = 64;
 const MYSQL_MAX_USER_CHARS: usize = 32;
+const MONGO_FORBIDDEN_NAME_CHARS: [char; 13] = [
+    '/', '\\', '.', ' ', '"', '$', '*', '<', '>', ':', '|', '?', '\0',
+];
+const MONGO_RESERVED_DATABASES: [&str; 3] = ["admin", "local", "config"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TlsMode {
@@ -39,6 +43,14 @@ pub enum ConfigError {
     },
     #[error("o {field} contém caracteres não permitidos pelo MySQL (/, \\, . ou espaço no fim)")]
     InvalidName { field: &'static str },
+    #[error(
+        "o {field} contém caracteres não permitidos pelo MongoDB (/ \\ . espaço \" $ * < > : | ? ou nulo)"
+    )]
+    InvalidMongoName { field: &'static str },
+    #[error("o banco {name} é interno do MongoDB e não pode ser origem nem destino")]
+    ReservedDatabase { name: String },
+    #[error("informe um único host, sem lista de hosts nem nome de replica set")]
+    MultipleHosts,
     #[error("conexão sem TLS só é permitida para localhost; use --tls verify-full para {host}")]
     PlainTlsForRemoteHost { host: String },
 }
@@ -199,6 +211,98 @@ impl fmt::Display for MysqlConnectionConfig {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MongoConnectionConfig {
+    host: String,
+    port: u16,
+    database: String,
+    user: String,
+    auth_database: String,
+    tls: TlsRequirement,
+}
+
+impl MongoConnectionConfig {
+    pub fn new(
+        host: &str,
+        port: u16,
+        database: &str,
+        user: &str,
+        auth_database: &str,
+        tls: TlsMode,
+    ) -> Result<Self, ConfigError> {
+        let (host, tls) = validate_server(host, port, tls)?;
+        if host.contains([',', '/']) {
+            return Err(ConfigError::MultipleHosts);
+        }
+        validate_mongo_database(database)?;
+        validate_mongo_name("auth-database", auth_database)?;
+        if user.trim().is_empty() {
+            return Err(ConfigError::EmptyField { field: "usuário" });
+        }
+        Ok(Self {
+            host,
+            port,
+            database: database.to_owned(),
+            user: user.to_owned(),
+            auth_database: auth_database.to_owned(),
+            tls,
+        })
+    }
+
+    #[must_use]
+    pub fn host(&self) -> &str {
+        &self.host
+    }
+
+    #[must_use]
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
+    #[must_use]
+    pub fn database(&self) -> &str {
+        &self.database
+    }
+
+    #[must_use]
+    pub fn user(&self) -> &str {
+        &self.user
+    }
+
+    #[must_use]
+    pub fn auth_database(&self) -> &str {
+        &self.auth_database
+    }
+
+    #[must_use]
+    pub fn tls(&self) -> TlsRequirement {
+        self.tls
+    }
+
+    #[must_use]
+    pub fn is_local(&self) -> bool {
+        is_local_host(&self.host)
+    }
+
+    pub fn with_database(&self, database: &str) -> Result<Self, ConfigError> {
+        validate_mongo_database(database)?;
+        Ok(Self {
+            database: database.to_owned(),
+            ..self.clone()
+        })
+    }
+}
+
+impl fmt::Display for MongoConnectionConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}@{}:{}/{}",
+            self.user, self.host, self.port, self.database
+        )
+    }
+}
+
 pub struct Password(String);
 
 impl Password {
@@ -273,6 +377,24 @@ fn validate_mysql_database(value: &str) -> Result<(), ConfigError> {
     validate_chars("database", value, MYSQL_MAX_DATABASE_CHARS)?;
     if value.ends_with(' ') || value.contains(['/', '\\', '.', '\0']) {
         return Err(ConfigError::InvalidName { field: "database" });
+    }
+    Ok(())
+}
+
+fn validate_mongo_name(field: &'static str, value: &str) -> Result<(), ConfigError> {
+    validate_identifier(field, value)?;
+    if value.contains(MONGO_FORBIDDEN_NAME_CHARS) {
+        return Err(ConfigError::InvalidMongoName { field });
+    }
+    Ok(())
+}
+
+fn validate_mongo_database(value: &str) -> Result<(), ConfigError> {
+    validate_mongo_name("database", value)?;
+    if MONGO_RESERVED_DATABASES.contains(&value) {
+        return Err(ConfigError::ReservedDatabase {
+            name: value.to_owned(),
+        });
     }
     Ok(())
 }
@@ -427,6 +549,95 @@ mod tests {
                 Err(expected)
             );
         }
+    }
+
+    #[test]
+    fn mongodb_config_validates_names_hosts_and_tls() {
+        let new = |host: &str, database: &str, user: &str, auth: &str, tls: TlsMode| {
+            MongoConnectionConfig::new(host, 27017, database, user, auth, tls)
+        };
+        let ok =
+            new("localhost", "app", "root", "admin", TlsMode::Auto).expect("configuração válida");
+        assert_eq!(ok.tls(), TlsRequirement::Plain);
+        assert!(ok.is_local());
+        assert_eq!(ok.auth_database(), "admin");
+        assert_eq!(ok.to_string(), "root@localhost:27017/app");
+        let other = ok.with_database("copia").expect("banco válido");
+        assert_eq!(
+            (other.database(), other.auth_database()),
+            ("copia", "admin")
+        );
+
+        for name in [
+            "a.b", "a b", "a\"b", "a$b", "a*b", "a/b", "a\\b", "a<b", "a>b", "a:b", "a|b", "a?b",
+            "a\0b", " app",
+        ] {
+            assert_eq!(
+                new("localhost", name, "root", "admin", TlsMode::Auto),
+                Err(ConfigError::InvalidMongoName { field: "database" }),
+                "{name:?}"
+            );
+            assert_eq!(
+                ok.with_database(name),
+                Err(ConfigError::InvalidMongoName { field: "database" }),
+                "{name:?}"
+            );
+        }
+        for name in ["admin", "local", "config"] {
+            assert_eq!(
+                new("localhost", name, "root", "admin", TlsMode::Auto),
+                Err(ConfigError::ReservedDatabase {
+                    name: name.to_owned()
+                })
+            );
+        }
+        assert!(new("localhost", "app", "root", "app_users", TlsMode::Auto).is_ok());
+        assert_eq!(
+            new("localhost", "app", "root", "a.b", TlsMode::Auto),
+            Err(ConfigError::InvalidMongoName {
+                field: "auth-database"
+            })
+        );
+        assert_eq!(
+            new("localhost", "app", " ", "admin", TlsMode::Auto),
+            Err(ConfigError::EmptyField { field: "usuário" })
+        );
+        assert_eq!(
+            new(
+                "localhost",
+                &"a".repeat(MAX_IDENTIFIER_BYTES + 1),
+                "root",
+                "admin",
+                TlsMode::Auto
+            ),
+            Err(ConfigError::FieldTooLong {
+                field: "database",
+                max: MAX_IDENTIFIER_BYTES,
+                unit: "bytes"
+            })
+        );
+
+        for host in [
+            "a.example,b.example",
+            "rs0/a.example",
+            "mongodb://a.example",
+        ] {
+            assert_eq!(
+                new(host, "app", "root", "admin", TlsMode::VerifyFull),
+                Err(ConfigError::MultipleHosts),
+                "{host}"
+            );
+        }
+        assert_eq!(
+            new("db.example.com", "app", "root", "admin", TlsMode::Disable),
+            Err(ConfigError::PlainTlsForRemoteHost {
+                host: "db.example.com".to_owned()
+            })
+        );
+        let remote = new("db.example.com", "app", "root", "admin", TlsMode::Auto)
+            .expect("configuração válida");
+        assert_eq!(remote.tls(), TlsRequirement::VerifyFull);
+        assert!(!remote.is_local());
     }
 
     #[test]

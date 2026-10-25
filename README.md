@@ -6,10 +6,11 @@ ambos utilizando as mesmas crates de negócio.
 
 > **Estado atual (v0.1.1 + `Unreleased`):** CLI para PostgreSQL com teste de conexão, backup full,
 > verificação e restore, histórico interno em SQLite, manifesto versionado e testes E2E. Em
-> `Unreleased` (ainda sem release): backup, verificação e restore de bancos **SQLite** como origem e
-> de **MySQL** (`mysqldump`, restore só em banco novo).
-> **Ainda não existem:** desktop Angular/Tauri, MongoDB, sobrescrita no restore MySQL, agendamento,
-> nuvem, compressão extra e criptografia. Esses itens estão planejados em [`docs/RELEASES.md`](docs/RELEASES.md).
+> `Unreleased` (ainda sem release): backup, verificação e restore de bancos **SQLite** como origem,
+> de **MySQL** (`mysqldump`, restore só em banco novo) e de **MongoDB** (`mongodump --archive`,
+> restore só em banco novo).
+> **Ainda não existem:** desktop Angular/Tauri, sobrescrita no restore MySQL e MongoDB, backup
+> MongoDB do servidor inteiro com `--oplog`, agendamento, nuvem, compressão extra e criptografia. Esses itens estão planejados em [`docs/RELEASES.md`](docs/RELEASES.md).
 
 ## Stack
 
@@ -147,6 +148,27 @@ DBU_MYSQL_PASSWORD='...' cargo run -p database-backup-cli -- backup run --engine
 - `--runner auto` usa o `mysqldump` instalado se a versão for igual ou maior que a do servidor
   (major.minor); senão, a imagem `mysql:<major.minor>` no Docker. MariaDB ainda não é suportado (DB-37).
 
+Gerar um backup de um MongoDB (`mongodump --archive`, um banco por arquivo, sem compressão):
+
+```bash
+DBU_MONGO_PASSWORD='...' cargo run -p database-backup-cli -- backup run --engine mongodb \
+  --database my_database --user backup [--auth-database admin] [--port 27017] [--output-dir DIR] [--runner auto|native|docker]
+```
+
+- A senha vem de `--password-file`, `DBU_MONGO_PASSWORD_FILE` ou `DBU_MONGO_PASSWORD` e chega ao
+  `mongodump` por um arquivo YAML temporário (`0600`) passado com `--config`, nunca por argumento.
+  A porta padrão é 27017 e `--auth-database` (padrão `admin`) é o banco onde o usuário foi criado.
+- Só aceita um standalone ou o primário de um replica set; secundário, árbitro e cluster sharded são
+  recusados (código 2). Servidores abaixo do 4.4 são recusados.
+- **Não é um snapshot de um único instante:** cada coleção é lida separadamente, então escritas
+  durante o backup podem deixar coleções inconsistentes entre si. A CLI avisa em todo backup. Detalhes
+  em [`docs/arquitetura.md`](docs/arquitetura.md#mongodb-topologia-e-consistência).
+- O archive é gravado em `.partial`, lido por inteiro (estrutura, banco certo, ao menos uma coleção)
+  e só então vira `<database>-<AAAAMMDDTHHMMSSZ>.archive`, com o manifesto `.archive.meta.json` ao
+  lado (inclui `mongodump_version` e `topology`). Usuários e roles não entram no backup.
+- `--runner auto` usa o `mongodump` instalado (Database Tools `100.x`) se atender à versão do
+  servidor; senão, a imagem `mongo:<major.minor>` no Docker. Matriz em [`docs/stack.md`](docs/stack.md).
+
 Consultar o histórico e verificar um backup sem restaurar:
 
 ```bash
@@ -157,8 +179,8 @@ cargo run -p database-backup-cli -- restore list
 
 - `backup verify` recusa symlinks e arquivos graváveis por outros, confere o manifesto (versão, nome
   do arquivo, tamanho e SHA-256) ou, sem ele, o histórico, e valida a estrutura com
-  `pg_restore --list` (PostgreSQL), pela leitura do dump SQL (MySQL, sem ferramentas externas) ou
-  `PRAGMA integrity_check` (SQLite). O SGBD vem do manifesto
+  `pg_restore --list` (PostgreSQL), pela leitura do dump SQL (MySQL, sem ferramentas externas), pela
+  leitura do archive (MongoDB, sem ferramentas externas) ou `PRAGMA integrity_check` (SQLite). O SGBD vem do manifesto
   ou, sem ele, do cabeçalho do arquivo. Com o manifesto funciona sem o histórico SQLite, por exemplo depois de copiar
   o par para outra máquina. Sai com 10 se o arquivo estiver ausente, alterado ou inválido.
 
@@ -220,6 +242,25 @@ DBU_MYSQL_PASSWORD='...' cargo run -p database-backup-cli -- restore run --engin
   exige `SUPER` para triggers e functions), o restore para com código 2, apaga o banco criado e
   explica o privilégio que falta.
 
+Restaurar um backup MongoDB em um banco novo:
+
+```bash
+DBU_MONGO_PASSWORD='...' cargo run -p database-backup-cli -- restore run --engine mongodb \
+  --file ~/.local/share/database-backup-utility/backups/my_database-20261024T120000Z.archive \
+  --target-database my_database_copy --user backup
+```
+
+- Só restaura em um banco que **ainda não existe** (um banco com coleções é recusado com código 2) e
+  `--overwrite` não é suportado no MongoDB. Bancos reservados (`admin`, `local`, `config`) são recusados.
+- Archives vindos de um servidor mais novo que o destino são recusados (código 10). O `mongorestore`
+  roda sem `--drop` e só renomeia o banco de origem do archive para o destino.
+- Depois do restore, a contagem de documentos de cada coleção e as views do destino são comparadas com
+  as do archive. Se divergirem, se o restore falhar ou for cancelado, o banco criado pelo próprio
+  restore é apagado (código 11); nenhum outro banco é tocado.
+- Usa `--bypassDocumentValidation`, para restaurar documentos antigos que violam o validador atual. O
+  usuário precisa de `readWrite` + `dbAdmin` (ou `dbOwner`) no destino; ver
+  [`docs/configuracao.md`](docs/configuracao.md#mongodb-usuário-banco-de-autenticação-e-permissões).
+
 | Exit code | Significado |
 | --- | --- |
 | 0 | Sucesso |
@@ -229,7 +270,7 @@ DBU_MYSQL_PASSWORD='...' cargo run -p database-backup-cli -- restore run --engin
 | 4 | Banco inexistente (ou arquivo SQLite de origem inexistente) |
 | 5 | Servidor inacessível ou tempo esgotado |
 | 6 | Falha de TLS |
-| 7 | `pg_dump`/`pg_restore`/`mysqldump`/`mysql` ausente ou incompatível (e Docker indisponível); não se aplica ao SQLite |
+| 7 | `pg_dump`/`pg_restore`/`mysqldump`/`mysql`/`mongodump`/`mongorestore` ausente ou incompatível (e Docker indisponível); não se aplica ao SQLite |
 | 8 | O backup falhou |
 | 9 | Backup ou restore cancelado (Ctrl+C) |
 | 10 | Arquivo de backup ausente, corrompido, sem checksum conhecido ou incompatível |

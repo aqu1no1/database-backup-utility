@@ -3,7 +3,8 @@ pub mod engine;
 pub mod secret;
 
 pub use connection::{
-    ConfigError, MysqlConnectionConfig, Password, PostgresConnectionConfig, TlsMode, TlsRequirement,
+    ConfigError, MongoConnectionConfig, MysqlConnectionConfig, Password, PostgresConnectionConfig,
+    TlsMode, TlsRequirement,
 };
 pub use engine::{DatabaseEngine, UnknownEngine};
 pub use secret::{

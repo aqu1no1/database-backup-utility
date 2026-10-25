@@ -2,6 +2,7 @@ mod archive;
 mod backup;
 mod credentials;
 mod listing;
+mod mongo;
 mod mysql;
 mod output;
 mod restore;
@@ -28,7 +29,7 @@ use output::{LogLevel, fail, success};
 
 macro_rules! password_note {
     () => {
-        "A senha vem de --password-file, DBU_PG_PASSWORD_FILE ou DBU_PG_PASSWORD (MySQL: DBU_MYSQL_PASSWORD_FILE ou\nDBU_MYSQL_PASSWORD), só uma delas (mais de uma é erro), ou, sem nenhuma, de um prompt sem eco.\nO arquivo de senha precisa ter permissão 600 ou 400."
+        "A senha vem de --password-file, DBU_PG_PASSWORD_FILE ou DBU_PG_PASSWORD (MySQL: DBU_MYSQL_PASSWORD_FILE ou\nDBU_MYSQL_PASSWORD; MongoDB: DBU_MONGO_PASSWORD_FILE ou DBU_MONGO_PASSWORD), só uma delas (mais de uma é erro),\nou, sem nenhuma, de um prompt sem eco. O arquivo de senha precisa ter permissão 600 ou 400."
     };
 }
 
@@ -41,11 +42,13 @@ macro_rules! password_note {
   database-backup connection test --database app --user postgres
   database-backup backup run --database app --user postgres
   database-backup backup run --engine mysql --database app --user backup
+  database-backup backup run --engine mongodb --database app --user backup
   database-backup backup run --engine sqlite --source ./app.db
   database-backup backup list --json
   database-backup backup verify --file app-20261021T120000Z.dump
   database-backup restore run --file app-20261021T120000Z.dump --target-database app_copia --user postgres
   database-backup restore run --engine mysql --file app-20261021T120000Z.sql --target-database app_copia --user backup
+  database-backup restore run --engine mongodb --file app-20261021T120000Z.archive --target-database app_copia --user backup
   database-backup restore run --engine sqlite --file app-20261021T120000Z.sqlite3 --target ./app_copia.db
 
 Exit codes: 0 ok, 1 falha geral, 2 parâmetro inválido, 3 autenticação, 4 banco inexistente,
@@ -85,11 +88,12 @@ enum Commands {
 #[derive(Debug, Subcommand)]
 enum ConnectionCommand {
     #[command(
-        about = "Valida a configuração e testa a conexão com um PostgreSQL ou MySQL.",
+        about = "Valida a configuração e testa a conexão com um PostgreSQL, MySQL ou MongoDB.",
         after_help = concat!(
             "Exemplos:\n",
             "  database-backup connection test --database app --user postgres\n",
             "  database-backup connection test --engine mysql --database app --user backup\n",
+            "  database-backup connection test --engine mongodb --database app --user backup --auth-database admin\n",
             "  database-backup connection test --host db.interno --tls verify-full --database app --user backup\n\n",
             password_note!()
         )
@@ -100,14 +104,17 @@ enum ConnectionCommand {
 #[derive(Debug, Subcommand)]
 enum BackupCommand {
     #[command(
-        about = "Gera um backup completo de um PostgreSQL (pg_dump, formato custom), de um MySQL (mysqldump, SQL) ou de um SQLite (Online Backup API).",
+        about = "Gera um backup completo de um PostgreSQL (pg_dump, formato custom), de um MySQL (mysqldump, SQL), de um MongoDB (mongodump, archive) ou de um SQLite (Online Backup API).",
         after_help = concat!(
             "Exemplos:\n",
             "  database-backup backup run --database app --user postgres\n",
             "  database-backup backup run --database app --user postgres --output-dir /srv/backups --runner docker\n",
             "  database-backup backup run --engine mysql --database app --user backup\n",
+            "  database-backup backup run --engine mongodb --database app --user backup --auth-database admin\n",
             "  database-backup backup run --engine sqlite --source ./app.db\n\n",
             "Com --engine sqlite não há servidor, usuário nem senha: o arquivo de origem é aberto só para leitura.\n",
+            "No MongoDB o backup é de um banco, sem snapshot de um único instante: escritas durante o backup podem deixar\n",
+            "coleções inconsistentes entre si. Só standalone e o primário de um replica set são aceitos.\n",
             password_note!()
         )
     )]
@@ -125,6 +132,7 @@ enum BackupCommand {
   database-backup backup verify --file app-20261021T120000Z.dump
   database-backup backup verify --file app-20261021T120000Z.sqlite3
   database-backup backup verify --file app-20261021T120000Z.sql
+  database-backup backup verify --file app-20261021T120000Z.archive
   database-backup backup verify --file externo.dump --allow-unverified --json"
     )]
     Verify(verify::VerifyArgs),
@@ -133,20 +141,21 @@ enum BackupCommand {
 #[derive(Debug, Subcommand)]
 enum RestoreCommand {
     #[command(
-        about = "Restaura um backup validado de PostgreSQL, MySQL ou SQLite em um destino.",
+        about = "Restaura um backup validado de PostgreSQL, MySQL, MongoDB ou SQLite em um destino.",
         after_help = concat!(
             "Por padrão só cria um banco novo. Sobrescrever um banco com dados exige --overwrite e confirmação;\n",
             "o anterior é mantido como <destino>__previous_<data> (PostgreSQL) ou <arquivo>.previous-<data> (SQLite).\n",
-            "No MySQL só é possível restaurar em um banco que ainda não existe (--overwrite não é suportado).\n\n",
+            "No MySQL e no MongoDB só é possível restaurar em um banco que ainda não existe (--overwrite não é suportado).\n\n",
             "Exemplos:\n",
             "  database-backup restore run --file app-20261021T120000Z.dump --target-database app_copia --user postgres\n",
             "  database-backup restore run --file app-20261021T120000Z.dump --target-database app --user postgres --overwrite --confirm app\n",
             "  database-backup restore run --engine mysql --file app-20261021T120000Z.sql --target-database app_copia --user backup\n",
+            "  database-backup restore run --engine mongodb --file app-20261021T120000Z.archive --target-database app_copia --user backup\n",
             "  database-backup restore run --engine sqlite --file app-20261021T120000Z.sqlite3 --target ./app_copia.db\n\n",
             password_note!()
         )
     )]
-    Run(restore::RestoreArgs),
+    Run(Box<restore::RestoreArgs>),
     #[command(
         about = "Lista as restaurações registradas no histórico.",
         after_help = "Exemplos:
@@ -175,6 +184,12 @@ struct ConnectionArgs {
     tls: TlsArg,
     #[arg(
         long,
+        value_name = "NOME",
+        help = "Banco de autenticação do MongoDB (padrão: admin)"
+    )]
+    auth_database: Option<String>,
+    #[arg(
+        long,
         value_name = "ARQUIVO",
         help = "Arquivo com a senha (permissão 600 ou 400)"
     )]
@@ -196,7 +211,10 @@ impl ConnectionArgs {
 
 const POSTGRES_PORT: u16 = 5432;
 const MYSQL_PORT: u16 = 3306;
-const PORT_HELP: &str = "Porta do servidor (padrão: 5432 no PostgreSQL, 3306 no MySQL)";
+const MONGO_PORT: u16 = 27017;
+const PORT_HELP: &str =
+    "Porta do servidor (padrão: 5432 no PostgreSQL, 3306 no MySQL, 27017 no MongoDB)";
+const AUTH_DATABASE_ONLY_MONGODB: &str = "--auth-database só vale com --engine mongodb";
 
 #[derive(Debug, Args)]
 struct TestConnectionArgs {
@@ -204,7 +222,7 @@ struct TestConnectionArgs {
         long,
         value_enum,
         default_value_t = EngineArg::Postgres,
-        help = "SGBD do servidor (postgres ou mysql)"
+        help = "SGBD do servidor (postgres, mysql ou mongodb)"
     )]
     engine: EngineArg,
     #[command(flatten)]
@@ -217,6 +235,7 @@ struct TestConnectionArgs {
 enum EngineArg {
     Postgres,
     Mysql,
+    Mongodb,
     Sqlite,
 }
 
@@ -273,6 +292,8 @@ mod exit {
 struct ConnectionResult<'a> {
     server_version: &'a str,
     connection: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    topology: Option<&'a str>,
 }
 
 #[tokio::main]
@@ -284,19 +305,23 @@ async fn main() -> ExitCode {
         Commands::Backup(BackupCommand::Run(args)) => backup::run(args).await,
         Commands::Backup(BackupCommand::List(args)) => listing::backups(&args),
         Commands::Backup(BackupCommand::Verify(args)) => verify::run(args).await,
-        Commands::Restore(RestoreCommand::Run(args)) => restore::run(args).await,
+        Commands::Restore(RestoreCommand::Run(args)) => restore::run(*args).await,
         Commands::Restore(RestoreCommand::List(args)) => listing::restores(&args),
     }
 }
 
 async fn run_test_connection(args: TestConnectionArgs) -> ExitCode {
+    if args.engine != EngineArg::Mongodb && args.connection.auth_database.is_some() {
+        return fail(exit::INVALID_INPUT, AUTH_DATABASE_ONLY_MONGODB);
+    }
     match args.engine {
         EngineArg::Postgres => {}
         EngineArg::Mysql => return mysql::test(&args.connection, args.timeout).await,
+        EngineArg::Mongodb => return mongo::test(&args.connection, args.timeout).await,
         EngineArg::Sqlite => {
             return fail(
                 exit::INVALID_INPUT,
-                "connection test vale para postgres e mysql; o SQLite não tem servidor",
+                "connection test vale para postgres, mysql e mongodb; o SQLite não tem servidor",
             );
         }
     }
@@ -331,6 +356,7 @@ async fn run_test_connection(args: TestConnectionArgs) -> ExitCode {
                 &ConnectionResult {
                     server_version: &info.server_version,
                     connection: config.to_string(),
+                    topology: None,
                 },
                 &format!(
                     "Conexão OK: PostgreSQL {} em {}",

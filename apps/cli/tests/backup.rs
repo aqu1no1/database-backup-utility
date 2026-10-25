@@ -121,14 +121,21 @@ async fn large_backup_uses_bounded_memory() -> TestResult {
         .spawn()?;
     let status_path = format!("/proc/{}/status", child.id());
     let mut peak_kb = 0_u64;
+    let mut peak_anon_kb = 0_u64;
     let status = loop {
-        if let Ok(status) = std::fs::read_to_string(&status_path)
-            && let Some(kb) = status
-                .lines()
-                .find_map(|line| line.strip_prefix("VmHWM:"))
-                .and_then(|value| value.trim().trim_end_matches("kB").trim().parse().ok())
-        {
-            peak_kb = peak_kb.max(kb);
+        if let Ok(status) = std::fs::read_to_string(&status_path) {
+            let field_kb = |name: &str| -> Option<u64> {
+                status
+                    .lines()
+                    .find_map(|line| line.strip_prefix(name))
+                    .and_then(|value| value.trim().trim_end_matches("kB").trim().parse().ok())
+            };
+            if let Some(kb) = field_kb("VmHWM:") {
+                peak_kb = peak_kb.max(kb);
+            }
+            if let Some(kb) = field_kb("RssAnon:") {
+                peak_anon_kb = peak_anon_kb.max(kb);
+            }
         }
         if let Some(status) = child.try_wait()? {
             break status;
@@ -139,14 +146,17 @@ async fn large_backup_uses_bounded_memory() -> TestResult {
     assert!(status.success());
     let dump = ws.out.join(&ws.files()[0]);
     let dump_kb = std::fs::metadata(&dump)?.len() / 1024;
-    eprintln!("dump: {dump_kb} KiB, pico de memória da CLI: {peak_kb} KiB");
+    eprintln!(
+        "dump: {dump_kb} KiB, pico de memória alocada da CLI: {peak_anon_kb} KiB (com o binário mapeado: {peak_kb} KiB)"
+    );
     assert!(
         dump_kb > 40 * 1024,
         "dump pequeno demais para o teste: {dump_kb} KiB"
     );
+    assert!(peak_anon_kb > 0, "a memória da CLI não foi amostrada");
     assert!(
-        peak_kb < dump_kb / 2,
-        "memória ({peak_kb} KiB) deveria ser bem menor que o dump ({dump_kb} KiB)"
+        peak_anon_kb < dump_kb / 2,
+        "memória alocada ({peak_anon_kb} KiB) deveria ser bem menor que o dump ({dump_kb} KiB)"
     );
     Ok(())
 }

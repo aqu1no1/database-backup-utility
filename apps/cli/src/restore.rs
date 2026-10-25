@@ -17,7 +17,10 @@ use tracing::{info, warn};
 
 use crate::archive::{check_target, read_archive, verify_checksum};
 use crate::output::{fail, success};
-use crate::{EngineArg, RunnerArg, TlsArg, describe, exit, exit_code_for, read_password};
+use crate::{
+    AUTH_DATABASE_ONLY_MONGODB, EngineArg, RunnerArg, TlsArg, describe, exit, exit_code_for,
+    read_password,
+};
 
 const MAINTENANCE_DATABASE: &str = "postgres";
 
@@ -36,7 +39,7 @@ pub struct RestoreArgs {
         long,
         value_name = "ARQUIVO",
         required_if_eq("engine", "sqlite"),
-        conflicts_with_all = ["target_database", "host", "port", "user", "tls", "runner", "password_file"],
+        conflicts_with_all = ["target_database", "host", "port", "user", "tls", "auth_database", "runner", "password_file"],
         help = "Arquivo SQLite de destino (com --engine sqlite)"
     )]
     target: Option<PathBuf>,
@@ -50,7 +53,7 @@ pub struct RestoreArgs {
     host: String,
     #[arg(
         long,
-        help = "Porta do servidor de destino (padrão: 5432 no PostgreSQL, 3306 no MySQL)"
+        help = "Porta do servidor de destino (padrão: 5432 no PostgreSQL, 3306 no MySQL, 27017 no MongoDB)"
     )]
     port: Option<u16>,
     #[arg(long, required_unless_present = "target", help = "Usuário")]
@@ -64,9 +67,15 @@ pub struct RestoreArgs {
     tls: TlsArg,
     #[arg(
         long,
+        value_name = "NOME",
+        help = "Banco de autenticação do MongoDB (padrão: admin)"
+    )]
+    auth_database: Option<String>,
+    #[arg(
+        long,
         value_enum,
         default_value_t = RunnerArg::Auto,
-        help = "auto: pg_restore/mysql nativo se compatível, senão Docker"
+        help = "auto: pg_restore/mysql/mongorestore nativo se compatível, senão Docker"
     )]
     runner: RunnerArg,
     #[arg(
@@ -119,6 +128,9 @@ enum Outcome {
 }
 
 pub async fn run(args: RestoreArgs) -> ExitCode {
+    if args.engine != EngineArg::Mongodb && args.auth_database.is_some() {
+        return fail(exit::INVALID_INPUT, AUTH_DATABASE_ONLY_MONGODB);
+    }
     match (args.engine, &args.target) {
         (EngineArg::Sqlite, Some(target)) => {
             crate::sqlite::restore(&crate::sqlite::RestoreRequest {
@@ -135,10 +147,33 @@ pub async fn run(args: RestoreArgs) -> ExitCode {
             exit::INVALID_INPUT,
             "--target é obrigatório com --engine sqlite",
         ),
-        (EngineArg::Postgres | EngineArg::Mysql, Some(_)) => fail(
+        (EngineArg::Postgres | EngineArg::Mysql | EngineArg::Mongodb, Some(_)) => fail(
             exit::INVALID_INPUT,
-            "--target só vale com --engine sqlite; para PostgreSQL e MySQL use --target-database",
+            "--target só vale com --engine sqlite; para PostgreSQL, MySQL e MongoDB use --target-database",
         ),
+        (EngineArg::Mongodb, None) => match (&args.target_database, &args.user) {
+            (Some(target_database), Some(user)) => {
+                crate::mongo::restore(&crate::mongo::RestoreRequest {
+                    file: &args.file,
+                    host: &args.host,
+                    port: args.port,
+                    target_database,
+                    user,
+                    auth_database: args.auth_database.as_deref(),
+                    tls: args.tls,
+                    runner: args.runner,
+                    overwrite: args.overwrite,
+                    allow_unverified: args.allow_unverified,
+                    timeout: args.timeout,
+                    password_file: args.password_file.clone(),
+                })
+                .await
+            }
+            _ => fail(
+                exit::INVALID_INPUT,
+                "--target-database e --user são obrigatórios com --engine mongodb",
+            ),
+        },
         (EngineArg::Mysql, None) => match (&args.target_database, &args.user) {
             (Some(target_database), Some(user)) => {
                 crate::mysql::restore(&crate::mysql::RestoreRequest {

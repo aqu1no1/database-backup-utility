@@ -24,7 +24,9 @@ O job `Rust / PostgreSQL Integration` roda `cargo test --workspace --tests` com 
 PostgreSQL 17 instalado e `DBU_REQUIRE_NATIVE=1`, então os cenários E2E rodam com os runners
 `docker` e `native`. Se o job falhar, o artefato **`e2e-logs`** (retenção de 7 dias) traz stdout e
 stderr de cada passo da CLI nos cenários que falharam. Os testes conferem que nenhuma senha aparece
-nessas saídas antes de gravá-las.
+nessas saídas antes de gravá-las. Apesar do nome, o mesmo `cargo test --workspace --tests` também roda
+os testes de integração MySQL e MongoDB (Testcontainers, só com o runner Docker, porque o runner não
+traz clientes compatíveis); o nome do job é mantido porque é um check obrigatório.
 
 O job `Rust / Supply Chain` roda `cargo deny check` (advisories, licenças, bans e fontes, conforme o
 `deny.toml`) em todo PR e push na `main`. Quando ele falhar, siga a triagem do §4.4 de

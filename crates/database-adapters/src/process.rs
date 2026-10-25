@@ -13,6 +13,11 @@ use tokio::task::JoinHandle;
 const STDERR_LIMIT: usize = 8 * 1024;
 const REMOVE_ATTEMPTS: u32 = 10;
 const REMOVE_INTERVAL: Duration = Duration::from_millis(200);
+const CA_BUNDLES: [&str; 3] = [
+    "/etc/ssl/certs/ca-certificates.crt",
+    "/etc/pki/tls/certs/ca-bundle.crt",
+    "/etc/ssl/cert.pem",
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RunnerChoice {
@@ -240,6 +245,14 @@ pub(crate) fn write_private(path: &Path, content: &str) -> Result<(), ToolError>
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
     let mut file = options.open(path).map_err(ToolError::Credentials)?;
     io::Write::write_all(&mut file, content.as_bytes()).map_err(ToolError::Credentials)
+}
+
+pub(crate) fn ca_bundle() -> Result<PathBuf, ToolError> {
+    CA_BUNDLES
+        .iter()
+        .map(PathBuf::from)
+        .find(|path| path.is_file())
+        .ok_or(ToolError::NoCaBundle)
 }
 
 pub(crate) fn absolute(tool: &'static str, path: &Path) -> Result<PathBuf, ToolError> {

@@ -10,8 +10,8 @@ use tokio::process::Command;
 
 use crate::process::{
     DumpProcess, Launch, RestoreProcess, RunnerChoice, RunnerKind, ToolError, ToolProcess,
-    absolute, container_name, docker_available, exit_code, mount, sanitize, secret_dir, tail,
-    write_private,
+    absolute, ca_bundle, container_name, docker_available, exit_code, mount, sanitize, secret_dir,
+    tail, write_private,
 };
 
 const CONTAINER_OPTIONS: &str = "/run/dbu/client.cnf";
@@ -19,11 +19,6 @@ const CONTAINER_CA: &str = "/run/dbu/ca.pem";
 const CONTAINER_PREFIX: &str = "dbu-my-";
 const CLIENT: &str = "MySQL";
 const OPTIONS_FILE: &str = "client.cnf";
-const CA_BUNDLES: [&str; 3] = [
-    "/etc/ssl/certs/ca-certificates.crt",
-    "/etc/pki/tls/certs/ca-bundle.crt",
-    "/etc/ssl/cert.pem",
-];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct MysqlVersion {
@@ -349,14 +344,6 @@ fn escape_option(value: &str) -> String {
         }
     }
     escaped
-}
-
-fn ca_bundle() -> Result<PathBuf, ToolError> {
-    CA_BUNDLES
-        .iter()
-        .map(PathBuf::from)
-        .find(|path| path.is_file())
-        .ok_or(ToolError::NoCaBundle)
 }
 
 async fn tool_version(

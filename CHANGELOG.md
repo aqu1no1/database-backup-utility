@@ -21,11 +21,16 @@ versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 - O backup MySQL lista as tabelas fora do InnoDB, que não entram no snapshot consistente, no log, no `--json` e no manifesto (`non_transactional_tables`).
 - O backup MySQL falha (código 8) quando um trigger ou evento tem o corpo terminado em `;`, caso em que o próprio MySQL não conseguiria restaurar o dump; a mensagem diz qual objeto recriar.
 - O restore MySQL testa, antes de carregar dados, se o usuário consegue recriar os objetos com os `DEFINER` do dump; se não, para com código 2 e apaga o banco criado.
+- Backup, verificação e restore de **MongoDB** com `--engine mongodb` em `connection test`, `backup run` e `restore run` (porta padrão 27017, `--auth-database` com padrão `admin`). O backup usa o `mongodump --archive` de um banco, sem compressão, nativo (Database Tools 100.x) ou via Docker (`mongo:<major.minor>`), e gera `<banco>-<data>.archive` com manifesto. `backup verify` lê o archive sem ferramentas externas.
+- O restore MongoDB só cria bancos novos: recusa banco existente, bancos reservados e `--overwrite`, roda o `mongorestore` sem `--drop` e confere a contagem de documentos de cada coleção e as views. Se o restore falhar, for cancelado ou a contagem divergir, o banco criado é apagado.
+- Senha do MongoDB por `--password-file`, `DBU_MONGO_PASSWORD_FILE` ou `DBU_MONGO_PASSWORD`, entregue às ferramentas por um arquivo YAML temporário (`0600`) passado com `--config`, nunca por argumento.
+- O MongoDB aceita standalone e o primário de um replica set; secundário e cluster sharded são recusados (código 2), e servidores abaixo do 4.4 também. O backup avisa que não é um snapshot de um único instante, e a topologia fica no manifesto e no `--json`.
 
 ### Changed
 - Manifesto passa para a versão 2: campos de servidor (`host`, `port`, `pg_dump_version`, `runner`) ficam opcionais e `engine` passa de `postgresql` para `postgres`. Manifestos v1 continuam aceitos; a v0.1.x recusa manifestos v2.
 - Histórico: migration `0004` permite restores sem host e porta e registra o SGBD de cada restore.
 - Manifesto v2 ganha os campos opcionais `mysqldump_version` e `non_transactional_tables` (só em backups MySQL); a versão do formato continua 2.
+- Manifesto v2 ganha os campos opcionais `mongodump_version` e `topology` (só em backups MongoDB); a versão do formato continua 2.
 
 ### Fixed
 - Um backup que coincide no nome com um `.partial` deixado no mesmo segundo agora falha com "já existe um arquivo em …", em vez de um erro de E/S sem explicação.
