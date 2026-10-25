@@ -324,3 +324,188 @@ fn password_sources_are_validated_without_leaking_contents() {
     );
     assert!(!stderr(&from_env_file).contains(FILE_SECRET));
 }
+
+#[test]
+fn auth_database_is_only_accepted_with_mongodb() {
+    let dir = TempDir::new().expect("dir");
+    let cases: [&[&str]; 4] = [
+        &[
+            "connection",
+            "test",
+            "--database",
+            "db",
+            "--user",
+            "u",
+            "--auth-database",
+            "admin",
+        ],
+        &[
+            "connection",
+            "test",
+            "--engine",
+            "mysql",
+            "--database",
+            "db",
+            "--user",
+            "u",
+            "--auth-database",
+            "admin",
+        ],
+        &[
+            "backup",
+            "run",
+            "--database",
+            "db",
+            "--user",
+            "u",
+            "--auth-database",
+            "admin",
+        ],
+        &[
+            "restore",
+            "run",
+            "--engine",
+            "mysql",
+            "--file",
+            "x.sql",
+            "--target-database",
+            "db",
+            "--user",
+            "u",
+            "--auth-database",
+            "admin",
+        ],
+    ];
+    for args in cases {
+        let output = cli(&dir, args);
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "{args:?}: {}",
+            stderr(&output)
+        );
+        assert!(
+            stderr(&output).contains("--auth-database só vale com --engine mongodb"),
+            "{args:?}: {}",
+            stderr(&output)
+        );
+    }
+
+    let sqlite: [&[&str]; 2] = [
+        &[
+            "backup",
+            "run",
+            "--engine",
+            "sqlite",
+            "--source",
+            "app.db",
+            "--auth-database",
+            "admin",
+        ],
+        &[
+            "restore",
+            "run",
+            "--engine",
+            "sqlite",
+            "--file",
+            "x.sqlite3",
+            "--target",
+            "y.db",
+            "--auth-database",
+            "admin",
+        ],
+    ];
+    for args in sqlite {
+        let output = cli(&dir, args);
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "{args:?}: {}",
+            stderr(&output)
+        );
+    }
+}
+
+#[test]
+fn invalid_mongodb_names_and_hosts_are_rejected_before_any_connection() {
+    let dir = TempDir::new().expect("dir");
+    let base = ["connection", "test", "--engine", "mongodb", "--user", "u"];
+    let cases: [(&[&str], &str); 6] = [
+        (&["--database", "admin"], "interno do MongoDB"),
+        (&["--database", "a.b"], "caracteres não permitidos"),
+        (&["--database", "app*"], "caracteres não permitidos"),
+        (
+            &["--database", "app", "--auth-database", "a b"],
+            "caracteres não permitidos",
+        ),
+        (
+            &["--database", "app", "--host", "a.example,b.example"],
+            "único host",
+        ),
+        (
+            &[
+                "--database",
+                "app",
+                "--host",
+                "db.example.com",
+                "--tls",
+                "disable",
+            ],
+            "sem TLS só é permitida para localhost",
+        ),
+    ];
+    for (extra, expected) in cases {
+        let args: Vec<&str> = base.iter().chain(extra.iter()).copied().collect();
+        let output = cli(&dir, &args);
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "{args:?}: {}",
+            stderr(&output)
+        );
+        assert!(
+            stderr(&output).contains(expected),
+            "{args:?}: {}",
+            stderr(&output)
+        );
+    }
+}
+
+#[test]
+fn mongo_password_never_comes_from_postgres_variables() {
+    let dir = TempDir::new().expect("dir");
+    let output = Command::new(env!("CARGO_BIN_EXE_database-backup"))
+        .args([
+            "connection",
+            "test",
+            "--engine",
+            "mongodb",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "1",
+            "--database",
+            "app",
+            "--user",
+            "u",
+            "--timeout",
+            "1",
+        ])
+        .env("DBU_DATA_DIR", dir.path())
+        .env("DBU_PG_PASSWORD", "segredo-do-postgres")
+        .env("DBU_MYSQL_PASSWORD", "segredo-do-mysql")
+        .env_remove("DBU_MONGO_PASSWORD")
+        .env_remove("DBU_MONGO_PASSWORD_FILE")
+        .env_remove("RUST_LOG")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("o binário da CLI deve executar");
+
+    assert_eq!(output.status.code(), Some(2), "{}", stderr(&output));
+    assert!(
+        stderr(&output).contains("DBU_MONGO_PASSWORD_FILE"),
+        "{}",
+        stderr(&output)
+    );
+    assert!(!stderr(&output).contains("segredo-do"));
+}

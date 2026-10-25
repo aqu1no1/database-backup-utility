@@ -94,6 +94,7 @@ pub async fn test(connection: &ConnectionArgs, timeout: u64) -> ExitCode {
                 &ConnectionResult {
                     server_version: &info.server_version,
                     connection: config.to_string(),
+                    topology: None,
                 },
                 &format!("Conexão OK: MySQL {} em {}", info.server_version, config),
             )
@@ -216,6 +217,7 @@ pub async fn backup(
                     sha256: &artifact.sha256,
                     duration_ms: elapsed.as_millis(),
                     non_transactional_tables: non_transactional.as_deref(),
+                    topology: None,
                 },
                 &text,
             )
@@ -310,7 +312,9 @@ async fn execute_backup(
         server_version: source.server_version,
         pg_dump_version: None,
         mysqldump_version: Some(&mysqldump_version),
+        mongodump_version: None,
         non_transactional_tables: source.non_transactional,
+        topology: None,
         runner: Some(tools.kind().as_str()),
         created_at: &created_at,
         execution_id,

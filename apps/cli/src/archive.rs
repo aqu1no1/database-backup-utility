@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use database_backup_adapters::mongo::ARCHIVE_MAGIC as MONGO_ARCHIVE_MAGIC;
 use database_backup_adapters::postgres::{ArchiveInfo, PgTools, PgVersion};
 use database_backup_adapters::sqlite::{SqliteError, check_database_file};
 use database_backup_core::DatabaseEngine;
@@ -39,6 +40,9 @@ pub async fn detect_engine(file: &Path) -> Result<DatabaseEngine, String> {
         Ok(()) => Ok(DatabaseEngine::Sqlite),
         Err(SqliteError::NotSqlite(_)) if starts_with(file, MYSQL_DUMP_HEADER).await? => {
             Ok(DatabaseEngine::Mysql)
+        }
+        Err(SqliteError::NotSqlite(_)) if starts_with(file, &MONGO_ARCHIVE_MAGIC).await? => {
+            Ok(DatabaseEngine::Mongodb)
         }
         Err(SqliteError::NotSqlite(_)) => Ok(DatabaseEngine::Postgres),
         Err(error) => Err(describe(&error)),

@@ -8,6 +8,7 @@ pub enum DatabaseEngine {
     Postgres,
     Mysql,
     Sqlite,
+    Mongodb,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -21,6 +22,7 @@ impl DatabaseEngine {
             Self::Postgres => "postgres",
             Self::Mysql => "mysql",
             Self::Sqlite => "sqlite",
+            Self::Mongodb => "mongodb",
         }
     }
 
@@ -30,6 +32,7 @@ impl DatabaseEngine {
             Self::Postgres => "PostgreSQL",
             Self::Mysql => "MySQL",
             Self::Sqlite => "SQLite",
+            Self::Mongodb => "MongoDB",
         }
     }
 }
@@ -48,6 +51,7 @@ impl FromStr for DatabaseEngine {
             "postgres" | "postgresql" => Ok(Self::Postgres),
             "mysql" => Ok(Self::Mysql),
             "sqlite" => Ok(Self::Sqlite),
+            "mongodb" => Ok(Self::Mongodb),
             other => Err(UnknownEngine(other.to_owned())),
         }
     }
@@ -63,9 +67,10 @@ mod tests {
         assert_eq!("postgresql".parse(), Ok(DatabaseEngine::Postgres));
         assert_eq!("mysql".parse(), Ok(DatabaseEngine::Mysql));
         assert_eq!("sqlite".parse(), Ok(DatabaseEngine::Sqlite));
+        assert_eq!("mongodb".parse(), Ok(DatabaseEngine::Mongodb));
         assert_eq!(
-            "mongodb".parse::<DatabaseEngine>(),
-            Err(UnknownEngine("mongodb".to_owned()))
+            "oracle".parse::<DatabaseEngine>(),
+            Err(UnknownEngine("oracle".to_owned()))
         );
     }
 }

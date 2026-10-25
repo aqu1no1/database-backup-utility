@@ -15,3 +15,6 @@ ignore-build-dependencies = true
 
 [webpki-roots]
 accepted = ["CDLA-Permissive-2.0"]
+
+[tiny-keccak]
+accepted = ["CC0-1.0"]

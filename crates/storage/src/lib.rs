@@ -72,7 +72,9 @@ pub struct ArtifactMetadata<'a> {
     pub server_version: &'a str,
     pub pg_dump_version: Option<&'a str>,
     pub mysqldump_version: Option<&'a str>,
+    pub mongodump_version: Option<&'a str>,
     pub non_transactional_tables: Option<&'a [String]>,
+    pub topology: Option<&'a str>,
     pub runner: Option<&'a str>,
     pub created_at: &'a str,
     pub execution_id: &'a str,
@@ -104,7 +106,11 @@ struct Manifest<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     mysqldump_version: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    mongodump_version: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     non_transactional_tables: Option<&'a [String]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    topology: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     runner: Option<&'a str>,
     created_at: &'a str,
@@ -130,7 +136,9 @@ pub struct StoredMetadata {
     pub server_version: String,
     pub pg_dump_version: Option<String>,
     pub mysqldump_version: Option<String>,
+    pub mongodump_version: Option<String>,
     pub non_transactional_tables: Option<Vec<String>>,
+    pub topology: Option<String>,
     pub created_at: String,
 }
 
@@ -350,7 +358,9 @@ pub async fn write_metadata(
         server_version: metadata.server_version,
         pg_dump_version: metadata.pg_dump_version,
         mysqldump_version: metadata.mysqldump_version,
+        mongodump_version: metadata.mongodump_version,
         non_transactional_tables: metadata.non_transactional_tables,
+        topology: metadata.topology,
         runner: metadata.runner,
         created_at: metadata.created_at,
         execution_id: metadata.execution_id,
@@ -737,7 +747,9 @@ mod tests {
             server_version: "17.11",
             pg_dump_version: Some("17.11"),
             mysqldump_version: None,
+            mongodump_version: None,
             non_transactional_tables: None,
+            topology: None,
             runner: Some("docker"),
             created_at: "2026-10-20T19:00:00Z",
             execution_id: "exec-1",
@@ -803,7 +815,9 @@ mod tests {
             server_version: "3.50.4",
             pg_dump_version: None,
             mysqldump_version: None,
+            mongodump_version: None,
             non_transactional_tables: None,
+            topology: None,
             runner: None,
             created_at: "2026-10-20T19:00:00Z",
             execution_id: "exec-1",
@@ -826,7 +840,9 @@ mod tests {
             "port",
             "pg_dump_version",
             "mysqldump_version",
+            "mongodump_version",
             "non_transactional_tables",
+            "topology",
             "runner",
         ] {
             assert!(
@@ -848,6 +864,46 @@ mod tests {
                 .expect("leitura"),
             None
         );
+    }
+
+    #[tokio::test]
+    async fn mongodb_fields_are_written_and_read_back() {
+        let (_dir, target) = target().await;
+        let artifact = target.dir().join("db.archive");
+        let metadata = ArtifactMetadata {
+            tool_name: "database-backup",
+            tool_version: "0.1.1",
+            engine: "mongodb",
+            format: "mongodump-archive",
+            sha256: "abc",
+            size_bytes: 3,
+            database: "db",
+            host: Some("localhost"),
+            port: Some(27017),
+            server_version: "8.0.15",
+            pg_dump_version: None,
+            mysqldump_version: None,
+            mongodump_version: Some("100.10.0"),
+            non_transactional_tables: None,
+            topology: Some("replica_set"),
+            runner: Some("docker"),
+            created_at: "2026-10-24T12:00:00Z",
+            execution_id: "exec-1",
+        };
+
+        write_metadata(&artifact, &metadata)
+            .await
+            .expect("metadados");
+        let read = read_metadata(&artifact)
+            .await
+            .expect("leitura")
+            .expect("metadados presentes");
+
+        assert_eq!(read.engine, "mongodb");
+        assert_eq!(read.mongodump_version.as_deref(), Some("100.10.0"));
+        assert_eq!(read.topology.as_deref(), Some("replica_set"));
+        assert_eq!(read.pg_dump_version, None);
+        assert_eq!(read.mysqldump_version, None);
     }
 
     #[tokio::test]

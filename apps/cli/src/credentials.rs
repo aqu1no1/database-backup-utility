@@ -18,6 +18,7 @@ impl CliSecrets {
     fn env_names(&self) -> (&'static str, &'static str) {
         match self.engine {
             DatabaseEngine::Mysql => ("DBU_MYSQL_PASSWORD", "DBU_MYSQL_PASSWORD_FILE"),
+            DatabaseEngine::Mongodb => ("DBU_MONGO_PASSWORD", "DBU_MONGO_PASSWORD_FILE"),
             DatabaseEngine::Postgres | DatabaseEngine::Sqlite => {
                 ("DBU_PG_PASSWORD", "DBU_PG_PASSWORD_FILE")
             }

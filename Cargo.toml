@@ -16,6 +16,7 @@ database-backup-history = { path = "crates/history" }
 database-backup-storage = { path = "crates/storage" }
 clap = { version = "4.5", features = ["derive"] }
 directories = "6.0"
+mongodb = { version = "3.9", default-features = false, features = ["compat-3-3-0", "bson-3", "rustls-tls"] }
 mysql_async = { version = "0.37", default-features = false, features = ["minimal-rust", "rustls-tls", "ring", "tls12"] }
 rpassword = "7.5"
 rusqlite = { version = "0.40", features = ["backup", "bundled"] }
@@ -29,7 +30,7 @@ tempfile = "3.27"
 testcontainers = "0.28"
 thiserror = "2.0"
 time = { version = "0.3", features = ["formatting", "macros", "parsing"] }
-tokio = { version = "1", features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "signal", "time"] }
+tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "time"] }
 tokio-postgres = "0.7"
 tokio-postgres-rustls = { version = "0.14", features = ["ring"] }
 tracing = "0.1"

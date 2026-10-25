@@ -18,8 +18,8 @@ use tracing::{info, warn};
 
 use crate::output::{fail, success};
 use crate::{
-    ConnectionArgs, EngineArg, PORT_HELP, RunnerArg, TlsArg, describe, exit, exit_code_for,
-    read_password,
+    AUTH_DATABASE_ONLY_MONGODB, ConnectionArgs, EngineArg, PORT_HELP, RunnerArg, TlsArg, describe,
+    exit, exit_code_for, read_password,
 };
 
 const FORMAT: &str = "pg_dump-custom";
@@ -37,7 +37,7 @@ pub struct BackupArgs {
         long,
         value_name = "ARQUIVO",
         required_if_eq("engine", "sqlite"),
-        conflicts_with_all = ["host", "port", "database", "user", "tls", "password_file", "runner"],
+        conflicts_with_all = ["host", "port", "database", "user", "tls", "auth_database", "password_file", "runner"],
         help = "Arquivo do banco SQLite de origem (com --engine sqlite)"
     )]
     source: Option<PathBuf>,
@@ -52,7 +52,7 @@ pub struct BackupArgs {
         long,
         value_enum,
         default_value_t = RunnerArg::Auto,
-        help = "auto: pg_dump/mysqldump nativo se compatível, senão Docker"
+        help = "auto: pg_dump/mysqldump/mongodump nativo se compatível, senão Docker"
     )]
     runner: RunnerArg,
     #[arg(long, value_parser = clap::value_parser!(u64).range(1..), help = "Tempo máximo do backup em segundos (padrão: sem limite)")]
@@ -78,6 +78,12 @@ struct ServerArgs {
     tls: TlsArg,
     #[arg(
         long,
+        value_name = "NOME",
+        help = "Banco de autenticação do MongoDB (padrão: admin)"
+    )]
+    auth_database: Option<String>,
+    #[arg(
+        long,
         value_name = "ARQUIVO",
         help = "Arquivo com a senha (permissão 600 ou 400)"
     )]
@@ -92,6 +98,7 @@ impl ServerArgs {
             database: self.database?,
             user: self.user?,
             tls: self.tls,
+            auth_database: self.auth_database,
             password_file: self.password_file,
         })
     }
@@ -107,6 +114,8 @@ pub struct BackupResult<'a> {
     pub duration_ms: u128,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub non_transactional_tables: Option<&'a [String]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub topology: Option<&'a str>,
 }
 
 enum Failure {
@@ -127,6 +136,9 @@ pub async fn run(args: BackupArgs) -> ExitCode {
         runner,
         timeout,
     } = args;
+    if engine != EngineArg::Mongodb && server.auth_database.is_some() {
+        return fail(exit::INVALID_INPUT, AUTH_DATABASE_ONLY_MONGODB);
+    }
     match (engine, source) {
         (EngineArg::Sqlite, Some(source)) => {
             crate::sqlite::backup(&source, output_dir, timeout).await
@@ -135,9 +147,16 @@ pub async fn run(args: BackupArgs) -> ExitCode {
             exit::INVALID_INPUT,
             "--source é obrigatório com --engine sqlite",
         ),
-        (EngineArg::Postgres | EngineArg::Mysql, Some(_)) => {
+        (EngineArg::Postgres | EngineArg::Mysql | EngineArg::Mongodb, Some(_)) => {
             fail(exit::INVALID_INPUT, "--source só vale com --engine sqlite")
         }
+        (EngineArg::Mongodb, None) => match server.into_connection() {
+            Some(connection) => crate::mongo::backup(connection, output_dir, runner, timeout).await,
+            None => fail(
+                exit::INVALID_INPUT,
+                "--database e --user são obrigatórios com --engine mongodb",
+            ),
+        },
         (EngineArg::Mysql, None) => match server.into_connection() {
             Some(connection) => crate::mysql::backup(connection, output_dir, runner, timeout).await,
             None => fail(
@@ -269,6 +288,7 @@ async fn run_postgres(
                     sha256: &artifact.sha256,
                     duration_ms: elapsed.as_millis(),
                     non_transactional_tables: None,
+                    topology: None,
                 },
                 &text,
             )
@@ -370,7 +390,9 @@ async fn execute(
         server_version,
         pg_dump_version: Some(&pg_dump_version),
         mysqldump_version: None,
+        mongodump_version: None,
         non_transactional_tables: None,
+        topology: None,
         runner: Some(tools.kind().as_str()),
         created_at: &created_at,
         execution_id,

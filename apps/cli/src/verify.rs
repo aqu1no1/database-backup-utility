@@ -17,7 +17,7 @@ use crate::{RunnerArg, describe, exit};
 pub struct VerifyArgs {
     #[arg(
         long,
-        help = "Arquivo gerado pelo comando backup run (.dump, .sql ou .sqlite3)"
+        help = "Arquivo gerado pelo comando backup run (.dump, .sql, .archive ou .sqlite3)"
     )]
     file: PathBuf,
     #[arg(
@@ -87,6 +87,7 @@ pub async fn run(args: VerifyArgs) -> ExitCode {
     let structure = match engine {
         DatabaseEngine::Sqlite => sqlite_structure(&file).await,
         DatabaseEngine::Mysql => mysql_structure(&file).await,
+        DatabaseEngine::Mongodb => mongo_structure(&file).await,
         DatabaseEngine::Postgres => postgres_structure(&file, &verified, args.runner).await,
     };
     let structure = match structure {
@@ -107,8 +108,12 @@ pub async fn run(args: VerifyArgs) -> ExitCode {
     } else {
         "checksum NÃO verificado"
     };
+    let unit = match engine {
+        DatabaseEngine::Mongodb => "coleções",
+        _ => "tabelas",
+    };
     let mut text = format!(
-        "Backup {} válido: {} ({} objetos, {} tabelas; {checksum}; sha256 {}…)",
+        "Backup {} válido: {} ({} objetos, {} {unit}; {checksum}; sha256 {}…)",
         engine.display_name(),
         file.display(),
         structure.objects,
@@ -171,6 +176,19 @@ async fn mysql_structure(file: &Path) -> Result<Structure, ExitCode> {
         dumped_from: dump.dumped_from.map(|v| v.to_string()),
         dumped_by: dump.dumped_by.map(|v| v.to_string()),
         database: dump.database,
+    })
+}
+
+async fn mongo_structure(file: &Path) -> Result<Structure, ExitCode> {
+    let archive = crate::mongo::inspect(file)
+        .await
+        .map_err(|message| fail(exit::INVALID_ARCHIVE, &message))?;
+    Ok(Structure {
+        objects: archive.objects(),
+        tables: archive.collections(),
+        dumped_from: archive.server_version,
+        dumped_by: archive.tool_version,
+        database: Some(archive.database),
     })
 }
 
