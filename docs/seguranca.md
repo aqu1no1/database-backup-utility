@@ -96,6 +96,29 @@ Todos os testes citados rodam na CI (`cargo test --workspace --tests`, job
 | Tabelas fora do InnoDB visíveis para scripts | lista `non_transactional_tables` no JSON do `backup run` e no manifesto (vazia quando todas são InnoDB), além do aviso no log; `risky_mysql_objects_…`, `backup_verify_and_restore_round_trip_preserves_data` | ok (DB-20) |
 | MariaDB não é tratado como MySQL | `MysqlVersion::parse` recusa versões MariaDB (servidor e cliente); `parses_client_and_server_versions`; suporte planejado no DB-37 | ok (DB-20) |
 
+## MongoDB (DB-21)
+
+| Controle | Evidência | Status |
+| --- | --- | --- |
+| Senha nunca em argumentos nem no ambiente do processo | arquivo YAML temporário (`0600`, apagado com o processo) com `password: "..."`, passado com `--config=` como primeiro argumento do `mongodump`/`mongorestore` (`crates/database-adapters/src/mongo/tools.rs`); nenhuma variável de ambiente de senha é definida; testes `config_file_is_private_escaped_and_removed_on_drop`, `connection_args_start_with_the_config_file_and_never_carry_the_password`, `password_never_reaches_container_arguments_environment_or_errors` (inspeciona `Args`/`Env`/`Cmd` do container durante o dump) | ok (DB-21) |
+| Senha com aspas, barra invertida e outros caracteres chega íntegra às ferramentas | `yaml_quote` escapa `\`, `"`, controles e as quebras de linha do YAML; testes `yaml_values_are_quoted_and_escaped` e `special_characters_in_the_password_reach_the_tools_intact` (usuário real, banco de autenticação diferente de `admin`, nos dois runners; mutação manual: sem escapar `"` e `\`, o teste falha) | ok (DB-21) |
+| Nenhum comando de shell | `Command::args` com `--opção=valor`; o nome do usuário `x;touch <marcador>$(touch <marcador>)` não cria o marcador (`password_never_reaches_…`) | ok (DB-21) |
+| Senha fora de stdout, stderr, erros, manifesto, histórico e temporários | `sanitize` com a senha e o caminho do arquivo YAML; `backup_verify_and_restore_round_trip_preserves_data_on_each_topology` varre saídas (inclusive com `--log-level debug`), manifesto e `history.sqlite3` e confere que o `TMPDIR` ficou vazio; erros de conexão sem a senha em `Display`/`Debug` (`connection_outcomes_are_classified_without_leaking_secrets`) | ok (DB-21) |
+| Variáveis de senha separadas por SGBD | `DBU_MONGO_PASSWORD`/`DBU_MONGO_PASSWORD_FILE` (`apps/cli/src/credentials.rs`); `mongo_password_never_comes_from_postgres_variables` | ok (DB-21) |
+| Host remoto exige TLS validado, sem fallback | mesma regra do `TlsMode`; driver com `ca_file_path` apontando para o pacote de certificados do sistema (com ele o `webpki-roots` não entra no `RootCertStore`, conferido na fonte do `mongodb` 3.9.1) e ferramentas com `--tls --tlsCAFile=<pacote>`, nunca `--tlsInsecure`; `connection_outcomes_…` e `existing_database_and_overwrite_…` recusam `--tls verify-full` contra um servidor sem TLS (código 6) | ok (DB-21) |
+| Um host só, sem descoberta de membros | `MongoConnectionConfig` recusa lista de hosts e nome de replica set; o driver conecta com `directConnection` e as ferramentas recebem `--host`/`--port`; spike com servidor "isca" na porta local | ok (DB-21) |
+| Nome do banco não vira opção nem padrão | `--db=<nome>` e `--nsInclude/--nsFrom/--nsTo=<nome>.*`, com nomes sem `/`, `\`, `.`, espaço, `"`, `$`, `*`, `<`, `>`, `:`, `\|` ou `?`, sem nulo e sem `admin`, `local` ou `config` (`mongodb_config_validates_names_hosts_and_tls`); o nome de origem vem do archive e é validado antes de qualquer conexão (`damaged_archives_…`: nome com `*` sai com código 10) | ok (DB-21) |
+| Archive de outro formato ou do servidor inteiro não é aceito | número mágico, um único banco; `foreign_files_are_not_archives`, `archives_with_more_than_one_database_are_rejected` | ok (DB-21) |
+| Archive truncado ou corrompido não vira backup nem é restaurado | todo corte do arquivo é recusado como incompleto (`truncated_archive_is_incomplete` testa todos os tamanhos); `backup run` lê o archive antes do `commit`; `damaged_archives_…` (byte trocado, truncado, de outro formato) | ok (DB-21) |
+| Leitura do archive com memória limitada | `BufReader` de 64 KiB, documentos contados e pulados, tamanho declarado entre 5 B e 16 MiB + 16 KiB, no máximo 100 mil coleções; `oversized_length_is_rejected_without_allocating` | ok (DB-21) |
+| Sem sobrescrita: restore só em banco novo | banco com qualquer coleção ou view (mesmo só uma) e `--overwrite` recusados com código 2; o `mongorestore` roda sem `--drop`; `existing_database_and_overwrite_are_refused_without_changes` e, no adaptador, um segundo restore no mesmo destino falha sem alterá-lo (`dump_and_restore_preserve_…`) | ok (DB-21) |
+| Restore com falha não deixa banco incompleto | o restore apaga só o banco que ele mesmo criou, em falha, cancelamento ou conteúdo divergente; `damaged_archives_…` cobre `_id` duplicado e um valor alterado (o `mongorestore` falha no CRC depois de gravar os documentos); mutação manual: sem o `dropDatabase`, o teste falha | ok (DB-21) |
+| Dados conferidos, não só o código de saída | depois do `mongorestore`, a contagem de documentos de cada coleção e a lista de views do destino são comparadas com as do archive (`differences` nomeia as divergências); `dump_and_restore_preserve_…` compara documentos (com os tipos BSON), índices, validador e view | ok (DB-21) |
+| Só topologias testadas | `Sharded` e secundário recusados com código 2 em backup e restore (`topology_comes_from_the_hello_reply`, `only_standalone_and_primary_are_supported`); `replica_set_primary_is_detected` | ok (DB-21) |
+| Coleções time series recusadas | o `mongodump` grava os dados em `system.buckets.<nome>`, fora do prelúdio; `time_series_collections_are_not_supported` e o último passo de `damaged_archives_…` (código 8, nenhum arquivo publicado) | ok (DB-21) |
+| Ferramentas ausentes ou incompatíveis geram erro claro | `missing_tools_are_reported`, `old_or_legacy_native_tools_are_refused` (scripts que imprimem `100.9.4` e `r4.2.24`), `missing_tools_fail_with_code_7_and_a_hint` (código 7, cita `--runner docker`) | ok (DB-21) |
+| Backup sem instantâneo de um único instante avisado | `warn` e linha no resultado de todo `backup run`; ver "Riscos aceitos" e [`arquitetura.md`](arquitetura.md#mongodb-topologia-e-consistência) | aceito (DB-21) |
+
 ## GitHub Actions e release
 
 | Controle | Evidência | Status |
@@ -128,7 +151,8 @@ Toda exceção na política de dependências fica aqui, com motivo e condição 
 
 | Exceção | Tipo | Alcance | Motivo | Condição de remoção | Revisar em |
 | --- | --- | --- | --- | --- | --- |
-| `webpki-roots` — CDLA-Permissive-2.0 | licença (por crate) | runtime (`mysql_async` → `webpki-roots`, puxada pela feature `rustls-tls`, sem como desligar) | Licença permissiva de dados (a lista de CAs da Mozilla); o código usa os certificados do sistema e desliga as raízes embutidas (`with_disable_built_in_roots(true)`), então a lista só entra no binário. `about.toml` aceita a licença só para esta crate | `mysql_async` permitir rustls sem `webpki-roots`, ou trocarmos de cliente | próxima atualização de Rust (DB-36) |
+| `webpki-roots` — CDLA-Permissive-2.0 | licença (por crate) | runtime (`mysql_async` e `mongodb` → `webpki-roots`, puxada pela feature `rustls-tls` de cada um, sem como desligar) | Licença permissiva de dados (a lista de CAs da Mozilla); o código usa os certificados do sistema e não usa as raízes embutidas (`with_disable_built_in_roots(true)` no MySQL, `ca_file_path` no MongoDB), então a lista só entra no binário. `about.toml` aceita a licença só para esta crate | `mysql_async` e `mongodb` permitirem rustls sem `webpki-roots`, ou trocarmos de cliente | próxima atualização de Rust (DB-36) |
+| `tiny-keccak` — CC0-1.0 | licença (por crate) | só compilação (`mongodb` → `mongodb-internal-macros` → `macro_magic` → `const-random-macro` → `tiny-keccak`): roda dentro do proc-macro `const-random-macro`, que gera constantes em tempo de compilação, e não é ligada ao binário | CC0-1.0 é a dedicação ao domínio público, sem restrição de uso, mas não estava na allowlist. Exceção por crate no `deny.toml` e no `about.toml` (o `cargo about` lista a crate, porque não distingue dependências só de compilação) | `mongodb` deixar de depender do `macro_magic`, ou o `const-random-macro` deixar de usar `tiny-keccak`, ou trocarmos de cliente | próxima atualização de Rust (DB-36) |
 | `option-ext` — MPL-2.0 | licença (por crate) | runtime (`directories` → `dirs-sys` → `option-ext`, usado pelo histórico) | MPL-2.0 é copyleft fraco por arquivo; usamos a crate sem modificação e a fonte está disponível no crates.io; o texto vai no `THIRD-PARTY-LICENSES.md` | `directories`/`dirs-sys` deixarem de depender dela, ou trocarmos `directories` por código próprio | próxima atualização de Rust (DB-36) |
 
 Nenhum advisory RustSec ignorado.
@@ -139,7 +163,7 @@ Nenhum advisory RustSec ignorado.
 | --- | --- | --- |
 | Serviços de desenvolvimento só em loopback | `infra/docker/compose.yml` publica em `127.0.0.1` | ok |
 | Sem segredos reais versionados | `.env` no `.gitignore`; `.env.example` com placeholders | ok |
-| Testes isolados, sem volumes reais | Testcontainers com senha aleatória e portas dinâmicas (PostgreSQL e MySQL); E2E verifica ausência de containers `dbu-pg-*`; `password_never_…` verifica a remoção do container `dbu-my-*` cancelado | ok |
+| Testes isolados, sem volumes reais | Testcontainers com senha aleatória e portas dinâmicas (PostgreSQL, MySQL e MongoDB); E2E verifica ausência de containers `dbu-pg-*`; `password_never_…` verifica a remoção dos containers `dbu-my-*` e `dbu-mg-*` cancelados | ok |
 
 ## Riscos aceitos e limites
 
@@ -208,6 +232,49 @@ Nenhum advisory RustSec ignorado.
   valores padrão (`dev-change-me`). Exigir as variáveis quebraria o `docker compose` de quem só usa
   o PostgreSQL, porque o Compose interpola até os serviços de perfis desativados. Os serviços escutam
   só em `127.0.0.1` e o `.env.example` define valores próprios.
+
+- **MongoDB: sem instantâneo de um único instante.** O `mongodump` de um banco lê cada coleção por
+  uma consulta própria, em paralelo, e o `--oplog` (o mecanismo de instantâneo) só existe para o
+  dump do servidor inteiro. Escritas durante o backup podem deixar coleções inconsistentes entre si,
+  em standalone e em replica set. A CLI avisa em todo backup; veja
+  [`arquitetura.md`](arquitetura.md#mongodb-topologia-e-consistência).
+- **MongoDB: restore não transacional e sem sobrescrita.** O `mongorestore` insere coleção a
+  coleção; uma falha no meio deixa o banco parcial, que o restore apaga em seguida (`dropDatabase`,
+  que exige o privilégio `dropDatabase`, por exemplo com `dbAdmin` ou `dbOwner`). Se o `dropDatabase`
+  falhar, a mensagem avisa que o banco incompleto ficou. Restaurar sobre um banco existente não é
+  possível.
+- **MongoDB: janela entre a checagem do destino e a primeira escrita.** O MongoDB cria o banco na
+  primeira escrita e não tem um `CREATE DATABASE` que falhe quando ele já existe. Se outro cliente
+  criar o mesmo banco depois da checagem e antes de o `mongorestore` gravar, uma falha do restore
+  apagaria o banco inteiro, inclusive o que esse cliente gravou. A janela dura o tempo de subir o
+  container do runner Docker (segundos).
+- **MongoDB: usuários e roles fora do backup.** O dump é de um banco sem `--dumpDbUsersAndRoles`:
+  contas e permissões não são salvas nem restauradas.
+- **MongoDB: `--bypassDocumentValidation` no restore.** Documentos legados que violam o validador
+  da coleção são restaurados (o validador também é restaurado). Isso exige o privilégio
+  `bypassDocumentValidation` no banco de destino, que `dbAdmin`, `dbOwner` e `restore` têm.
+- **MongoDB: a senha fica copiada em `String` dentro do driver.** O `Credential` do driver guarda a
+  senha sem zerar a memória durante a conexão. O `Password` do projeto zera os bytes, mas a cópia do
+  driver não.
+- **MongoDB com `--allow-unverified` grava dados de terceiros.** Um archive sem checksum conhecido
+  grava os documentos, índices, validadores e pipelines de views dele no banco novo, com as
+  permissões do usuário informado. O formato carrega dados e metadados, não comandos, e a leitura do
+  archive confere a estrutura; o `mongorestore` ainda confere o CRC de cada coleção. Mesmo assim,
+  use um usuário de restore com privilégios só no banco de destino.
+- **MongoDB: Unauthorized (código 13) na conexão vira falha de autenticação (código 3).** É o mesmo
+  critério do erro 1044 do MySQL, mesmo quando o usuário autenticou e só não enxerga o banco.
+- **MongoDB: time series não são suportadas.** O `mongodump` grava os dados delas em
+  `system.buckets.<nome>`. O backup roda o `mongodump` até o fim e só então recusa o archive (código
+  8, nada é publicado); o restore de um archive assim sai com código 10. Não há como excluir a
+  coleção do backup.
+- **MongoDB: limites da senha.** O SCRAM-SHA-256 aplica o SASLprep: senhas com caracteres de controle
+  ou fora do Unicode 3.2 (como emoji) não autenticam, e o próprio servidor não deixa criá-las.
+- **MongoDB: IPv6 e `--host` com colchetes** não foram testados.
+- **Docker: o cancelamento deixa volumes anônimos vazios.** O cancelamento remove o container com
+  `docker rm --force`, sem `--volumes`. Imagens que declaram `VOLUME` (`postgres`, `mysql`, `mongo`)
+  deixam um ou dois volumes anônimos vazios por cancelamento. Já existia para PostgreSQL e MySQL; o
+  runner compartilhado (`process.rs`) não foi alterado no DB-21. Limpe com `docker volume prune`
+  depois de conferir o que será apagado.
 
 ## Diferenças por sistema operacional (não testadas)
 

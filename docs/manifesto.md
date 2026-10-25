@@ -58,6 +58,29 @@ MySQL:
 }
 ```
 
+MongoDB:
+
+```json
+{
+  "manifest_version": 2,
+  "tool": { "name": "database-backup", "version": "…" },
+  "engine": "mongodb",
+  "format": "mongodump-archive",
+  "file_name": "app-20261024T120000Z.archive",
+  "sha256": "…64 caracteres hex…",
+  "size_bytes": 3450,
+  "database": "app",
+  "host": "localhost",
+  "port": 27017,
+  "server_version": "8.0.15",
+  "mongodump_version": "100.10.0",
+  "topology": "standalone",
+  "runner": "docker",
+  "created_at": "2026-10-24T12:00:00Z",
+  "execution_id": "01a18…"
+}
+```
+
 SQLite (sem campos de servidor):
 
 ```json
@@ -80,14 +103,15 @@ SQLite (sem campos de servidor):
 | --- | --- |
 | `manifest_version` | Versão do formato do manifesto. |
 | `tool` | Nome e versão do utilitário que gerou o backup. |
-| `engine` | SGBD de origem: `postgres`, `mysql` ou `sqlite` (os mesmos nomes do histórico). Na v1 era `postgresql`. |
-| `format` | Formato do artefato: `pg_dump-custom`, `mysqldump-sql` ou `sqlite-backup-api`. |
+| `engine` | SGBD de origem: `postgres`, `mysql`, `mongodb` ou `sqlite` (os mesmos nomes do histórico). Na v1 era `postgresql`. |
+| `format` | Formato do artefato: `pg_dump-custom`, `mysqldump-sql`, `mongodump-archive` ou `sqlite-backup-api`. |
 | `file_name` | Nome do dump, sem diretório. Mover o par junto continua válido. |
 | `sha256`, `size_bytes` | Checksum e tamanho do dump. |
 | `database`, `host`, `port` | Origem do backup. Nunca usuário, senha, `secret_ref` ou URI de conexão. No SQLite, `database` é o nome do arquivo de origem e `host`/`port` não existem. |
-| `server_version` | Versão do servidor PostgreSQL ou MySQL, ou da biblioteca SQLite usada na cópia. |
+| `server_version` | Versão do servidor PostgreSQL, MySQL ou MongoDB, ou da biblioteca SQLite usada na cópia. |
 | `non_transactional_tables` | Só MySQL: tabelas fora do InnoDB, sem snapshot consistente no backup. Lista vazia quando todas são InnoDB; ausente se a checagem não pôde ser feita. |
-| `pg_dump_version`, `mysqldump_version`, `runner` | Só PostgreSQL ou MySQL: versão do `pg_dump`/`mysqldump` (major.minor no MySQL) e se ele foi nativo ou via Docker. |
+| `pg_dump_version`, `mysqldump_version`, `mongodump_version`, `runner` | Só PostgreSQL, MySQL ou MongoDB: versão do `pg_dump`/`mysqldump`/`mongodump` (major.minor no MySQL; três números no MongoDB, como `100.10.0`) e se ele foi nativo ou via Docker. |
+| `topology` | Só MongoDB: `standalone`, `replica_set` ou `sharded` (a CLI só aceita as duas primeiras). O backup de um banco MongoDB não é um snapshot de um único instante em nenhuma delas; ver [`arquitetura.md`](arquitetura.md#mongodb-topologia-e-consistência). |
 | `created_at`, `execution_id` | Momento do backup e ID da execução no histórico de origem. |
 
 ## Versões
@@ -103,19 +127,23 @@ SQLite (sem campos de servidor):
 - **v2 + `mysqldump_version` e `non_transactional_tables` (DB-20):** campos novos e opcionais, só em
   backups MySQL. A versão continua 2.
   Uma versão anterior a esta lê o manifesto, mas recusa o `engine` `mysql` (código 10).
+- **v2 + `mongodump_version` e `topology` (DB-21):** campos novos e opcionais, só em backups MongoDB.
+  A versão continua 2. Uma versão anterior a esta lê o manifesto, mas recusa o `engine` `mongodb`
+  (código 10).
 
 ## O que `backup verify` e `restore run` conferem
 
 1. O dump e o manifesto não são links simbólicos nem graváveis por grupo ou outros.
 2. `manifest_version` suportada.
 3. `file_name` igual ao nome do dump verificado: um manifesto copiado ou renomeado para outro dump é recusado.
-4. `engine` igual ao SGBD do comando (`postgres`, aceitando o legado `postgresql`, `mysql` ou `sqlite`).
+4. `engine` igual ao SGBD do comando (`postgres`, aceitando o legado `postgresql`, `mysql`, `mongodb` ou `sqlite`).
 5. `size_bytes` igual ao tamanho real (detecta arquivo truncado antes do hash).
 6. SHA-256 do dump igual ao `sha256` do manifesto.
 7. Estrutura válida com `pg_restore --list` (PostgreSQL), leitura do dump SQL (MySQL: cabeçalho do
    `mysqldump`, linha final `-- Dump completed`, sem `USE`/`CREATE DATABASE` e sem trigger ou evento
-   que o MySQL não conseguiria restaurar) ou
-   `PRAGMA integrity_check` (SQLite).
+   que o MySQL não conseguiria restaurar), leitura do archive (MongoDB: número mágico, cabeçalho,
+   prelúdio, `EOF` de toda coleção e view, um único banco e sem coleções time series; o CRC é
+   conferido pelo `mongorestore`, não pelo `verify`) ou `PRAGMA integrity_check` (SQLite).
 
 Sem manifesto, a referência do checksum vem do histórico SQLite. Sem nenhum dos dois, só com
 `--allow-unverified`, e o restore fica registrado como não verificado.

@@ -42,6 +42,8 @@ docker compose --env-file .env -f infra/docker/compose.yml \
 | `DBU_PG_PASSWORD_FILE` | Caminho de um arquivo com a senha (equivale a `--password-file`). Recomendado para agendadores. |
 | `DBU_MYSQL_PASSWORD` | O mesmo que `DBU_PG_PASSWORD`, para `--engine mysql`. |
 | `DBU_MYSQL_PASSWORD_FILE` | O mesmo que `DBU_PG_PASSWORD_FILE`, para `--engine mysql`. |
+| `DBU_MONGO_PASSWORD` | O mesmo que `DBU_PG_PASSWORD`, para `--engine mongodb`. |
+| `DBU_MONGO_PASSWORD_FILE` | O mesmo que `DBU_PG_PASSWORD_FILE`, para `--engine mongodb`. |
 | `DBU_DATA_DIR` | Diretório do histórico SQLite, no lugar do padrão do sistema. Útil para testes e uso portátil. |
 | `RUST_LOG` | Filtro dos logs no stderr (ex.: `info`, `database_backup=debug`) quando `--log-level` não é informado. Padrão: `warn`. |
 
@@ -50,7 +52,8 @@ docker compose --env-file .env -f infra/docker/compose.yml \
 ## Credenciais
 
 A senha do PostgreSQL vem de **uma** destas fontes (no MySQL, as variáveis são `DBU_MYSQL_PASSWORD_FILE`
-e `DBU_MYSQL_PASSWORD`; as `DBU_PG_*` são ignoradas com `--engine mysql` e vice-versa):
+e `DBU_MYSQL_PASSWORD`; no MongoDB, `DBU_MONGO_PASSWORD_FILE` e `DBU_MONGO_PASSWORD`; as variáveis de
+um SGBD são ignoradas com `--engine` de outro):
 
 | Fonte | Quando usar |
 | --- | --- |
@@ -84,6 +87,11 @@ DBU_PG_PASSWORD_FILE=~/.config/dbu/pg.pass database-backup backup run --database
 No MySQL, a senha lida por essas fontes vai para o `mysqldump`/`mysql` num arquivo de opções
 temporário (`[client]`, `0600`, apagado ao fim do processo) passado com `--defaults-extra-file`.
 `MYSQL_PWD` é removida do ambiente do processo filho. No modo Docker, o arquivo é montado só leitura.
+
+No MongoDB, a senha lida por essas fontes vai para o `mongodump`/`mongorestore` num arquivo YAML
+temporário (`password: "..."`, `0600`, apagado ao fim do processo) passado com `--config=`, que é o
+primeiro argumento. Aspas, barras invertidas e caracteres de controle são escapados. No modo Docker, o
+arquivo é montado só leitura. Nenhuma variável de ambiente de senha é definida para o processo.
 
 ### Keyring do sistema (futuro)
 
@@ -142,6 +150,40 @@ O backup usa as ferramentas oficiais do PostgreSQL, executadas de dois jeitos:
   Docker Desktop habilitado. Para hosts remotos é usada a rede padrão.
 - **Cancelamento:** o container recebe um nome `dbu-pg-<id>` e é removido com
   `docker rm --force` ao cancelar.
+
+## Ferramentas `mongodump` / `mongorestore`
+
+O backup MongoDB usa o `mongodump --archive` (um banco, sem compressão) e o restore usa o
+`mongorestore --archive`, que lê o arquivo pelo stdin. Os dois vêm do pacote oficial MongoDB Database
+Tools, executado de dois jeitos:
+
+| Runner | Quando usar | Como funciona |
+| --- | --- | --- |
+| `native` | Database Tools instalado na máquina | Usa `mongodump`/`mongorestore` do `PATH`. A versão das ferramentas (`100.x.y`) precisa ser igual ou maior que a exigida pela versão do servidor (tabela em [`stack.md`](stack.md#mongodb-database-tools)). As ferramentas legadas (`r4.x`) são recusadas. |
+| `docker` | Sem as ferramentas instaladas, ou versão antiga | Roda `mongo:<major.minor do servidor>` com `docker run --rm`, que já traz ferramentas compatíveis. |
+| `auto` (padrão) | — | `native` se existir e for compatível; senão `docker`. |
+
+- **Senha:** no arquivo YAML descrito em "Credenciais"; nunca em argumento, ambiente ou log.
+- **TLS:** a mesma regra do `connection test` (sem TLS em `localhost`, `verify-full` nos demais). Com
+  TLS, as ferramentas recebem `--tls --tlsCAFile=<pacote de certificados do sistema>`; no Docker, o
+  pacote é montado no container. `--tlsInsecure` nunca é usado.
+- **Rede no Docker:** para `localhost` o container usa `--network host`, como no PostgreSQL e no MySQL.
+- **Cancelamento:** o container recebe um nome `dbu-mg-<id>` e é removido com `docker rm --force`.
+- **Conexão direta:** um único host e uma única porta. Não há `mongodb+srv`, URI, lista de hosts nem
+  nome de replica set.
+
+### MongoDB: usuário, banco de autenticação e permissões
+
+- `--auth-database` (padrão `admin`) é o banco onde o usuário foi criado. Um usuário criado no próprio
+  banco do backup (`use app; db.createUser(...)`) precisa de `--auth-database app`.
+- **Backup:** o role `read` no banco basta (inclui as views). Um usuário sem nenhum privilégio no banco
+  recebe o código 3 (o MongoDB responde `Unauthorized` na listagem de coleções).
+- **Restore:** no banco de destino, `readWrite` mais `dbAdmin`, ou `dbOwner`. `readWrite` lista, conta e
+  grava; `dbAdmin` dá o `bypassDocumentValidation` (documentos legados que violam o validador) e o
+  `dropDatabase` da limpeza em falha. `readWrite` sem `bypassDocumentValidation` falha ao gravar, e
+  sem `dropDatabase` o restore que falha avisa que o banco incompleto ficou. O role `restore` sozinho
+  não basta: ele não lê, e a conferência da contagem de documentos falha.
+- O dump é de um banco: usuários e roles não entram no backup nem no restore.
 
 ## Pasta dos backups
 

@@ -43,17 +43,19 @@ crates/storage/src/lib.rs            # unitários: .partial, permissões, manife
 crates/history/src/lib.rs            # unitários com SQLite em diretório temporário (migrations, consultas)
 crates/database-adapters/src/        # unitários de parsing e escape (versões, .pgpass, dbname)
 crates/database-adapters/tests/      # integração com PostgreSQL real (Testcontainers)
-  support/mod.rs                     # PostgresTestDb, MysqlTestDb + fixtures (seed.sql, e2e.sql)
+  support/mod.rs                     # PostgresTestDb, MysqlTestDb, MongoTestDb + fixtures (seed.sql, e2e.sql, seed.js)
   mysql_connection.rs, mysql_tools.rs # MySQL real (Testcontainers mysql:8.4)
+  mongo_connection.rs, mongo_tools.rs # MongoDB real (Testcontainers mongo:7.0, standalone e replica set)
   sqlite_backup.rs                   # Backup API do SQLite com arquivos temporários (sem Docker)
 apps/cli/tests/                      # contrato da CLI executando o binário real
   cli.rs                             # sem Docker: argumentos, ajuda, JSON, fontes de senha
   backup.rs, restore.rs, test_connection.rs
   sqlite.rs                          # backup/verify/restore SQLite pela CLI (sem Docker)
   mysql.rs                           # backup/verify/restore MySQL pela CLI (Testcontainers)
+  mongo.rs                           # backup/verify/restore MongoDB pela CLI (Testcontainers)
   e2e.rs                             # ciclos completos com dois servidores e os dois runners
   common/mod.rs                      # Workspace (DBU_DATA_DIR, TMPDIR e saída isolados)
-tests/fixtures/postgres/, mysql/     # dados de teste compartilhados, sem dados reais
+tests/fixtures/postgres/, mysql/, mongodb/ # dados de teste compartilhados, sem dados reais
 ```
 
 - **Unitários** ficam ao lado do código, em `#[cfg(test)] mod tests`, com `#[test]` e asserts nativos.
