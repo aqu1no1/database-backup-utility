@@ -15,7 +15,7 @@ use crate::{describe, exit};
 pub struct BackupListArgs {
     #[arg(long, default_value_t = 20, value_parser = clap::value_parser!(u32).range(1..=1000), help = "Quantidade máxima de registros")]
     limit: u32,
-    #[arg(long, help = "Mostra só os backups deste banco")]
+    #[arg(short, long, help = "Mostra só os backups deste banco")]
     database: Option<String>,
 }
 

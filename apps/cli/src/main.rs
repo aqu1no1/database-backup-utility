@@ -37,22 +37,22 @@ macro_rules! password_note {
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "database-backup",
+    name = "dbu",
     version,
     about = "Ferramenta de backup e restauração de bancos de dados.",
     after_help = "Exemplos:
-  database-backup connection test --database app --user postgres
-  database-backup backup run --database app --user postgres
-  database-backup backup run --engine mysql --database app --user backup
-  database-backup backup run --engine mongodb --database app --user backup
-  database-backup backup run --engine sqlite --source ./app.db
-  database-backup backup list --json
-  database-backup backup verify --file app-20261021T120000Z.dump
-  database-backup restore run --file app-20261021T120000Z.dump --target-database app_copia --user postgres
-  database-backup restore run --engine mysql --file app-20261021T120000Z.sql --target-database app_copia --user backup
-  database-backup restore run --engine mongodb --file app-20261021T120000Z.archive --target-database app_copia --user backup
-  database-backup restore run --engine sqlite --file app-20261021T120000Z.sqlite3 --target ./app_copia.db
-  database-backup engines
+  dbu backup -d app -u postgres
+  dbu backup -e mysql -d app -u backup
+  dbu backup -e sqlite --source ./app.db
+  dbu verify app-20261021T120000Z.dump
+  dbu restore app-20261021T120000Z.dump --to app_copia -u postgres
+  dbu restore -e sqlite app-20261021T120000Z.sqlite3 --to ./app_copia.db
+  dbu list
+  dbu list restores
+  dbu test -e mysql -d app -u backup
+  dbu engines
+
+Os comandos longos continuam válidos (backup run, backup verify, restore run, connection test...).
 
 Exit codes: 0 ok, 1 falha geral, 2 parâmetro inválido, 3 autenticação, 4 banco inexistente,
 5 inacessível/timeout, 6 TLS, 7 ferramentas ausentes, 8 backup falhou, 9 cancelado,
@@ -80,35 +80,135 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
+    #[command(
+        args_conflicts_with_subcommands = true,
+        subcommand_negates_reqs = true,
+        about = "Gera um backup completo de PostgreSQL, MySQL, MongoDB ou SQLite (também lista e verifica backups).",
+        long_about = "Gera um backup completo de um PostgreSQL (pg_dump, formato custom), de um MySQL (mysqldump, SQL), de um MongoDB (mongodump, archive) ou de um SQLite (Online Backup API).",
+        after_help = BACKUP_HELP
+    )]
+    Backup(Box<BackupGroup>),
+    #[command(
+        about = "Verifica checksum e estrutura de um arquivo de backup, sem restaurar.",
+        after_help = VERIFY_EXAMPLES
+    )]
+    Verify(verify::VerifyArgs),
+    #[command(
+        args_conflicts_with_subcommands = true,
+        subcommand_negates_reqs = true,
+        about = "Restaura um backup validado de PostgreSQL, MySQL, MongoDB ou SQLite em um destino.",
+        after_help = RESTORE_HELP
+    )]
+    Restore(RestoreGroup),
+    #[command(
+        args_conflicts_with_subcommands = true,
+        about = "Lista os backups (padrão) ou as restaurações registradas no histórico.",
+        after_help = "Exemplos:
+  dbu list
+  dbu list -d app --limit 5 --json
+  dbu list restores"
+    )]
+    List(ListGroup),
+    #[command(
+        about = "Valida a configuração e testa a conexão com um PostgreSQL, MySQL ou MongoDB.",
+        after_help = TEST_HELP
+    )]
+    Test(TestConnectionArgs),
     #[command(subcommand, about = "Operações sobre conexões.")]
     Connection(ConnectionCommand),
-    #[command(subcommand, about = "Gera, lista e verifica backups.")]
-    Backup(BackupCommand),
-    #[command(subcommand, about = "Restaura backups e lista restaurações.")]
-    Restore(RestoreCommand),
     #[command(
         about = "Mostra o que cada SGBD suporta: operações disponíveis, planejadas e não suportadas.",
         after_help = "Exemplos:
-  database-backup engines
-  database-backup engines --json
+  dbu engines
+  dbu engines --json
 
 A mesma matriz está em docs/capacidades.md."
     )]
     Engines,
 }
 
+const BACKUP_HELP: &str = concat!(
+    "Exemplos:\n",
+    "  dbu backup -d app -u postgres\n",
+    "  dbu backup -d app -u postgres -o /srv/backups --runner docker\n",
+    "  dbu backup -e mysql -d app -u backup\n",
+    "  dbu backup -e mongodb -d app -u backup --auth-database admin\n",
+    "  dbu backup -e sqlite --source ./app.db\n",
+    "  dbu backup list\n\n",
+    "Com --engine sqlite não há servidor, usuário nem senha: o arquivo de origem é aberto só para leitura.\n",
+    "No MongoDB o backup é de um banco, sem snapshot de um único instante: escritas durante o backup podem deixar\n",
+    "coleções inconsistentes entre si. Só standalone e o primário de um replica set são aceitos.\n",
+    password_note!()
+);
+
+const VERIFY_EXAMPLES: &str = "Exemplos:
+  dbu verify app-20261021T120000Z.dump
+  dbu verify app-20261021T120000Z.sqlite3
+  dbu verify app-20261021T120000Z.sql
+  dbu verify app-20261021T120000Z.archive
+  dbu verify externo.dump --allow-unverified --json";
+
+const RESTORE_HELP: &str = concat!(
+    "Por padrão só cria um banco novo. Sobrescrever um banco com dados exige --overwrite e confirmação;\n",
+    "o anterior é mantido como <destino>__previous_<data> (PostgreSQL) ou <arquivo>.previous-<data> (SQLite).\n",
+    "No MySQL e no MongoDB só é possível restaurar em um banco que ainda não existe (--overwrite não é suportado).\n",
+    "--to é o banco de destino (ou o arquivo de destino, com --engine sqlite).\n\n",
+    "Exemplos:\n",
+    "  dbu restore app-20261021T120000Z.dump --to app_copia -u postgres\n",
+    "  dbu restore app-20261021T120000Z.dump --to app -u postgres --overwrite --confirm app\n",
+    "  dbu restore -e mysql app-20261021T120000Z.sql --to app_copia -u backup\n",
+    "  dbu restore -e mongodb app-20261021T120000Z.archive --to app_copia -u backup\n",
+    "  dbu restore -e sqlite app-20261021T120000Z.sqlite3 --to ./app_copia.db\n",
+    "  dbu restore list\n\n",
+    password_note!()
+);
+
+const TEST_HELP: &str = concat!(
+    "Exemplos:\n",
+    "  dbu test -d app -u postgres\n",
+    "  dbu test -e mysql -d app -u backup\n",
+    "  dbu test -e mongodb -d app -u backup --auth-database admin\n",
+    "  dbu test -H db.interno --tls verify-full -d app -u backup\n\n",
+    password_note!()
+);
+
+#[derive(Debug, Args)]
+struct BackupGroup {
+    #[command(subcommand)]
+    command: Option<BackupCommand>,
+    #[command(flatten)]
+    run: backup::BackupArgs,
+}
+
+#[derive(Debug, Args)]
+struct RestoreGroup {
+    #[command(subcommand)]
+    command: Option<RestoreCommand>,
+    #[command(flatten)]
+    run: Box<restore::RestoreArgs>,
+}
+
+#[derive(Debug, Args)]
+struct ListGroup {
+    #[command(subcommand)]
+    command: Option<ListCommand>,
+    #[command(flatten)]
+    backups: listing::BackupListArgs,
+}
+
+#[derive(Debug, Subcommand)]
+enum ListCommand {
+    #[command(about = "Lista os backups registrados no histórico.")]
+    Backups(listing::BackupListArgs),
+    #[command(about = "Lista as restaurações registradas no histórico.")]
+    Restores(listing::RestoreListArgs),
+}
+
 #[derive(Debug, Subcommand)]
 enum ConnectionCommand {
     #[command(
         about = "Valida a configuração e testa a conexão com um PostgreSQL, MySQL ou MongoDB.",
-        after_help = concat!(
-            "Exemplos:\n",
-            "  database-backup connection test --database app --user postgres\n",
-            "  database-backup connection test --engine mysql --database app --user backup\n",
-            "  database-backup connection test --engine mongodb --database app --user backup --auth-database admin\n",
-            "  database-backup connection test --host db.interno --tls verify-full --database app --user backup\n\n",
-            password_note!()
-        )
+        after_help = TEST_HELP
     )]
     Test(TestConnectionArgs),
 }
@@ -116,36 +216,20 @@ enum ConnectionCommand {
 #[derive(Debug, Subcommand)]
 enum BackupCommand {
     #[command(
-        about = "Gera um backup completo de um PostgreSQL (pg_dump, formato custom), de um MySQL (mysqldump, SQL), de um MongoDB (mongodump, archive) ou de um SQLite (Online Backup API).",
-        after_help = concat!(
-            "Exemplos:\n",
-            "  database-backup backup run --database app --user postgres\n",
-            "  database-backup backup run --database app --user postgres --output-dir /srv/backups --runner docker\n",
-            "  database-backup backup run --engine mysql --database app --user backup\n",
-            "  database-backup backup run --engine mongodb --database app --user backup --auth-database admin\n",
-            "  database-backup backup run --engine sqlite --source ./app.db\n\n",
-            "Com --engine sqlite não há servidor, usuário nem senha: o arquivo de origem é aberto só para leitura.\n",
-            "No MongoDB o backup é de um banco, sem snapshot de um único instante: escritas durante o backup podem deixar\n",
-            "coleções inconsistentes entre si. Só standalone e o primário de um replica set são aceitos.\n",
-            password_note!()
-        )
+        about = "Gera um backup completo (o mesmo que dbu backup).",
+        after_help = BACKUP_HELP
     )]
     Run(backup::BackupArgs),
     #[command(
         about = "Lista os backups registrados no histórico.",
         after_help = "Exemplos:
-  database-backup backup list
-  database-backup backup list --database app --limit 5 --json"
+  dbu backup list
+  dbu backup list -d app --limit 5 --json"
     )]
     List(listing::BackupListArgs),
     #[command(
-        about = "Verifica checksum e estrutura de um arquivo de backup, sem restaurar.",
-        after_help = "Exemplos:
-  database-backup backup verify --file app-20261021T120000Z.dump
-  database-backup backup verify --file app-20261021T120000Z.sqlite3
-  database-backup backup verify --file app-20261021T120000Z.sql
-  database-backup backup verify --file app-20261021T120000Z.archive
-  database-backup backup verify --file externo.dump --allow-unverified --json"
+        about = "Verifica checksum e estrutura de um arquivo de backup, sem restaurar (o mesmo que dbu verify).",
+        after_help = VERIFY_EXAMPLES
     )]
     Verify(verify::VerifyArgs),
 }
@@ -153,39 +237,33 @@ enum BackupCommand {
 #[derive(Debug, Subcommand)]
 enum RestoreCommand {
     #[command(
-        about = "Restaura um backup validado de PostgreSQL, MySQL, MongoDB ou SQLite em um destino.",
-        after_help = concat!(
-            "Por padrão só cria um banco novo. Sobrescrever um banco com dados exige --overwrite e confirmação;\n",
-            "o anterior é mantido como <destino>__previous_<data> (PostgreSQL) ou <arquivo>.previous-<data> (SQLite).\n",
-            "No MySQL e no MongoDB só é possível restaurar em um banco que ainda não existe (--overwrite não é suportado).\n\n",
-            "Exemplos:\n",
-            "  database-backup restore run --file app-20261021T120000Z.dump --target-database app_copia --user postgres\n",
-            "  database-backup restore run --file app-20261021T120000Z.dump --target-database app --user postgres --overwrite --confirm app\n",
-            "  database-backup restore run --engine mysql --file app-20261021T120000Z.sql --target-database app_copia --user backup\n",
-            "  database-backup restore run --engine mongodb --file app-20261021T120000Z.archive --target-database app_copia --user backup\n",
-            "  database-backup restore run --engine sqlite --file app-20261021T120000Z.sqlite3 --target ./app_copia.db\n\n",
-            password_note!()
-        )
+        about = "Restaura um backup validado (o mesmo que dbu restore).",
+        after_help = RESTORE_HELP
     )]
     Run(Box<restore::RestoreArgs>),
     #[command(
         about = "Lista as restaurações registradas no histórico.",
         after_help = "Exemplos:
-  database-backup restore list
-  database-backup restore list --limit 5 --json"
+  dbu restore list
+  dbu restore list --limit 5 --json"
     )]
     List(listing::RestoreListArgs),
 }
 
 #[derive(Debug, Args)]
 struct ConnectionArgs {
-    #[arg(long, default_value = "localhost", help = "Host do servidor")]
+    #[arg(
+        short = 'H',
+        long,
+        default_value = "localhost",
+        help = "Host do servidor"
+    )]
     host: String,
-    #[arg(long, help = PORT_HELP)]
+    #[arg(short, long, help = PORT_HELP)]
     port: Option<u16>,
-    #[arg(long, help = "Nome do banco")]
+    #[arg(short, long, help = "Nome do banco")]
     database: String,
-    #[arg(long, help = "Usuário")]
+    #[arg(short, long, help = "Usuário")]
     user: String,
     #[arg(
         long,
@@ -231,6 +309,7 @@ const AUTH_DATABASE_ONLY_MONGODB: &str = "--auth-database só vale com --engine 
 #[derive(Debug, Args)]
 struct TestConnectionArgs {
     #[arg(
+        short,
         long,
         value_enum,
         default_value_t = EngineArg::Postgres,
@@ -285,6 +364,8 @@ impl From<TlsArg> for TlsMode {
     }
 }
 
+pub const TOOL_NAME: &str = "database-backup";
+
 mod exit {
     pub const FAILURE: u8 = 1;
     pub const INVALID_INPUT: u8 = 2;
@@ -313,12 +394,26 @@ async fn main() -> ExitCode {
     let cli = Cli::parse();
     output::init(cli.json, cli.log_level);
     match cli.command {
-        Commands::Connection(ConnectionCommand::Test(args)) => run_test_connection(args).await,
-        Commands::Backup(BackupCommand::Run(args)) => backup::run(args).await,
-        Commands::Backup(BackupCommand::List(args)) => listing::backups(&args),
-        Commands::Backup(BackupCommand::Verify(args)) => verify::run(args).await,
-        Commands::Restore(RestoreCommand::Run(args)) => restore::run(*args).await,
-        Commands::Restore(RestoreCommand::List(args)) => listing::restores(&args),
+        Commands::Backup(group) => match group.command {
+            None => backup::run(group.run).await,
+            Some(BackupCommand::Run(args)) => backup::run(args).await,
+            Some(BackupCommand::List(args)) => listing::backups(&args),
+            Some(BackupCommand::Verify(args)) => verify::run(args).await,
+        },
+        Commands::Verify(args) => verify::run(args).await,
+        Commands::Restore(group) => match group.command {
+            None => restore::run(*group.run).await,
+            Some(RestoreCommand::Run(args)) => restore::run(*args).await,
+            Some(RestoreCommand::List(args)) => listing::restores(&args),
+        },
+        Commands::List(group) => match group.command {
+            None => listing::backups(&group.backups),
+            Some(ListCommand::Backups(args)) => listing::backups(&args),
+            Some(ListCommand::Restores(args)) => listing::restores(&args),
+        },
+        Commands::Test(args) | Commands::Connection(ConnectionCommand::Test(args)) => {
+            run_test_connection(args).await
+        }
         Commands::Engines => engines::run(),
     }
 }

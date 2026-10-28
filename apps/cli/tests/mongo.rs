@@ -36,7 +36,7 @@ impl Env {
     }
 
     fn command(&self, password: &str, args: &[&str]) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_database-backup"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_dbu"));
         command
             .args(args)
             .env("DBU_DATA_DIR", &self.data)
