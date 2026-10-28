@@ -659,7 +659,7 @@ dependencies = [
 
 [[package]]
 name = "database-backup-adapters"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "database-backup-core",
  "mongodb",
@@ -678,7 +678,7 @@ dependencies = [
 
 [[package]]
 name = "database-backup-cli"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "clap",
  "database-backup-adapters",
@@ -703,7 +703,7 @@ dependencies = [
 
 [[package]]
 name = "database-backup-core"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "tempfile",
  "thiserror",
@@ -711,7 +711,7 @@ dependencies = [
 
 [[package]]
 name = "database-backup-history"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "directories",
  "rusqlite",
@@ -724,7 +724,7 @@ dependencies = [
 
 [[package]]
 name = "database-backup-storage"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",

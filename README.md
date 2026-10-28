@@ -17,10 +17,10 @@ destino. O futuro app desktop vai usar as mesmas crates Rust, sem regra de backu
 **Tecnologias:** CLI `Rust / Clap / Tokio` · Bancos `PostgreSQL / MySQL / MongoDB / SQLite` ·
 Histórico `SQLite` · Desktop (planejado) `Tauri / Angular / Tailwind v4` · Workspace `Cargo`
 
-> **Estado atual (v0.1.1 + `Unreleased`):** a v0.1.1 publicada cobre só o PostgreSQL. SQLite, MySQL e
-> MongoDB, além do comando `engines`, estão na `main` e entram na v0.2.0. **Ainda não existem:**
-> desktop, sobrescrita no restore MySQL e MongoDB, backup MongoDB do servidor inteiro com `--oplog`,
-> agendamento, nuvem, compressão extra e criptografia (ver [`docs/RELEASES.md`](docs/RELEASES.md)).
+> **Estado atual (v0.2.0):** backup, verificação e restore de PostgreSQL, MySQL, MongoDB e SQLite
+> pelo binário `dbu`. **Ainda não existem:** desktop, sobrescrita no restore MySQL e MongoDB, backup
+> MongoDB do servidor inteiro com `--oplog`, agendamento, nuvem, compressão extra e criptografia (ver
+> [`docs/RELEASES.md`](docs/RELEASES.md)).
 
 ## Arquitetura
 
@@ -55,16 +55,16 @@ restore nunca sobrescreve um arquivo sem `--overwrite`:
 
 ```console
 $ dbu backup -e sqlite --source ./app.db -o ./backups
-Backup concluído: ./backups/app-20261028T145750Z.sqlite3 (12.0 KB, sha256 e78319eead0e…) em 0.0s
+Backup concluído: ./backups/app-20261028T171404Z.sqlite3 (16.0 KB, sha256 400b880ea07a…) em 0.0s
 
-$ dbu verify backups/app-20261028T145750Z.sqlite3
-Backup SQLite válido: ~/demo/backups/app-20261028T145750Z.sqlite3 (2 objetos, 2 tabelas; checksum conferido; sha256 e78319eead0e…)
-Manifesto v2: sqlite app.db, criado em 2026-10-28T14:57:50.06333711Z por database-backup 0.1.1
+$ dbu verify backups/app-20261028T171404Z.sqlite3
+Backup SQLite válido: ~/demo/backups/app-20261028T171404Z.sqlite3 (2 objetos, 2 tabelas; checksum conferido; sha256 400b880ea07a…)
+Manifesto v2: sqlite app.db, criado em 2026-10-28T17:14:04.684587449Z por database-backup 0.2.0
 
-$ dbu restore -e sqlite backups/app-20261028T145750Z.sqlite3 --to ./app_copia.db
+$ dbu restore -e sqlite backups/app-20261028T171404Z.sqlite3 --to ./app_copia.db
 Restore concluído em ~/demo/app_copia.db (2 objetos) em 0.0s
 
-$ dbu restore -e sqlite backups/app-20261028T145750Z.sqlite3 --to ./app.db
+$ dbu restore -e sqlite backups/app-20261028T171404Z.sqlite3 --to ./app.db
 Erro: o arquivo ~/demo/app.db já existe; use --overwrite para substituí-lo (o atual será mantido como ~/demo/app.db.previous-<data>)
 ```
 
@@ -91,13 +91,14 @@ e o tarball também traz `database-backup` como atalho para `dbu`.
 Binário para Linux x86_64 nos [GitHub Releases](https://github.com/aqu1no1/database-backup-utility/releases):
 
 ```bash
-VERSION=v0.1.1
+VERSION=v0.2.0
 curl -LO "https://github.com/aqu1no1/database-backup-utility/releases/download/$VERSION/database-backup-linux-x86_64-$VERSION.tar.gz"
 curl -LO "https://github.com/aqu1no1/database-backup-utility/releases/download/$VERSION/SHA256SUMS.txt"
 sha256sum -c SHA256SUMS.txt                         # precisa mostrar OK
 tar -xzf "database-backup-linux-x86_64-$VERSION.tar.gz"
 install -m 755 dbu ~/.local/bin/                    # ou outro diretório do PATH
-# o tarball traz LICENSE-MIT, LICENSE-APACHE e (a partir da v0.1.1) THIRD-PARTY-LICENSES.md
+# até a v0.1.1 o binário se chamava database-backup; o tarball traz esse nome como link para dbu
+# o tarball também traz LICENSE-MIT, LICENSE-APACHE e THIRD-PARTY-LICENSES.md
 dbu --version
 ```
 
@@ -122,7 +123,7 @@ docker compose --env-file .env -f infra/docker/compose.yml up -d postgres
 
 | Página | O que tem |
 | --- | --- |
-| [Uso da CLI](docs/uso.md) | Requisitos por SGBD, backup, verificação, restore e exit codes |
+| [Uso da CLI](docs/uso.md) | Roteiro por SGBD, requisitos, backup, verificação, restore e exit codes |
 | [Capacidades](docs/capacidades.md) | O que cada SGBD suporta, formatos, consistência e como adicionar um SGBD |
 | [Comandos](docs/comandos.md) | Rodar, testar e validar antes do PR |
 | [Projeto](PROJECT.md) | Decisões, requisitos e roadmap completo |

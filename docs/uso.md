@@ -38,23 +38,110 @@ senão, o Docker. Quem pode usar o Docker tem, na prática, acesso de root; veja
   `mongo:<major.minor>`). Servidor 4.4 ou mais novo, standalone ou primário de replica set.
 - **SQLite:** nada externo; a cópia usa o SQLite embutido no binário.
 
-## Roteiro: backup, verificação e restore em staging (PostgreSQL)
+## Roteiros por SGBD
+
+Cada roteiro cria um banco de exemplo, faz o backup, confere o arquivo e restaura em um destino
+novo, num ambiente descartável: o Compose de desenvolvimento (`infra/docker/compose.yml`) para os
+SGBDs com servidor e um arquivo local para o SQLite. As ferramentas de cada SGBD não precisam
+estar instaladas, porque o `--runner auto` usa o Docker quando elas faltam.
+
+Preparação, na raiz do repositório:
 
 ```bash
-mkdir -p ~/.config/dbu && install -m 600 /dev/null ~/.config/dbu/pg.pass && printf '%s\n' 'senha' > ~/.config/dbu/pg.pass
-export DBU_PG_PASSWORD_FILE=~/.config/dbu/pg.pass
-
-dbu connection test --host db.interno --tls verify-full --database app --user backup
-dbu backup run --host db.interno --tls verify-full --database app --user backup
-dbu backup list --database app
-dbu backup verify --file ~/.local/share/database-backup-utility/backups/app-<data>.dump
-dbu restore run --host staging.interno --tls verify-full --user backup \
-  --file ~/.local/share/database-backup-utility/backups/app-<data>.dump --target-database app_staging
+cp .env.example .env                    # troque as senhas
+set -a; . ./.env; set +a                # só para os roteiros: a CLI não lê o .env
+mkdir -p -m 700 ~/.config/dbu backups
+alias dc='docker compose --env-file .env -f infra/docker/compose.yml'
 ```
 
-O restore cria um banco **novo** por padrão. Substituir um banco com dados exige `--overwrite` e a
-confirmação do nome, e o banco anterior é mantido. Detalhes nas seções abaixo e em
-[`comandos.md`](comandos.md).
+As senhas chegam à CLI por arquivos `0600`, nunca pela linha de comando. O restore sempre cria um
+banco (ou arquivo) **novo**. Substituir um destino com dados exige `--overwrite` e a confirmação do
+nome, onde o SGBD suporta; detalhes nas seções seguintes.
+
+### PostgreSQL
+
+```bash
+dc up -d --wait postgres
+install -m 600 /dev/null ~/.config/dbu/pg.pass && printf '%s\n' "$POSTGRES_PASSWORD" > ~/.config/dbu/pg.pass
+export DBU_PG_PASSWORD_FILE=~/.config/dbu/pg.pass
+dc exec postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -c "CREATE TABLE pedidos (id int PRIMARY KEY, total numeric); INSERT INTO pedidos VALUES (1, 10.5), (2, 20);"
+
+dbu test -d "$POSTGRES_DB" -u "$POSTGRES_USER"
+dbu backup -d "$POSTGRES_DB" -u "$POSTGRES_USER" -o ./backups
+BACKUP=$(ls -t backups/*.dump | head -1)
+dbu verify "$BACKUP"
+dbu restore "$BACKUP" --to pedidos_copia -u "$POSTGRES_USER"
+dc exec postgres psql -U "$POSTGRES_USER" -d pedidos_copia -c "SELECT count(*) FROM pedidos"   # 2
+```
+
+### MySQL
+
+O backup usa o usuário de aplicação do `.env`. O restore cria um banco, então usa o `root`.
+
+```bash
+dc --profile mysql up -d mysql
+install -m 600 /dev/null ~/.config/dbu/mysql.pass && printf '%s\n' "$MYSQL_PASSWORD" > ~/.config/dbu/mysql.pass
+install -m 600 /dev/null ~/.config/dbu/mysql-root.pass && printf '%s\n' "$MYSQL_ROOT_PASSWORD" > ~/.config/dbu/mysql-root.pass
+export DBU_MYSQL_PASSWORD_FILE=~/.config/dbu/mysql.pass
+until dbu test -e mysql -d "$MYSQL_DATABASE" -u "$MYSQL_USER" 2>/dev/null; do sleep 2; done   # primeira subida: ~20 s
+dc exec mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -u "$MYSQL_USER" "$MYSQL_DATABASE" \
+  -e "CREATE TABLE pedidos (id int PRIMARY KEY, total decimal(10,2)); INSERT INTO pedidos VALUES (1, 10.5), (2, 20);"'
+
+dbu backup -e mysql -d "$MYSQL_DATABASE" -u "$MYSQL_USER" -o ./backups
+BACKUP=$(ls -t backups/*.sql | head -1)
+dbu verify "$BACKUP"
+DBU_MYSQL_PASSWORD_FILE=~/.config/dbu/mysql-root.pass dbu restore -e mysql "$BACKUP" --to pedidos_copia -u root
+dc exec mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -u root -N -e "SELECT count(*) FROM pedidos_copia.pedidos"'   # 2
+```
+
+### MongoDB
+
+```bash
+dc --profile mongodb up -d mongodb
+install -m 600 /dev/null ~/.config/dbu/mongo.pass && printf '%s\n' "$MONGO_PASSWORD" > ~/.config/dbu/mongo.pass
+export DBU_MONGO_PASSWORD_FILE=~/.config/dbu/mongo.pass
+until dc exec mongodb mongosh --quiet --eval 'db.runCommand({ping: 1})' >/dev/null 2>&1; do sleep 2; done
+dc exec mongodb sh -c 'mongosh --quiet -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" pedidos \
+  --authenticationDatabase admin --eval "db.pedidos.insertMany([{_id: 1, total: 10.5}, {_id: 2, total: 20}])"'
+
+dbu test -e mongodb -d pedidos -u "$MONGO_USER"
+dbu backup -e mongodb -d pedidos -u "$MONGO_USER" -o ./backups
+BACKUP=$(ls -t backups/*.archive | head -1)
+dbu verify "$BACKUP"
+dbu restore -e mongodb "$BACKUP" --to pedidos_copia -u "$MONGO_USER"
+dc exec mongodb sh -c 'mongosh --quiet -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" pedidos_copia \
+  --authenticationDatabase admin --eval "db.pedidos.countDocuments()"'   # 2
+```
+
+O backup avisa que o MongoDB não tem snapshot de um único instante; veja
+[Limites de consistência](capacidades.md#limites-de-consistência).
+
+### SQLite
+
+Sem servidor, usuário nem senha. O `sqlite3` só cria o banco de exemplo.
+
+```bash
+sqlite3 app.db "CREATE TABLE pedidos (id INTEGER PRIMARY KEY, total REAL); INSERT INTO pedidos VALUES (1, 10.5), (2, 20);"
+
+dbu backup -e sqlite --source ./app.db -o ./backups
+BACKUP=$(ls -t backups/*.sqlite3 | head -1)
+dbu verify "$BACKUP"
+dbu restore -e sqlite "$BACKUP" --to ./app_copia.db
+sqlite3 app_copia.db "SELECT count(*) FROM pedidos"   # 2
+```
+
+### Histórico e limpeza
+
+```bash
+dbu list                 # backups dos quatro roteiros
+dbu list restores
+dc --profile mysql --profile mongodb down -v          # apaga os containers e os volumes de desenvolvimento
+rm -rf backups app.db app_copia.db ~/.config/dbu/*.pass
+```
+
+Em um servidor real, troque o host (`-H`) e mantenha o TLS validado (`--tls verify-full`, padrão
+fora de `localhost`).
 
 ## Opções gerais
 

@@ -24,7 +24,8 @@
 
 | Versão | Cards | Card de release |
 | --- | --- | --- |
-| v0.2.0 — Multi-Database | DB-15 (épico), DB-20 MySQL, DB-21 MongoDB, DB-22 SQLite, DB-23 matriz de capacidades | DB-32 |
+| v0.2.0 — Multi-Database | DB-15 (épico), DB-20 MySQL, DB-21 MongoDB, DB-22 SQLite, DB-23 matriz de capacidades, DB-35 cadeia de build, DB-38 README, DB-39 binário `dbu` e comandos curtos | DB-32 |
+| v0.2.1 — CLI amigável | DB-40 SGBD inferido do arquivo, DB-41 perfis de conexão, DB-42 modo guiado | — |
 | v0.3.0 — Angular + Tauri | DB-16 (épico), DB-24 bridge, DB-25 i18n, DB-26 design system, DB-27 telas | DB-33 |
 | v0.4.0 — Automação e armazenamento | DB-28 agendamento, DB-29 fila de jobs, DB-30 S3, DB-31 compressão e criptografia | DB-34 |
 
