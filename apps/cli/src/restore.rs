@@ -27,36 +27,57 @@ const MAINTENANCE_DATABASE: &str = "postgres";
 #[derive(Debug, Args)]
 pub struct RestoreArgs {
     #[arg(
+        short,
         long,
         value_enum,
         default_value_t = EngineArg::Postgres,
         help = "SGBD do backup"
     )]
     engine: EngineArg,
-    #[arg(long, help = "Arquivo gerado pelo comando backup run")]
-    file: PathBuf,
+    #[arg(
+        value_name = "ARQUIVO",
+        required_unless_present = "file",
+        conflicts_with = "file",
+        help = "Arquivo gerado pelo backup"
+    )]
+    path: Option<PathBuf>,
+    #[arg(
+        short,
+        long,
+        value_name = "ARQUIVO",
+        help = "O mesmo que o ARQUIVO posicional"
+    )]
+    file: Option<PathBuf>,
+    #[arg(
+        long,
+        value_name = "DESTINO",
+        conflicts_with_all = ["target", "target_database"],
+        help = "Banco de destino (ou arquivo de destino, com --engine sqlite)"
+    )]
+    to: Option<String>,
     #[arg(
         long,
         value_name = "ARQUIVO",
-        required_if_eq("engine", "sqlite"),
         conflicts_with_all = ["target_database", "host", "port", "user", "tls", "auth_database", "runner", "password_file"],
-        help = "Arquivo SQLite de destino (com --engine sqlite)"
+        help = "Arquivo SQLite de destino (com --engine sqlite; o mesmo que --to)"
     )]
     target: Option<PathBuf>,
-    #[arg(long, required_unless_present = "target", help = "Banco de destino")]
+    #[arg(long, help = "Banco de destino (o mesmo que --to)")]
     target_database: Option<String>,
     #[arg(
+        short = 'H',
         long,
         default_value = "localhost",
         help = "Host do servidor de destino"
     )]
     host: String,
     #[arg(
+        short,
         long,
         help = "Porta do servidor de destino (padrão: 5432 no PostgreSQL, 3306 no MySQL, 27017 no MongoDB)"
     )]
     port: Option<u16>,
-    #[arg(long, required_unless_present = "target", help = "Usuário")]
+    #[arg(short, long, help = "Usuário")]
     user: Option<String>,
     #[arg(
         long,
@@ -104,6 +125,12 @@ pub struct RestoreArgs {
     password_file: Option<PathBuf>,
 }
 
+impl RestoreArgs {
+    fn file(&self) -> &Path {
+        self.file.as_deref().unwrap_or(Path::new(""))
+    }
+}
+
 struct Plan {
     mode: RestoreMode,
     restore_into: String,
@@ -127,14 +154,22 @@ enum Outcome {
     Failed(String),
 }
 
-pub async fn run(args: RestoreArgs) -> ExitCode {
+pub async fn run(mut args: RestoreArgs) -> ExitCode {
+    args.file = args.path.take().or(args.file.take());
+    if let Some(to) = args.to.take() {
+        if args.engine == EngineArg::Sqlite {
+            args.target = Some(PathBuf::from(to));
+        } else {
+            args.target_database = Some(to);
+        }
+    }
     if args.engine != EngineArg::Mongodb && args.auth_database.is_some() {
         return fail(exit::INVALID_INPUT, AUTH_DATABASE_ONLY_MONGODB);
     }
     match (args.engine, &args.target) {
         (EngineArg::Sqlite, Some(target)) => {
             crate::sqlite::restore(&crate::sqlite::RestoreRequest {
-                file: &args.file,
+                file: args.file(),
                 target,
                 overwrite: args.overwrite,
                 confirm: args.confirm.as_deref(),
@@ -145,7 +180,7 @@ pub async fn run(args: RestoreArgs) -> ExitCode {
         }
         (EngineArg::Sqlite, None) => fail(
             exit::INVALID_INPUT,
-            "--target é obrigatório com --engine sqlite",
+            "--to (ou --target) é obrigatório com --engine sqlite",
         ),
         (EngineArg::Postgres | EngineArg::Mysql | EngineArg::Mongodb, Some(_)) => fail(
             exit::INVALID_INPUT,
@@ -154,7 +189,7 @@ pub async fn run(args: RestoreArgs) -> ExitCode {
         (EngineArg::Mongodb, None) => match (&args.target_database, &args.user) {
             (Some(target_database), Some(user)) => {
                 crate::mongo::restore(&crate::mongo::RestoreRequest {
-                    file: &args.file,
+                    file: args.file(),
                     host: &args.host,
                     port: args.port,
                     target_database,
@@ -171,13 +206,13 @@ pub async fn run(args: RestoreArgs) -> ExitCode {
             }
             _ => fail(
                 exit::INVALID_INPUT,
-                "--target-database e --user são obrigatórios com --engine mongodb",
+                "--to (ou --target-database) e --user são obrigatórios com --engine mongodb",
             ),
         },
         (EngineArg::Mysql, None) => match (&args.target_database, &args.user) {
             (Some(target_database), Some(user)) => {
                 crate::mysql::restore(&crate::mysql::RestoreRequest {
-                    file: &args.file,
+                    file: args.file(),
                     host: &args.host,
                     port: args.port,
                     target_database,
@@ -193,21 +228,21 @@ pub async fn run(args: RestoreArgs) -> ExitCode {
             }
             _ => fail(
                 exit::INVALID_INPUT,
-                "--target-database e --user são obrigatórios com --engine mysql",
+                "--to (ou --target-database) e --user são obrigatórios com --engine mysql",
             ),
         },
         (EngineArg::Postgres, None) => match (&args.target_database, &args.user) {
             (Some(target_database), Some(user)) => run_postgres(&args, target_database, user).await,
             _ => fail(
                 exit::INVALID_INPUT,
-                "--target-database e --user são obrigatórios com --engine postgres",
+                "--to (ou --target-database) e --user são obrigatórios com --engine postgres",
             ),
         },
     }
 }
 
 async fn run_postgres(args: &RestoreArgs, target_database: &str, user: &str) -> ExitCode {
-    let file = match std::path::absolute(&args.file) {
+    let file = match std::path::absolute(args.file()) {
         Ok(path) => path,
         Err(error) => return fail(exit::INVALID_ARCHIVE, &error.to_string()),
     };

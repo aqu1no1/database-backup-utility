@@ -31,7 +31,7 @@ impl Workspace {
     }
 
     pub fn cli(&self, password: &str) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_database-backup"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_dbu"));
         command
             .env("DBU_DATA_DIR", &self.data)
             .env("TMPDIR", &self.tmp)

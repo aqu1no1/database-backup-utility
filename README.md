@@ -9,7 +9,7 @@
 
 ## Sobre
 
-A CLI `database-backup` gera backups completos com as ferramentas oficiais de cada banco (instaladas
+A CLI `dbu` gera backups completos com as ferramentas oficiais de cada banco (instaladas
 ou via Docker) ou, no SQLite, com a Online Backup API. Cada arquivo é gravado de forma atômica, com
 SHA-256 e um manifesto versionado ao lado, e o restore sempre confere o backup antes de tocar no
 destino. O futuro app desktop vai usar as mesmas crates Rust, sem regra de backup no frontend.
@@ -54,17 +54,17 @@ Backup, verificação e restore de um SQLite com o binário de release. O últim
 restore nunca sobrescreve um arquivo sem `--overwrite`:
 
 ```console
-$ database-backup backup run --engine sqlite --source ./app.db --output-dir ./backups
-Backup concluído: ./backups/app-20261028T143725Z.sqlite3 (12.0 KB, sha256 e78319eead0e…) em 0.0s
+$ dbu backup -e sqlite --source ./app.db -o ./backups
+Backup concluído: ./backups/app-20261028T145750Z.sqlite3 (12.0 KB, sha256 e78319eead0e…) em 0.0s
 
-$ database-backup backup verify --file backups/app-20261028T143725Z.sqlite3
-Backup SQLite válido: ~/demo/backups/app-20261028T143725Z.sqlite3 (2 objetos, 2 tabelas; checksum conferido; sha256 e78319eead0e…)
-Manifesto v2: sqlite app.db, criado em 2026-10-28T14:37:25.466568479Z por database-backup 0.1.1
+$ dbu verify backups/app-20261028T145750Z.sqlite3
+Backup SQLite válido: ~/demo/backups/app-20261028T145750Z.sqlite3 (2 objetos, 2 tabelas; checksum conferido; sha256 e78319eead0e…)
+Manifesto v2: sqlite app.db, criado em 2026-10-28T14:57:50.06333711Z por database-backup 0.1.1
 
-$ database-backup restore run --engine sqlite --file backups/app-20261028T143725Z.sqlite3 --target ./app_copia.db
+$ dbu restore -e sqlite backups/app-20261028T145750Z.sqlite3 --to ./app_copia.db
 Restore concluído em ~/demo/app_copia.db (2 objetos) em 0.0s
 
-$ database-backup restore run --engine sqlite --file backups/app-20261028T143725Z.sqlite3 --target ./app.db
+$ dbu restore -e sqlite backups/app-20261028T145750Z.sqlite3 --to ./app.db
 Erro: o arquivo ~/demo/app.db já existe; use --overwrite para substituí-lo (o atual será mantido como ~/demo/app.db.previous-<data>)
 ```
 
@@ -72,13 +72,16 @@ Erro: o arquivo ~/demo/app.db já existe; use --overwrite para substituí-lo (o 
 
 | Comando | O que faz |
 | --- | --- |
-| `connection test` | Valida os parâmetros e testa a conexão (PostgreSQL, MySQL, MongoDB) |
-| `backup run` | Gera um backup completo com checksum e manifesto |
-| `backup verify` | Confere checksum e estrutura de um backup, sem restaurar |
-| `backup list` | Lista os backups do histórico |
-| `restore run` | Restaura um backup conferido em um destino novo (ou com `--overwrite`, onde suportado) |
-| `restore list` | Lista as restaurações do histórico |
-| `engines` | Mostra o que cada SGBD suporta, planeja ou não suporta |
+| `dbu backup -d app -u backup` | Gera um backup completo com checksum e manifesto (`-e mysql`, `-e mongodb`, `-e sqlite --source ./app.db`) |
+| `dbu verify <ARQUIVO>` | Confere checksum e estrutura de um backup, sem restaurar |
+| `dbu restore <ARQUIVO> --to <DESTINO>` | Restaura um backup conferido em um destino novo (ou com `--overwrite`, onde suportado) |
+| `dbu list` / `dbu list restores` | Lista os backups ou as restaurações do histórico |
+| `dbu test -d app -u backup` | Valida os parâmetros e testa a conexão (PostgreSQL, MySQL, MongoDB) |
+| `dbu engines` | Mostra o que cada SGBD suporta, planeja ou não suporta |
+
+Flags curtas: `-e` SGBD, `-H` host, `-p` porta, `-d` banco, `-u` usuário, `-f` arquivo, `-o` pasta de saída.
+Os comandos longos continuam valendo (`backup run`, `backup verify`, `restore run`, `connection test`),
+e o tarball também traz `database-backup` como atalho para `dbu`.
 
 > Opções, exemplos por SGBD e exit codes estão em [Uso da CLI](docs/uso.md). Todo comando aceita
 > `--json` e `--help`.
@@ -93,9 +96,9 @@ curl -LO "https://github.com/aqu1no1/database-backup-utility/releases/download/$
 curl -LO "https://github.com/aqu1no1/database-backup-utility/releases/download/$VERSION/SHA256SUMS.txt"
 sha256sum -c SHA256SUMS.txt                         # precisa mostrar OK
 tar -xzf "database-backup-linux-x86_64-$VERSION.tar.gz"
-install -m 755 database-backup ~/.local/bin/        # ou outro diretório do PATH
+install -m 755 dbu ~/.local/bin/                    # ou outro diretório do PATH
 # o tarball traz LICENSE-MIT, LICENSE-APACHE e (a partir da v0.1.1) THIRD-PARTY-LICENSES.md
-database-backup --version
+dbu --version
 ```
 
 Cada SGBD com servidor precisa das ferramentas oficiais **ou** de Docker:

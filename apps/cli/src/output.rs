@@ -32,9 +32,13 @@ impl LogLevel {
 pub fn init(json: bool, level: Option<LogLevel>) {
     let _ = JSON.set(json);
     let filter = match level {
-        Some(level) => EnvFilter::new(format!("warn,database_backup={}", level.as_str())),
+        Some(level) => EnvFilter::new(format!(
+            "warn,{}={}",
+            env!("CARGO_CRATE_NAME"),
+            level.as_str()
+        )),
         None => EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new("warn,database_backup=warn")),
+            .unwrap_or_else(|_| EnvFilter::new(format!("warn,{}=warn", env!("CARGO_CRATE_NAME")))),
     };
     let _ = tracing_subscriber::fmt()
         .with_writer(std::io::stderr)

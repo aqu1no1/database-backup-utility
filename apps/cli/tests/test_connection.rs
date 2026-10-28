@@ -8,7 +8,7 @@ use std::process::{Command, Output};
 use support::{PostgresTestDb, TestResult};
 
 fn run_cli(args: &[&str], password: Option<&str>) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_database-backup"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_dbu"));
     command
         .args(["connection", "test"])
         .args(args)

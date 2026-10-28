@@ -27,6 +27,7 @@ const FORMAT: &str = "pg_dump-custom";
 #[derive(Debug, Args)]
 pub struct BackupArgs {
     #[arg(
+        short,
         long,
         value_enum,
         default_value_t = EngineArg::Postgres,
@@ -44,6 +45,7 @@ pub struct BackupArgs {
     #[command(flatten)]
     server: ServerArgs,
     #[arg(
+        short,
         long,
         help = "Diretório de destino (padrão: backups/ na pasta de dados do aplicativo)"
     )]
@@ -61,13 +63,23 @@ pub struct BackupArgs {
 
 #[derive(Debug, Args)]
 struct ServerArgs {
-    #[arg(long, default_value = "localhost", help = "Host do servidor")]
+    #[arg(
+        short = 'H',
+        long,
+        default_value = "localhost",
+        help = "Host do servidor"
+    )]
     host: String,
-    #[arg(long, help = PORT_HELP)]
+    #[arg(short, long, help = PORT_HELP)]
     port: Option<u16>,
-    #[arg(long, required_unless_present = "source", help = "Nome do banco")]
+    #[arg(
+        short,
+        long,
+        required_unless_present = "source",
+        help = "Nome do banco"
+    )]
     database: Option<String>,
-    #[arg(long, required_unless_present = "source", help = "Usuário")]
+    #[arg(short, long, required_unless_present = "source", help = "Usuário")]
     user: Option<String>,
     #[arg(
         long,
@@ -378,7 +390,7 @@ async fn execute(
         .unwrap_or_default();
     let pg_dump_version = tools.version().to_string();
     let metadata = ArtifactMetadata {
-        tool_name: env!("CARGO_BIN_NAME"),
+        tool_name: crate::TOOL_NAME,
         tool_version: env!("CARGO_PKG_VERSION"),
         engine: DatabaseEngine::Postgres.as_str(),
         format: FORMAT,

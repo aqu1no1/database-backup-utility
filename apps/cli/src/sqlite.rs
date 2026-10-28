@@ -239,7 +239,7 @@ async fn execute_backup(
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default();
     let metadata = ArtifactMetadata {
-        tool_name: env!("CARGO_BIN_NAME"),
+        tool_name: crate::TOOL_NAME,
         tool_version: env!("CARGO_PKG_VERSION"),
         engine: ENGINE.as_str(),
         format: FORMAT,

@@ -300,7 +300,7 @@ async fn execute_backup(
         .unwrap_or_default();
     let mysqldump_version = tools.version().to_string();
     let metadata = ArtifactMetadata {
-        tool_name: env!("CARGO_BIN_NAME"),
+        tool_name: crate::TOOL_NAME,
         tool_version: env!("CARGO_PKG_VERSION"),
         engine: ENGINE.as_str(),
         format: FORMAT,

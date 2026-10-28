@@ -58,7 +58,7 @@ jobs:
       - name: Testes integração / Docker
         run: cargo test --workspace --tests --locked
       - name: Build release Linux x86_64
-        run: cargo build --locked --release -p database-backup-cli --bin database-backup
+        run: cargo build --locked --release -p database-backup-cli --bin dbu
 
       - name: Avisos de licença de terceiros (cargo-about)
         run: |
@@ -71,7 +71,8 @@ jobs:
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
           mkdir -p dist package
-          cp target/release/database-backup LICENSE-MIT LICENSE-APACHE THIRD-PARTY-LICENSES.md README.md package/
+          cp target/release/dbu LICENSE-MIT LICENSE-APACHE THIRD-PARTY-LICENSES.md README.md package/
+          ln -s dbu package/database-backup
           tar -C package -czf "dist/database-backup-linux-x86_64-${RELEASE_VERSION}.tar.gz" .
           (cd dist && sha256sum ./*.tar.gz > SHA256SUMS.txt)
 

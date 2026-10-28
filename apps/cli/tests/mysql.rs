@@ -44,7 +44,7 @@ impl Env {
     }
 
     fn run_with_password(&self, password: &str, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_database-backup"))
+        Command::new(env!("CARGO_BIN_EXE_dbu"))
             .args(args)
             .env("DBU_DATA_DIR", &self.data)
             .env("TMPDIR", &self.tmp)

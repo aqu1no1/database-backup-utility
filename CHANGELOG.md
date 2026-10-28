@@ -26,9 +26,11 @@ versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 - Senha do MongoDB por `--password-file`, `DBU_MONGO_PASSWORD_FILE` ou `DBU_MONGO_PASSWORD`, entregue às ferramentas por um arquivo YAML temporário (`0600`) passado com `--config`, nunca por argumento.
 - O MongoDB aceita standalone e o primário de um replica set; secundário e cluster sharded são recusados (código 2), e servidores abaixo do 4.4 também. O backup avisa que não é um snapshot de um único instante, e a topologia fica no manifesto e no `--json`.
 
-- Comando `engines` (`database-backup engines [--json]`) com a matriz de capacidades de cada SGBD: operações suportadas, planejadas (com o card) e não suportadas (com o motivo). A matriz e os casos de teste estão em `docs/capacidades.md`.
+- Comando `engines` (`dbu engines [--json]`) com a matriz de capacidades de cada SGBD: operações suportadas, planejadas (com o card) e não suportadas (com o motivo). A matriz e os casos de teste estão em `docs/capacidades.md`.
+- Comandos curtos: `dbu backup`, `dbu verify <arquivo>`, `dbu restore <arquivo> --to <destino>`, `dbu list [restores]` e `dbu test`, além das flags curtas `-e`, `-H`, `-p`, `-d`, `-u`, `-f` e `-o`. Os comandos longos (`backup run`, `backup verify`, `restore run`, `connection test`, `backup list`, `restore list`) continuam valendo.
 
 ### Changed
+- O binário passa a se chamar `dbu`. O tarball da release traz `database-backup` como link para `dbu`, para scripts que usam o nome antigo. O nome da ferramenta no manifesto continua `database-backup`. Em `RUST_LOG`, o alvo dos logs da CLI passa de `database_backup` para `dbu` (ex.: `RUST_LOG=dbu=debug`).
 - Os erros de operação não disponível (`connection test --engine sqlite`, `--overwrite` no restore MySQL e MongoDB) usam o texto da matriz de capacidades, com o motivo. O código de saída continua 2.
 - `backup verify --runner` agora é recusado (código 2) para backups MySQL, MongoDB e SQLite, que não usam ferramenta externa no verify. Antes a opção era ignorada sem aviso.
 - Manifesto passa para a versão 2: campos de servidor (`host`, `port`, `pg_dump_version`, `runner`) ficam opcionais e `engine` passa de `postgresql` para `postgres`. Manifestos v1 continuam aceitos; a v0.1.x recusa manifestos v2.

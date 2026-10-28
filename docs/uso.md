@@ -1,11 +1,26 @@
 # Uso da CLI
 
-Manual do `database-backup`: requisitos de cada SGBD, opções gerais, backup, verificação e restore
+Manual do `dbu`: requisitos de cada SGBD, opções gerais, backup, verificação e restore
 de PostgreSQL, MySQL, MongoDB e SQLite, e os exit codes. O que cada banco suporta está em
 [`capacidades.md`](capacidades.md); variáveis e credenciais, em [`configuracao.md`](configuracao.md).
 
 Os exemplos usam `cargo run -p database-backup-cli --`. Com o binário da release, troque por
-`database-backup`.
+`dbu`.
+
+## Comandos curtos
+
+| Curto | Longo equivalente |
+| --- | --- |
+| `dbu backup …` | `dbu backup run …` |
+| `dbu verify <ARQUIVO>` | `dbu backup verify --file <ARQUIVO>` |
+| `dbu restore <ARQUIVO> --to <DESTINO>` | `dbu restore run --file <ARQUIVO> --target-database <DESTINO>` (ou `--target`, no SQLite) |
+| `dbu list` / `dbu list restores` | `dbu backup list` / `dbu restore list` |
+| `dbu test …` | `dbu connection test …` |
+
+Flags curtas: `-e/--engine`, `-H/--host`, `-p/--port`, `-d/--database`, `-u/--user`, `-f/--file`,
+`-o/--output-dir`. Os comandos e flags longos continuam valendo, e `database-backup` (o nome
+anterior do binário) vem no tarball como link para `dbu`. Os exemplos abaixo usam a forma longa,
+que é a mais explícita para scripts.
 
 ## Requisitos por SGBD
 
@@ -29,11 +44,11 @@ senão, o Docker. Quem pode usar o Docker tem, na prática, acesso de root; veja
 mkdir -p ~/.config/dbu && install -m 600 /dev/null ~/.config/dbu/pg.pass && printf '%s\n' 'senha' > ~/.config/dbu/pg.pass
 export DBU_PG_PASSWORD_FILE=~/.config/dbu/pg.pass
 
-database-backup connection test --host db.interno --tls verify-full --database app --user backup
-database-backup backup run --host db.interno --tls verify-full --database app --user backup
-database-backup backup list --database app
-database-backup backup verify --file ~/.local/share/database-backup-utility/backups/app-<data>.dump
-database-backup restore run --host staging.interno --tls verify-full --user backup \
+dbu connection test --host db.interno --tls verify-full --database app --user backup
+dbu backup run --host db.interno --tls verify-full --database app --user backup
+dbu backup list --database app
+dbu backup verify --file ~/.local/share/database-backup-utility/backups/app-<data>.dump
+dbu restore run --host staging.interno --tls verify-full --user backup \
   --file ~/.local/share/database-backup-utility/backups/app-<data>.dump --target-database app_staging
 ```
 

@@ -5,7 +5,7 @@ use std::process::{Command, Output};
 use tempfile::TempDir;
 
 fn cli(data_dir: &TempDir, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_database-backup"))
+    Command::new(env!("CARGO_BIN_EXE_dbu"))
         .args(args)
         .env("DBU_DATA_DIR", data_dir.path())
         .env("DBU_PG_PASSWORD", "segredo-de-teste")
@@ -252,6 +252,93 @@ fn operations_outside_the_matrix_fail_with_code_2_and_the_reason() {
 }
 
 #[cfg(unix)]
+#[test]
+fn short_commands_reach_the_same_flows_as_the_long_ones() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = TempDir::new().expect("dir");
+    let source = dir.path().join("app.db");
+    rusqlite::Connection::open(&source)
+        .unwrap()
+        .execute_batch("CREATE TABLE t (x INTEGER); INSERT INTO t VALUES (1), (2);")
+        .unwrap();
+    std::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let (short_out, long_out) = (dir.path().join("curto"), dir.path().join("longo"));
+    let source = source.to_str().unwrap();
+
+    let short = cli(
+        &dir,
+        &[
+            "--json",
+            "backup",
+            "-e",
+            "sqlite",
+            "--source",
+            source,
+            "-o",
+            short_out.to_str().unwrap(),
+        ],
+    );
+    let long = cli(
+        &dir,
+        &[
+            "--json",
+            "backup",
+            "run",
+            "--engine",
+            "sqlite",
+            "--source",
+            source,
+            "--output-dir",
+            long_out.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(short.status.code(), Some(0), "{}", stderr(&short));
+    assert_eq!(long.status.code(), Some(0), "{}", stderr(&long));
+    let file = json(&short)["file"].as_str().unwrap().to_owned();
+
+    let verify_short = cli(&dir, &["--json", "verify", &file]);
+    let verify_long = cli(&dir, &["--json", "backup", "verify", "--file", &file]);
+    assert_eq!(
+        verify_short.status.code(),
+        Some(0),
+        "{}",
+        stderr(&verify_short)
+    );
+    assert_eq!(json(&verify_short), json(&verify_long));
+
+    let copy = dir.path().join("copia.db");
+    let restored = cli(
+        &dir,
+        &[
+            "--json",
+            "restore",
+            "-e",
+            "sqlite",
+            &file,
+            "--to",
+            copy.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(restored.status.code(), Some(0), "{}", stderr(&restored));
+    let rows: i64 = rusqlite::Connection::open(&copy)
+        .unwrap()
+        .query_row("SELECT count(*) FROM t", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(rows, 2);
+
+    let backups = json(&cli(&dir, &["--json", "list"]));
+    let restores = json(&cli(&dir, &["--json", "list", "restores"]));
+    assert_eq!(backups, json(&cli(&dir, &["--json", "backup", "list"])));
+    assert_eq!(restores, json(&cli(&dir, &["--json", "restore", "list"])));
+    assert_eq!(
+        restores["restores"].as_array().map(Vec::len),
+        Some(1),
+        "{restores}"
+    );
+}
+
+#[cfg(unix)]
 fn private_file(path: &std::path::Path, body: &[u8]) {
     use std::os::unix::fs::PermissionsExt;
     std::fs::write(path, body).expect("arquivo");
@@ -311,7 +398,7 @@ fn verify_rejects_unsupported_or_foreign_manifest() {
 const FILE_SECRET: &str = "conteudo-secreto-do-arquivo";
 
 fn without_password(data_dir: &TempDir, args: &[&str], envs: &[(&str, &str)]) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_database-backup"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_dbu"));
     command
         .args(args)
         .env("DBU_DATA_DIR", data_dir.path())
@@ -562,7 +649,7 @@ fn invalid_mongodb_names_and_hosts_are_rejected_before_any_connection() {
 #[test]
 fn mongo_password_never_comes_from_postgres_variables() {
     let dir = TempDir::new().expect("dir");
-    let output = Command::new(env!("CARGO_BIN_EXE_database-backup"))
+    let output = Command::new(env!("CARGO_BIN_EXE_dbu"))
         .args([
             "connection",
             "test",

@@ -16,10 +16,19 @@ use crate::{RunnerArg, describe, exit};
 #[derive(Debug, Args)]
 pub struct VerifyArgs {
     #[arg(
-        long,
-        help = "Arquivo gerado pelo comando backup run (.dump, .sql, .archive ou .sqlite3)"
+        value_name = "ARQUIVO",
+        required_unless_present = "file",
+        conflicts_with = "file",
+        help = "Arquivo gerado pelo backup (.dump, .sql, .archive ou .sqlite3)"
     )]
-    file: PathBuf,
+    path: Option<PathBuf>,
+    #[arg(
+        short,
+        long,
+        value_name = "ARQUIVO",
+        help = "O mesmo que o ARQUIVO posicional"
+    )]
+    file: Option<PathBuf>,
     #[arg(
         long,
         value_enum,
@@ -58,7 +67,8 @@ struct Structure {
 }
 
 pub async fn run(args: VerifyArgs) -> ExitCode {
-    let file = match std::path::absolute(&args.file) {
+    let given = args.path.or(args.file).unwrap_or_default();
+    let file = match std::path::absolute(&given) {
         Ok(path) => path,
         Err(error) => return fail(exit::INVALID_ARCHIVE, &error.to_string()),
     };

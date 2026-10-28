@@ -45,7 +45,7 @@ docker compose --env-file .env -f infra/docker/compose.yml \
 | `DBU_MONGO_PASSWORD` | O mesmo que `DBU_PG_PASSWORD`, para `--engine mongodb`. |
 | `DBU_MONGO_PASSWORD_FILE` | O mesmo que `DBU_PG_PASSWORD_FILE`, para `--engine mongodb`. |
 | `DBU_DATA_DIR` | Diretório do histórico SQLite, no lugar do padrão do sistema. Útil para testes e uso portátil. |
-| `RUST_LOG` | Filtro dos logs no stderr (ex.: `info`, `database_backup=debug`) quando `--log-level` não é informado. Padrão: `warn`. |
+| `RUST_LOG` | Filtro dos logs no stderr (ex.: `info`, `dbu=debug`) quando `--log-level` não é informado. Padrão: `warn`. |
 
 - A CLI não lê o `.env`; exporte as variáveis no shell ou no agendador.
 
@@ -81,7 +81,7 @@ Regras do arquivo de senha (`crates/core/src/secret.rs`):
 ```bash
 install -m 600 /dev/null ~/.config/dbu/pg.pass
 printf '%s\n' 'a-senha' > ~/.config/dbu/pg.pass
-DBU_PG_PASSWORD_FILE=~/.config/dbu/pg.pass database-backup backup run --database app --user backup
+DBU_PG_PASSWORD_FILE=~/.config/dbu/pg.pass dbu backup -d app -u backup
 ```
 
 No MySQL, a senha lida por essas fontes vai para o `mysqldump`/`mysql` num arquivo de opções

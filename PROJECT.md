@@ -448,7 +448,7 @@ flowchart TD
 Agendador do sistema operacional
                |
                v
-        CLI database-backup
+        CLI dbu
                |
                v
          Motor Rust compartilhado
@@ -464,16 +464,20 @@ Não depender de uma janela Tauri aberta. Configurações e registros persistent
 
 ## 9. CLI (implementada na v0.1.0)
 
-Sintaxe atual. Referência completa em `docs/comandos.md` e no `--help` de cada comando:
+Sintaxe atual (binário `dbu`; até a v0.1.x ele se chamava `database-backup`). Referência completa em
+`docs/uso.md` e no `--help` de cada comando:
 
 ```bash
-database-backup connection test --database app --user backup
-database-backup backup run --database app --user backup [--output-dir DIR] [--runner auto|native|docker]
-database-backup backup list [--database app] [--json]
-database-backup backup verify --file app-20261021T120000Z.dump
-database-backup restore run --file app-20261021T120000Z.dump --target-database app_staging --user backup
-database-backup restore list
+dbu test -d app -u backup
+dbu backup -d app -u backup [-o DIR] [--runner auto|native|docker]
+dbu list [-d app] [--json]
+dbu verify app-20261021T120000Z.dump
+dbu restore app-20261021T120000Z.dump --to app_staging -u backup
+dbu list restores
 ```
+
+As formas longas (`connection test`, `backup run`, `backup list`, `backup verify`, `restore run`,
+`restore list`) continuam válidas.
 
 A senha nunca é aceita por argumento. Ela vem de um prompt sem eco, de `DBU_PG_PASSWORD` ou de um
 arquivo `600` (`--password-file`/`DBU_PG_PASSWORD_FILE`), e só uma fonte pode estar definida.
