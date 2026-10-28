@@ -396,7 +396,11 @@ async fn existing_database_and_overwrite_are_refused_without_changes() -> TestRe
     assert_code(&empty, 2);
     assert!(text(&empty).contains("já existe"), "{}", text(&empty));
     assert_code(&overwrite, 2);
-    assert!(text(&overwrite).contains("--overwrite ainda não é suportado"));
+    assert!(
+        text(&overwrite).contains("restore sobrescrevendo destino existente não está disponível"),
+        "{}",
+        text(&overwrite)
+    );
     assert_code(&reserved, 2);
     assert!(
         text(&reserved).contains("interno do MongoDB"),

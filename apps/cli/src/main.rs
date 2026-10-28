@@ -1,6 +1,7 @@
 mod archive;
 mod backup;
 mod credentials;
+mod engines;
 mod listing;
 mod mongo;
 mod mysql;
@@ -20,7 +21,8 @@ use database_backup_adapters::postgres::{
     ConnectionError, RunnerChoice, Timeouts, test_connection,
 };
 use database_backup_core::{
-    DatabaseEngine, Password, PostgresConnectionConfig, SecretProvider, SecretSource, TlsMode,
+    DatabaseEngine, Operation, Password, PostgresConnectionConfig, SecretProvider, SecretSource,
+    TlsMode,
 };
 use serde::Serialize;
 use tracing::info;
@@ -50,6 +52,7 @@ macro_rules! password_note {
   database-backup restore run --engine mysql --file app-20261021T120000Z.sql --target-database app_copia --user backup
   database-backup restore run --engine mongodb --file app-20261021T120000Z.archive --target-database app_copia --user backup
   database-backup restore run --engine sqlite --file app-20261021T120000Z.sqlite3 --target ./app_copia.db
+  database-backup engines
 
 Exit codes: 0 ok, 1 falha geral, 2 parâmetro inválido, 3 autenticação, 4 banco inexistente,
 5 inacessível/timeout, 6 TLS, 7 ferramentas ausentes, 8 backup falhou, 9 cancelado,
@@ -83,6 +86,15 @@ enum Commands {
     Backup(BackupCommand),
     #[command(subcommand, about = "Restaura backups e lista restaurações.")]
     Restore(RestoreCommand),
+    #[command(
+        about = "Mostra o que cada SGBD suporta: operações disponíveis, planejadas e não suportadas.",
+        after_help = "Exemplos:
+  database-backup engines
+  database-backup engines --json
+
+A mesma matriz está em docs/capacidades.md."
+    )]
+    Engines,
 }
 
 #[derive(Debug, Subcommand)]
@@ -307,6 +319,7 @@ async fn main() -> ExitCode {
         Commands::Backup(BackupCommand::Verify(args)) => verify::run(args).await,
         Commands::Restore(RestoreCommand::Run(args)) => restore::run(*args).await,
         Commands::Restore(RestoreCommand::List(args)) => listing::restores(&args),
+        Commands::Engines => engines::run(),
     }
 }
 
@@ -319,10 +332,7 @@ async fn run_test_connection(args: TestConnectionArgs) -> ExitCode {
         EngineArg::Mysql => return mysql::test(&args.connection, args.timeout).await,
         EngineArg::Mongodb => return mongo::test(&args.connection, args.timeout).await,
         EngineArg::Sqlite => {
-            return fail(
-                exit::INVALID_INPUT,
-                "connection test vale para postgres, mysql e mongodb; o SQLite não tem servidor",
-            );
+            return unsupported(DatabaseEngine::Sqlite, Operation::ConnectionTest, "");
         }
     }
     let config = match args.connection.config() {
@@ -369,6 +379,17 @@ async fn run_test_connection(args: TestConnectionArgs) -> ExitCode {
             fail(exit_code_for(&error), &error.to_string())
         }
     }
+}
+
+fn unsupported(engine: DatabaseEngine, operation: Operation, hint: &str) -> ExitCode {
+    let mut message = engine
+        .unsupported_message(operation)
+        .unwrap_or_else(|| operation.description().to_owned());
+    if !hint.is_empty() {
+        message.push_str("; ");
+        message.push_str(hint);
+    }
+    fail(exit::INVALID_INPUT, &message)
 }
 
 fn read_password(

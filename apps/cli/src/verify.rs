@@ -3,7 +3,7 @@ use std::process::ExitCode;
 
 use clap::Args;
 use database_backup_adapters::postgres::PgTools;
-use database_backup_core::DatabaseEngine;
+use database_backup_core::{DatabaseEngine, Operation};
 use database_backup_history::History;
 use database_backup_storage::check_restore_source;
 use serde::Serialize;
@@ -23,10 +23,9 @@ pub struct VerifyArgs {
     #[arg(
         long,
         value_enum,
-        default_value_t = RunnerArg::Auto,
-        help = "auto: pg_restore nativo se compatível, senão Docker (só PostgreSQL)"
+        help = "auto (padrão): pg_restore nativo se compatível, senão Docker (só PostgreSQL)"
     )]
-    runner: RunnerArg,
+    runner: Option<RunnerArg>,
     #[arg(
         long,
         help = "Aceita arquivos sem checksum conhecido (.meta.json ou histórico)"
@@ -70,6 +69,16 @@ pub async fn run(args: VerifyArgs) -> ExitCode {
         Ok(engine) => engine,
         Err(message) => return fail(exit::INVALID_ARCHIVE, &message),
     };
+    if args.runner.is_some() && engine != DatabaseEngine::Postgres {
+        return fail(
+            exit::INVALID_INPUT,
+            &format!(
+                "--runner só vale no verify de backups PostgreSQL; o verify de {} usa {}",
+                engine.display_name(),
+                engine.capability(Operation::Verify).note
+            ),
+        );
+    }
     let history = match History::default_path().and_then(|path| History::open(&path)) {
         Ok(history) => history,
         Err(error) => return fail(exit::FAILURE, &describe(&error)),
@@ -88,7 +97,9 @@ pub async fn run(args: VerifyArgs) -> ExitCode {
         DatabaseEngine::Sqlite => sqlite_structure(&file).await,
         DatabaseEngine::Mysql => mysql_structure(&file).await,
         DatabaseEngine::Mongodb => mongo_structure(&file).await,
-        DatabaseEngine::Postgres => postgres_structure(&file, &verified, args.runner).await,
+        DatabaseEngine::Postgres => {
+            postgres_structure(&file, &verified, args.runner.unwrap_or(RunnerArg::Auto)).await
+        }
     };
     let structure = match structure {
         Ok(structure) => structure,
