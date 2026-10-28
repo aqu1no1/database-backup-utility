@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Database Backup Utility">
+  <defs>
+    <mask id="bite" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512">
+      <rect width="512" height="512" fill="#fff"/>
+      <circle cx="98" cy="224" r="46" fill="#000"/>
+      <circle cx="94" cy="292" r="42" fill="#000"/>
+    </mask>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#141414"/>
+  <g fill="none" stroke="#EDEDED" stroke-width="12" stroke-linecap="round" stroke-dasharray="0.5 24">
+    <ellipse cx="278" cy="124" rx="110" ry="34"/>
+    <path d="M168 124 V284 A110 34 0 0 0 388 284 V124"/>
+  </g>
+  <g mask="url(#bite)">
+    <path d="M90 192 V352 A110 34 0 0 0 310 352 V192 Z" fill="#EDEDED"/>
+    <ellipse cx="200" cy="192" rx="110" ry="34" fill="#EDEDED" stroke="#141414" stroke-width="10"/>
+    <path d="M90 245 A110 34 0 0 0 310 245 M90 298 A110 34 0 0 0 310 298" fill="none" stroke="#141414" stroke-width="10"/>
+  </g>
+  <circle cx="358" cy="364" r="66" fill="#EDEDED" stroke="#141414" stroke-width="16"/>
+  <path d="M328 364 L350 386 L390 342" fill="none" stroke="#141414" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

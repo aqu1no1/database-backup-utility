@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Database Backup Utility">
+  <style>
+    .copy { animation: march 1.2s linear infinite; }
+    .bite { transform-box: fill-box; transform-origin: center; animation: chomp 4s ease-out infinite; }
+    .bite.b2 { animation-delay: .12s; }
+    .badge { transform-box: view-box; transform-origin: 358px 364px; animation: pop 4s cubic-bezier(.3,1.4,.5,1) infinite; }
+    .check { stroke-dasharray: 92; stroke-dashoffset: 0; animation: draw 4s ease-out infinite; }
+    @keyframes march { to { stroke-dashoffset: -24.5; } }
+    @keyframes chomp {
+      0%, 4% { transform: scale(0); }
+      12% { transform: scale(1.15); }
+      16%, 92% { transform: scale(1); }
+      100% { transform: scale(0); }
+    }
+    @keyframes pop {
+      0%, 30% { transform: scale(0); }
+      42% { transform: scale(1.12); }
+      48%, 88% { transform: scale(1); }
+      100% { transform: scale(0); }
+    }
+    @keyframes draw {
+      0%, 46% { stroke-dashoffset: 92; }
+      62%, 88% { stroke-dashoffset: 0; }
+      100% { stroke-dashoffset: 92; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .copy, .bite, .badge, .check { animation: none; }
+    }
+  </style>
+  <defs>
+    <mask id="bite" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512">
+      <rect width="512" height="512" fill="#fff"/>
+      <circle class="bite" cx="98" cy="224" r="46" fill="#000"/>
+      <circle class="bite b2" cx="94" cy="292" r="42" fill="#000"/>
+    </mask>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#141414"/>
+  <g fill="none" stroke="#EDEDED" stroke-width="12" stroke-linecap="round" stroke-dasharray="0.5 24">
+    <ellipse class="copy" cx="278" cy="124" rx="110" ry="34"/>
+    <path class="copy" d="M168 124 V284 A110 34 0 0 0 388 284 V124"/>
+  </g>
+  <g mask="url(#bite)">
+    <path d="M90 192 V352 A110 34 0 0 0 310 352 V192 Z" fill="#EDEDED"/>
+    <ellipse cx="200" cy="192" rx="110" ry="34" fill="#EDEDED" stroke="#141414" stroke-width="10"/>
+    <path d="M90 245 A110 34 0 0 0 310 245 M90 298 A110 34 0 0 0 310 298" fill="none" stroke="#141414" stroke-width="10"/>
+  </g>
+  <g class="badge">
+    <circle cx="358" cy="364" r="66" fill="#EDEDED" stroke="#141414" stroke-width="16"/>
+    <path class="check" d="M328 364 L350 386 L390 342" fill="none" stroke="#141414" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>
