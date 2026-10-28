@@ -2,7 +2,7 @@
 
 O que cada banco suporta hoje, o que está planejado e o que não é suportado, e por quê. A fonte é
 o tipo `DatabaseEngine::capabilities` em `crates/core/src/capability.rs`. A CLI mostra a mesma
-matriz com `database-backup engines` (ou `--json`) e usa os mesmos textos nos erros de operação não
+matriz com `dbu engines` (ou `--json`) e usa os mesmos textos nos erros de operação não
 disponível (código 2). Se esta tabela e o código divergirem, vale o código, e esta página precisa
 ser corrigida no mesmo PR.
 

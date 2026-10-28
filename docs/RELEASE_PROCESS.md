@@ -33,8 +33,8 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --lib --bins --locked
 cargo test --workspace --tests --locked                         # Docker necessário
-cargo build --locked --release -p database-backup-cli --bin database-backup
-./target/release/database-backup --version                      # deve mostrar X.Y.Z
+cargo build --locked --release -p database-backup-cli --bin dbu
+./target/release/dbu --version                                  # deve mostrar X.Y.Z
 cargo deny check                                                # se instalado
 cargo about generate --locked about.hbs > /tmp/THIRD-PARTY-LICENSES.md   # cargo-about 0.9.2 com --features cli
 ```
@@ -53,7 +53,7 @@ cargo about generate --locked about.hbs > /tmp/THIRD-PARTY-LICENSES.md   # cargo
 ## Depois de publicar
 
 1. Baixar o tarball e o `SHA256SUMS.txt` do Release e rodar `sha256sum -c SHA256SUMS.txt`.
-2. Extrair e conferir `database-backup --version`.
+2. Extrair e conferir `dbu --version` e o link `database-backup -> dbu`.
 3. Mover o card de release para Done no Linear e fechar o milestone.
 
 ## Observações de segurança

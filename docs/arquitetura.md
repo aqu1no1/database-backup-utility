@@ -110,7 +110,7 @@ flowchart TD
 
 | Arquivo | Papel |
 | --- | --- |
-| `main.rs` | Árvore de comandos (`connection test`, `backup run/list/verify`, `restore run/list`, `engines`), opções globais `--json`/`--log-level`, leitura de senha, mapeamento de erros para exit codes e o helper `unsupported`, que recusa com código 2 uma operação fora da matriz de capacidades. |
+| `main.rs` | Árvore de comandos do binário `dbu`: atalhos `backup`, `verify`, `restore`, `list`, `test` e as formas longas (`connection test`, `backup run/list/verify`, `restore run/list`), mais `engines`. `backup` e `restore` aceitam os argumentos direto ou um subcomando (`args_conflicts_with_subcommands`); opções globais `--json`/`--log-level`, leitura de senha, mapeamento de erros para exit codes e o helper `unsupported`, que recusa com código 2 uma operação fora da matriz de capacidades. |
 | `engines.rs` | Comando `engines`: imprime a matriz de `DatabaseEngine::capabilities` em texto ou JSON. |
 | `output.rs` | Único ponto de saída. `success` imprime o texto ou `{"status":"ok",...}`; `fail` escreve `Erro: ...` no stderr e, com `--json`, `{"status":"error","code":N,"error":"..."}` no stdout. Também configura o `tracing`. |
 | `archive.rs` | Validações de arquivo compartilhadas por `restore run` e `backup verify`: SGBD do arquivo, checksum contra `.meta.json`/histórico, leitura com `pg_restore --list` e compatibilidade de versões. |
