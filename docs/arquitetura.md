@@ -12,7 +12,10 @@ flowchart TD
 
 - CLI e Tauri são interfaces do mesmo sistema; as regras de backup não ficam no frontend.
 - O domínio não deve depender de Clap, Tauri, bancos específicos ou infraestrutura Docker.
-- Adaptadores lidam com capacidades específicas por SGBD, sem prometer uma função universal.
+- Adaptadores lidam com capacidades específicas por SGBD, sem prometer uma função universal. O que
+  cada um suporta fica tipado em `crates/core/src/capability.rs` (`Operation`, `Support`,
+  `DatabaseEngine::capabilities`). A CLI mostra essa matriz em `engines` e tira dela as mensagens de
+  operação não disponível. Ver [`capacidades.md`](capacidades.md).
 - `core/`, `shared/`, `features/` e `layout/` são pastas do frontend **quando ele for criado**.
 - `crates/` Rust são compartilhadas entre interfaces. A pasta `libs/` TS não será criada sem uso.
 - Segredos: `crates/core/src/secret.rs` define o contrato `SecretProvider`, de onde a senha veio
@@ -107,7 +110,8 @@ flowchart TD
 
 | Arquivo | Papel |
 | --- | --- |
-| `main.rs` | Árvore de comandos (`connection test`, `backup run/list/verify`, `restore run/list`), opções globais `--json`/`--log-level`, leitura de senha e mapeamento de erros para exit codes. |
+| `main.rs` | Árvore de comandos (`connection test`, `backup run/list/verify`, `restore run/list`, `engines`), opções globais `--json`/`--log-level`, leitura de senha, mapeamento de erros para exit codes e o helper `unsupported`, que recusa com código 2 uma operação fora da matriz de capacidades. |
+| `engines.rs` | Comando `engines`: imprime a matriz de `DatabaseEngine::capabilities` em texto ou JSON. |
 | `output.rs` | Único ponto de saída. `success` imprime o texto ou `{"status":"ok",...}`; `fail` escreve `Erro: ...` no stderr e, com `--json`, `{"status":"error","code":N,"error":"..."}` no stdout. Também configura o `tracing`. |
 | `archive.rs` | Validações de arquivo compartilhadas por `restore run` e `backup verify`: SGBD do arquivo, checksum contra `.meta.json`/histórico, leitura com `pg_restore --list` e compatibilidade de versões. |
 | `backup.rs`, `restore.rs`, `verify.rs`, `listing.rs` | Um comando (ou par de `list`) por arquivo. `backup.rs` e `restore.rs` escolhem o fluxo pelo `--engine`. |

@@ -43,7 +43,7 @@ crates/storage/src/lib.rs            # unitários: .partial, permissões, manife
 crates/history/src/lib.rs            # unitários com SQLite em diretório temporário (migrations, consultas)
 crates/database-adapters/src/        # unitários de parsing e escape (versões, .pgpass, dbname)
 crates/database-adapters/tests/      # integração com PostgreSQL real (Testcontainers)
-  support/mod.rs                     # PostgresTestDb, MysqlTestDb, MongoTestDb + fixtures (seed.sql, e2e.sql, seed.js)
+  support/mod.rs                     # PostgresTestDb, MysqlTestDb, MongoTestDb, fixtures e o contrato assert_round_trip
   mysql_connection.rs, mysql_tools.rs # MySQL real (Testcontainers mysql:8.4)
   mongo_connection.rs, mongo_tools.rs # MongoDB real (Testcontainers mongo:7.0, standalone e replica set)
   sqlite_backup.rs                   # Backup API do SQLite com arquivos temporários (sem Docker)

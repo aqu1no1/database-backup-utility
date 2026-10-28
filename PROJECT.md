@@ -136,7 +136,7 @@ O objetivo não é criar um formato universal de backup do zero. Cada SGBD terá
 | MongoDB | `mongodump` | `mongorestore` | Considerar topologia do servidor, consistência e ferramentas compatíveis. |
 | SQLite | Online Backup API / mecanismo seguro de cópia | API SQLite / restauração controlada | Cuidado com banco aberto, locks e transações. |
 
-**Capacidades por adaptador:** `test_connection`, `full_backup`, `restore`; `incremental_backup`, `differential_backup`, `selective_restore` e recuperação point-in-time apenas quando **implementadas e testadas** para aquele banco.
+**Capacidades por adaptador:** a matriz do que está implementado, planejado e não suportado em cada banco fica tipada em `crates/core/src/capability.rs` e documentada em [`docs/capacidades.md`](docs/capacidades.md). Incremental, diferencial, restore seletivo e recuperação point-in-time só entram como suportados quando forem **implementados e testados** para aquele banco.
 
 Não presumir que uma opção de CLI funciona de forma idêntica em todos os bancos.
 

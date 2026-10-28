@@ -26,7 +26,11 @@ versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 - Senha do MongoDB por `--password-file`, `DBU_MONGO_PASSWORD_FILE` ou `DBU_MONGO_PASSWORD`, entregue às ferramentas por um arquivo YAML temporário (`0600`) passado com `--config`, nunca por argumento.
 - O MongoDB aceita standalone e o primário de um replica set; secundário e cluster sharded são recusados (código 2), e servidores abaixo do 4.4 também. O backup avisa que não é um snapshot de um único instante, e a topologia fica no manifesto e no `--json`.
 
+- Comando `engines` (`database-backup engines [--json]`) com a matriz de capacidades de cada SGBD: operações suportadas, planejadas (com o card) e não suportadas (com o motivo). A matriz e os casos de teste estão em `docs/capacidades.md`.
+
 ### Changed
+- Os erros de operação não disponível (`connection test --engine sqlite`, `--overwrite` no restore MySQL e MongoDB) usam o texto da matriz de capacidades, com o motivo. O código de saída continua 2.
+- `backup verify --runner` agora é recusado (código 2) para backups MySQL, MongoDB e SQLite, que não usam ferramenta externa no verify. Antes a opção era ignorada sem aviso.
 - Manifesto passa para a versão 2: campos de servidor (`host`, `port`, `pg_dump_version`, `runner`) ficam opcionais e `engine` passa de `postgresql` para `postgres`. Manifestos v1 continuam aceitos; a v0.1.x recusa manifestos v2.
 - Histórico: migration `0004` permite restores sem host e porta e registra o SGBD de cada restore.
 - Manifesto v2 ganha os campos opcionais `mysqldump_version` e `non_transactional_tables` (só em backups MySQL); a versão do formato continua 2.

@@ -11,6 +11,8 @@ ambos utilizando as mesmas crates de negócio.
 > restore só em banco novo).
 > **Ainda não existem:** desktop Angular/Tauri, sobrescrita no restore MySQL e MongoDB, backup
 > MongoDB do servidor inteiro com `--oplog`, agendamento, nuvem, compressão extra e criptografia. Esses itens estão planejados em [`docs/RELEASES.md`](docs/RELEASES.md).
+> O que cada SGBD suporta está em [`docs/capacidades.md`](docs/capacidades.md) e no comando
+> `database-backup engines`.
 
 ## Stack
 

@@ -57,6 +57,19 @@ async fn exemplo() -> TestResult {
 O harness não tem testes próprios. Todos os testes de integração e E2E dependem dele, então uma
 falha em subir o container ou aplicar a fixture derruba esses testes com a mensagem do harness.
 
+## Contrato comum dos adaptadores
+
+`assert_round_trip` (`support/mod.rs`) é o contrato mínimo de backup e restore que todo SGBD cumpre:
+
+- a matriz declara backup, verify e restore;
+- o artefato lido sem servidor e o destino restaurado têm as mesmas tabelas da origem;
+- os dados restaurados são iguais;
+- a origem não muda.
+
+Os testes de round-trip de cada SGBD (`postgres_restore.rs`, `mysql_tools.rs`, `mongo_tools.rs`,
+`sqlite_backup.rs`) chamam o contrato e mantêm as checagens próprias. Não há um teste separado que
+repita o round-trip. Detalhes em [`capacidades.md`](capacidades.md#testes-de-contrato).
+
 ## Integração MySQL
 
 O harness `MysqlTestDb` (mesmo `support/mod.rs`) sobe um `mysql:8.4` efêmero com senha de root

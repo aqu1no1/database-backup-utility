@@ -3,7 +3,7 @@
 | Área | Tecnologia | Estado |
 | --- | --- | --- |
 | Linguagem principal | Rust estável / Cargo Workspace | Implementado (v0.1.0) |
-| CLI | Clap, Tokio, rpassword, tracing, serde_json | `connection test`, `backup run/list/verify`, `restore run/list`, `--json` |
+| CLI | Clap, Tokio, rpassword, tracing, serde_json | `connection test`, `backup run/list/verify`, `restore run/list`, `engines`, `--json` |
 | Conexão PostgreSQL | tokio-postgres, rustls (ring) + certificados do sistema | Implementado (TLS `verify-full` para hosts remotos) |
 | Motor PostgreSQL | Ferramentas oficiais `pg_dump`, `pg_restore` (runner native ou Docker) | Backup, verificação e restore implementados |
 | Conexão MySQL | mysql_async (sem features padrão; rustls com ring, certificados do sistema, raízes embutidas desligadas) | Implementado (DB-20) |
@@ -24,7 +24,8 @@
 | CI / Releases | GitHub Actions (actions fixadas por SHA) | CI em PR/`main`; release manual por `workflow_dispatch` |
 | Licença | MIT OR Apache-2.0 | `LICENSE-MIT`, `LICENSE-APACHE` |
 
-As versões específicas devem ser atualizadas junto com manifests e lockfiles.
+As versões específicas devem ser atualizadas junto com manifests e lockfiles. O que cada SGBD suporta
+(operações, formatos, limites de consistência) está em [`capacidades.md`](capacidades.md).
 
 ## MongoDB Database Tools
 
