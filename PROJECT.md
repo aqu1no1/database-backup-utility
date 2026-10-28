@@ -2,7 +2,7 @@
 
 > Documento central de visão, decisões, escopo, arquitetura e planejamento.
 >
-> **Status:** v0.1.0 (CLI PostgreSQL) implementada, testada e em preparação de release. As versões seguintes (multi-SGBD, desktop, agendamento e nuvem) continuam **planejadas, não implementadas**. Na dúvida, o código e os testes são a fonte de verdade.
+> **Status:** v0.1.x (CLI PostgreSQL) publicada e v0.2.0 (MySQL, MongoDB, SQLite e binário `dbu`) implementada, testada e em release. As versões seguintes (desktop, agendamento e nuvem) continuam **planejadas, não implementadas**. Na dúvida, o código e os testes são a fonte de verdade.
 >
 > **Repositório:** `database-backup-utility`  
 > **Desafio de origem:** [roadmap.sh — Database Backup Utility](https://roadmap.sh/projects/database-backup-utility)  
@@ -591,7 +591,7 @@ Para o desktop Angular, após a criação da aplicação, usar os scripts **efet
 
 ## 14. Roadmap e releases planejadas
 
-> A v0.1.0 está implementada (milestone "v0.1.0 — PostgreSQL CLI" no Linear, DB-5 a DB-19). As demais versões são **propostas de escopo futuro** e não indicam releases publicadas. A v1.0.0 e a v2.0.0 ainda não têm milestone nem cards no Linear.
+> A v0.1.0 e a v0.2.0 estão implementadas (milestones "v0.1.0 — PostgreSQL CLI" e "v0.2.0 — Multi-Database" no Linear). As demais versões são **propostas de escopo futuro** e não indicam releases publicadas. A v1.0.0 e a v2.0.0 ainda não têm milestone nem cards no Linear.
 
 ### v0.1.0 — Core Rust + PostgreSQL CLI
 
@@ -606,11 +606,17 @@ Para o desktop Angular, após a criação da aplicação, usar os scripts **efet
 
 ### v0.2.0 — Multi-database
 
-- [ ] Adicionar SQLite.
-- [ ] Adicionar MySQL.
-- [ ] Adicionar MongoDB.
-- [ ] Definir capacidades suportadas por adaptador.
-- [ ] Testar backup e restore reais em ambientes isolados.
+- [x] Adicionar SQLite.
+- [x] Adicionar MySQL.
+- [x] Adicionar MongoDB.
+- [x] Definir capacidades suportadas por adaptador.
+- [x] Testar backup e restore reais em ambientes isolados.
+
+### v0.2.1 — CLI amigável
+
+- [ ] Inferir o SGBD do arquivo no restore e da origem no backup (DB-40).
+- [ ] Perfis de conexão sem senha (`dbu connection add/list/remove`, DB-41).
+- [ ] Modo guiado quando faltam argumentos no terminal (DB-42).
 
 ### v0.3.0 — Desktop Tauri + Angular
 

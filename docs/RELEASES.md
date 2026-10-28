@@ -6,7 +6,8 @@
 | --- | --- | --- |
 | `v0.1.0` | PostgreSQL CLI — **implementada, publicação pelo DB-14** | Conexões, backup full local com streaming, verificação, restore testado, histórico SQLite, manifesto versionado, testes E2E e CI |
 | `v0.1.1` | Correção da v0.1.0 | Mesmo código da v0.1.0 com Tokio 1.54.1 (RUSTSEC-2026-0384); tarball com `THIRD-PARTY-LICENSES.md` (avisos de licença das dependências) |
-| `v0.2.0` | Multi-DBMS | MySQL, MongoDB, SQLite, testes por SGBD |
+| `v0.2.0` | Multi-DBMS — **publicação pelo DB-32** | MySQL, MongoDB e SQLite, matriz de capacidades, testes por SGBD e binário `dbu` com comandos curtos |
+| `v0.2.1` | CLI amigável | SGBD inferido do arquivo, perfis de conexão sem senha e modo guiado no terminal (DB-40 a DB-42) |
 | `v0.3.0` | Desktop Angular | Tauri, Angular standalone, Tailwind CSS v4, Transloco `pt-BR`/`en-US` |
 | `v0.4.0` | Agendamento e cloud | Scheduler independente do desktop, S3 compatível, retenção, Slack |
 | `v1.0.0` | Distribuição estável (sem milestone no Linear ainda) | Compatibilidade, verificações, instaladores, documentação e suporte |

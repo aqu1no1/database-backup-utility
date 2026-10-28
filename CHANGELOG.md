@@ -10,6 +10,20 @@ versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+<!-- Ao concluir uma funcionalidade relevante, registre-a aqui usando:
+### Added
+- Mensagem da mudança validada.
+
+Para publicar, mova as entradas para uma nova seção com data real:
+Seção versionada: `[X.Y.Z] - AAAA-MM-DD`
+O workflow manual rejeita releases sem seção publicada e sem mudanças reais. -->
+
+## [0.2.0] - 2026-10-28
+
+Suporte a MySQL, MongoDB e SQLite, além do PostgreSQL, com a matriz de capacidades de cada SGBD e
+o binário `dbu` com comandos curtos. O manual traz um roteiro de backup, verificação e restore por
+SGBD em [`docs/uso.md`](https://github.com/aqu1no1/database-backup-utility/blob/v0.2.0/docs/uso.md).
+
 ### Added
 - Backup, verificação e restore de bancos **SQLite** como origem: `backup run --engine sqlite --source <arquivo>` e `restore run --engine sqlite --file <backup> --target <arquivo>`. A cópia usa a Online Backup API, é consistente com a aplicação gravando (inclusive em WAL) e passa por `PRAGMA integrity_check`. O restore nunca sobrescreve sem `--overwrite` e confirmação e mantém o arquivo anterior.
 - `backup verify` identifica o SGBD pelo manifesto ou pelo cabeçalho do arquivo.
@@ -25,7 +39,6 @@ versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 - O restore MongoDB só cria bancos novos: recusa banco existente, bancos reservados e `--overwrite`, roda o `mongorestore` sem `--drop` e confere a contagem de documentos de cada coleção e as views. Se o restore falhar, for cancelado ou a contagem divergir, o banco criado é apagado.
 - Senha do MongoDB por `--password-file`, `DBU_MONGO_PASSWORD_FILE` ou `DBU_MONGO_PASSWORD`, entregue às ferramentas por um arquivo YAML temporário (`0600`) passado com `--config`, nunca por argumento.
 - O MongoDB aceita standalone e o primário de um replica set; secundário e cluster sharded são recusados (código 2), e servidores abaixo do 4.4 também. O backup avisa que não é um snapshot de um único instante, e a topologia fica no manifesto e no `--json`.
-
 - Comando `engines` (`dbu engines [--json]`) com a matriz de capacidades de cada SGBD: operações suportadas, planejadas (com o card) e não suportadas (com o motivo). A matriz e os casos de teste estão em `docs/capacidades.md`.
 - Comandos curtos: `dbu backup`, `dbu verify <arquivo>`, `dbu restore <arquivo> --to <destino>`, `dbu list [restores]` e `dbu test`, além das flags curtas `-e`, `-H`, `-p`, `-d`, `-u`, `-f` e `-o`. Os comandos longos (`backup run`, `backup verify`, `restore run`, `connection test`, `backup list`, `restore list`) continuam valendo.
 
@@ -39,18 +52,11 @@ versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 - Manifesto v2 ganha os campos opcionais `mongodump_version` e `topology` (só em backups MongoDB); a versão do formato continua 2.
 
 ### Fixed
+- O Compose de desenvolvimento usa `mongo:7.0`, como os testes: o MongoDB 8.0 não inicia em kernels Linux 6.19 ou mais novos ([SERVER-121912](https://jira.mongodb.org/browse/SERVER-121912)).
 - Um backup que coincide no nome com um `.partial` deixado no mesmo segundo agora falha com "já existe um arquivo em …", em vez de um erro de E/S sem explicação.
 
 ### Security
 - `ctutils` atualizado de 0.4.3 para 0.4.4 (dependência do cliente PostgreSQL), corrigindo comparações e máscaras que não eram de tempo constante ([RUSTSEC-2026-0385](https://rustsec.org/advisories/RUSTSEC-2026-0385)).
-
-<!-- Ao concluir uma funcionalidade relevante, registre-a aqui usando:
-### Added
-- Mensagem da mudança validada.
-
-Para publicar, mova as entradas para uma nova seção com data real:
-Seção versionada: `[X.Y.Z] - AAAA-MM-DD`
-O workflow manual rejeita releases sem seção publicada e sem mudanças reais. -->
 
 ## [0.1.1] - 2026-10-22
 
