@@ -10,6 +10,9 @@ sudo apt install -y build-essential                              # linker C usad
 docker info                                                      # Docker Engine + Compose v2 ativos
 ```
 
+Python 3.11+ só é necessário para os scripts de release. PNPM e Node.js serão necessários quando a
+aplicação Angular for implementada.
+
 ## CLI
 
 ```bash
@@ -75,6 +78,9 @@ docker compose --env-file .env -f infra/docker/compose.yml down
 
 > `down -v` apaga o volume com os dados locais. Use só quando quiser zerar o banco.
 
+Por padrão só o PostgreSQL sobe. MySQL e MongoDB ficam nos perfis opcionais `mysql` e `mongodb`
+(ver [`configuracao.md`](configuracao.md)). O uso da CLI está em [`uso.md`](uso.md).
+
 ## Testes
 
 ```bash
@@ -116,3 +122,6 @@ cargo test --workspace --tests
 cargo build --workspace
 python3 -m unittest discover -s .github/scripts -p 'test_*.py'
 ```
+
+A etapa de Testcontainers requer Docker funcional e pode baixar imagens na primeira execução.
+O `Cargo.lock` é versionado; **a release manual exige o lockfile no repositório**.

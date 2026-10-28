@@ -688,6 +688,7 @@ O arquivo [`AGENTS.md`](AGENTS.md) da raiz é a referência operacional para age
 | Documento | Finalidade |
 | --- | --- |
 | [`README.md`](README.md) | Apresentação pública, instalação e primeiros comandos conforme forem implementados. |
+| [`docs/uso.md`](docs/uso.md) | Manual da CLI: requisitos por SGBD, backup, verificação, restore e exit codes. |
 | [`AGENTS.md`](AGENTS.md) | Instruções para agentes de código e contribuidores. |
 | [`CHANGELOG.md`](CHANGELOG.md) | Mudanças implementadas e verificadas. |
 | [`docs/RELEASES.md`](docs/RELEASES.md) | Roadmap de versões, ainda que não publicadas. |

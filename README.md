@@ -1,31 +1,91 @@
-# Database Backup Utility
+<div align="center">
+  <img src="docs/assets/icon-animated.svg" width="110" alt="Ícone do Database Backup Utility" />
 
-Ferramenta multiplataforma de backup e restauração de bancos de dados. O produto terá uma
-**CLI independente em Rust** e, futuramente, um **desktop Tauri + Angular + Tailwind v4**,
-ambos utilizando as mesmas crates de negócio.
+  # Database Backup Utility
 
-> **Estado atual (v0.1.1 + `Unreleased`):** CLI para PostgreSQL com teste de conexão, backup full,
-> verificação e restore, histórico interno em SQLite, manifesto versionado e testes E2E. Em
-> `Unreleased` (ainda sem release): backup, verificação e restore de bancos **SQLite** como origem,
-> de **MySQL** (`mysqldump`, restore só em banco novo) e de **MongoDB** (`mongodump --archive`,
-> restore só em banco novo).
-> **Ainda não existem:** desktop Angular/Tauri, sobrescrita no restore MySQL e MongoDB, backup
-> MongoDB do servidor inteiro com `--oplog`, agendamento, nuvem, compressão extra e criptografia. Esses itens estão planejados em [`docs/RELEASES.md`](docs/RELEASES.md).
-> O que cada SGBD suporta está em [`docs/capacidades.md`](docs/capacidades.md) e no comando
-> `database-backup engines`.
+  CLI em Rust para backup, verificação e restauração de PostgreSQL, MySQL, MongoDB e SQLite, com um
+  app desktop Tauri + Angular planejado sobre as mesmas crates.
+</div>
 
-## Stack
+## Sobre
 
-- CLI: Rust + Clap; bibliotecas compartilhadas no Cargo Workspace.
-- Desktop (planejado): Tauri + Angular standalone + TypeScript + Tailwind v4.
-- i18n desktop: Transloco, `pt-BR` e `en-US`.
-- Desenvolvimento: PostgreSQL no Docker Compose; MySQL/MongoDB em perfis opcionais; histórico interno em SQLite embutido.
-- Testes: Rust `cargo test`, integração com Testcontainers, Vitest futuramente no Angular.
-- GitHub Actions: CI em PRs/main, auditoria e releases **somente manuais** (`workflow_dispatch`).
+A CLI `database-backup` gera backups completos com as ferramentas oficiais de cada banco (instaladas
+ou via Docker) ou, no SQLite, com a Online Backup API. Cada arquivo é gravado de forma atômica, com
+SHA-256 e um manifesto versionado ao lado, e o restore sempre confere o backup antes de tocar no
+destino. O futuro app desktop vai usar as mesmas crates Rust, sem regra de backup no frontend.
 
-## Instalação (binário da release)
+**Tecnologias:** CLI `Rust / Clap / Tokio` · Bancos `PostgreSQL / MySQL / MongoDB / SQLite` ·
+Histórico `SQLite` · Desktop (planejado) `Tauri / Angular / Tailwind v4` · Workspace `Cargo`
 
-Disponível para Linux x86_64 nos [GitHub Releases](https://github.com/aqu1no1/database-backup-utility/releases).
+> **Estado atual (v0.1.1 + `Unreleased`):** a v0.1.1 publicada cobre só o PostgreSQL. SQLite, MySQL e
+> MongoDB, além do comando `engines`, estão na `main` e entram na v0.2.0. **Ainda não existem:**
+> desktop, sobrescrita no restore MySQL e MongoDB, backup MongoDB do servidor inteiro com `--oplog`,
+> agendamento, nuvem, compressão extra e criptografia (ver [`docs/RELEASES.md`](docs/RELEASES.md)).
+
+## Arquitetura
+
+```mermaid
+flowchart LR
+    Usuario["Usuário"] --> CLI["CLI<br/>apps/cli"]
+    Usuario -.-> Desktop["Desktop Tauri + Angular<br/>(planejado)"]
+    CLI --> Core["core<br/>regras, capacidades, segredos"]
+    CLI --> Adapters["database-adapters"]
+    Desktop -.-> Core
+    Desktop -.-> Adapters
+    Adapters --> DBs[("PostgreSQL · MySQL<br/>MongoDB · SQLite")]
+    CLI --> Storage["storage"]
+    Storage --> Files[("Backups + .meta.json")]
+    CLI --> History["history"]
+    History --> HistDB[("Histórico SQLite")]
+```
+
+| Componente | Responsabilidade | Detalhes |
+| --- | --- | --- |
+| `apps/cli` | Comandos, saída texto/JSON, exit codes e fluxo de cada SGBD | [Organização da CLI](docs/arquitetura.md#organização-da-cli) |
+| `crates/core` | `DatabaseEngine`, matriz de capacidades, configurações de conexão e segredos | [Capacidades](docs/capacidades.md) |
+| `crates/database-adapters` | Conexão, `pg_dump`/`mysqldump`/`mongodump` e restores, Backup API do SQLite | [Arquitetura](docs/arquitetura.md) |
+| `crates/storage` | Arquivo `.partial`, SHA-256, `rename` atômico e manifesto | [Manifesto](docs/manifesto.md) |
+| `crates/history` | Histórico interno de backups e restores com migrations | [Modelo de dados](docs/diagramas/modelo-de-dados.md) |
+| `apps/desktop` | App Tauri + Angular (planejado para a v0.3.0) | [Releases](docs/RELEASES.md) |
+
+## Demonstração
+
+Backup, verificação e restore de um SQLite com o binário de release. O último comando mostra que um
+restore nunca sobrescreve um arquivo sem `--overwrite`:
+
+```console
+$ database-backup backup run --engine sqlite --source ./app.db --output-dir ./backups
+Backup concluído: ./backups/app-20261028T143725Z.sqlite3 (12.0 KB, sha256 e78319eead0e…) em 0.0s
+
+$ database-backup backup verify --file backups/app-20261028T143725Z.sqlite3
+Backup SQLite válido: ~/demo/backups/app-20261028T143725Z.sqlite3 (2 objetos, 2 tabelas; checksum conferido; sha256 e78319eead0e…)
+Manifesto v2: sqlite app.db, criado em 2026-10-28T14:37:25.466568479Z por database-backup 0.1.1
+
+$ database-backup restore run --engine sqlite --file backups/app-20261028T143725Z.sqlite3 --target ./app_copia.db
+Restore concluído em ~/demo/app_copia.db (2 objetos) em 0.0s
+
+$ database-backup restore run --engine sqlite --file backups/app-20261028T143725Z.sqlite3 --target ./app.db
+Erro: o arquivo ~/demo/app.db já existe; use --overwrite para substituí-lo (o atual será mantido como ~/demo/app.db.previous-<data>)
+```
+
+## Comandos principais
+
+| Comando | O que faz |
+| --- | --- |
+| `connection test` | Valida os parâmetros e testa a conexão (PostgreSQL, MySQL, MongoDB) |
+| `backup run` | Gera um backup completo com checksum e manifesto |
+| `backup verify` | Confere checksum e estrutura de um backup, sem restaurar |
+| `backup list` | Lista os backups do histórico |
+| `restore run` | Restaura um backup conferido em um destino novo (ou com `--overwrite`, onde suportado) |
+| `restore list` | Lista as restaurações do histórico |
+| `engines` | Mostra o que cada SGBD suporta, planeja ou não suporta |
+
+> Opções, exemplos por SGBD e exit codes estão em [Uso da CLI](docs/uso.md). Todo comando aceita
+> `--json` e `--help`.
+
+## Como executar
+
+Binário para Linux x86_64 nos [GitHub Releases](https://github.com/aqu1no1/database-backup-utility/releases):
 
 ```bash
 VERSION=v0.1.1
@@ -38,294 +98,42 @@ install -m 755 database-backup ~/.local/bin/        # ou outro diretório do PAT
 database-backup --version
 ```
 
-Requisitos para usar, um dos dois:
-- **Cliente PostgreSQL** (`pg_dump` e `pg_restore`) com versão **maior ou igual** à do servidor
-  (`--runner native`);
-- **Docker**: a CLI usa a imagem `postgres:<versão do servidor>` (`--runner docker`). Quem pode usar o
-  Docker tem, na prática, acesso de root; veja [`docs/seguranca.md`](docs/seguranca.md).
+Cada SGBD com servidor precisa das ferramentas oficiais **ou** de Docker:
 
-O padrão `--runner auto` usa o cliente instalado se for compatível; senão, o Docker.
+- **PostgreSQL:** `pg_dump`/`pg_restore` com versão maior ou igual à do servidor.
+- **MySQL:** `mysqldump`/`mysql` com versão maior ou igual à do servidor.
+- **MongoDB:** Database Tools `100.x`.
+- **SQLite:** nada externo.
 
-### Roteiro rápido: backup, verificação e restore em staging
+Detalhes em [Uso da CLI](docs/uso.md#requisitos-por-sgbd).
 
-```bash
-mkdir -p ~/.config/dbu && install -m 600 /dev/null ~/.config/dbu/pg.pass && printf '%s\n' 'senha' > ~/.config/dbu/pg.pass
-export DBU_PG_PASSWORD_FILE=~/.config/dbu/pg.pass
-
-database-backup connection test --host db.interno --tls verify-full --database app --user backup
-database-backup backup run --host db.interno --tls verify-full --database app --user backup
-database-backup backup list --database app
-database-backup backup verify --file ~/.local/share/database-backup-utility/backups/app-<data>.dump
-database-backup restore run --host staging.interno --tls verify-full --user backup \
-  --file ~/.local/share/database-backup-utility/backups/app-<data>.dump --target-database app_staging
-```
-
-O restore cria um banco **novo** por padrão. Substituir um banco com dados exige `--overwrite` e a
-confirmação do nome, e o banco anterior é mantido. Detalhes nas seções abaixo e em
-[`docs/comandos.md`](docs/comandos.md).
-
-## Requisitos locais (desenvolvimento)
-
-- Rust estável (`rustup`, Cargo), Docker Engine e Docker Compose v2.
-- Python 3.11+ somente para scripts de release.
-- PNPM e Node.js serão necessários quando a aplicação Angular for implementada.
-
-## Executar a CLI
+A partir do código (Rust estável e Docker; ver [Comandos](docs/comandos.md)):
 
 ```bash
 cargo run -p database-backup-cli -- --help
-cargo run -p database-backup-cli -- backup --help
-```
-
-Comandos: `connection test`, `backup run`, `backup list`, `backup verify`, `restore run` e
-`restore list`. Cada `--help` traz exemplos.
-
-- `--json` (em qualquer comando) imprime o resultado em uma linha JSON no stdout:
-  `{"status":"ok",...}` no sucesso e `{"status":"error","code":N,"error":"..."}` na falha.
-  A mensagem de erro continua indo também para o stderr.
-- Os logs (`tracing`) vão para o stderr, com horário, operação, IDs, status e duração, e nunca
-  incluem senhas ou conteúdo do dump. O padrão é `warn`; use `--log-level info` ou `RUST_LOG`.
-
-Testar a conexão com um PostgreSQL (a senha nunca é passada por argumento):
-
-```bash
-DBU_PG_PASSWORD='...' cargo run -p database-backup-cli -- connection test \
-  --host localhost --port 5432 --database my_database --user postgres
-```
-
-A senha também pode vir de um arquivo com permissão `600` (`--password-file` ou
-`DBU_PG_PASSWORD_FILE`, o indicado para agendadores). Mais de uma fonte definida é erro. Sem nenhuma,
-a CLI pede a senha em um prompt sem eco. Detalhes em [`docs/configuracao.md`](docs/configuracao.md#credenciais). Hosts fora de `localhost`
-exigem TLS com certificado validado (`--tls verify-full`, padrão em `--tls auto`).
-
-Gerar um backup completo (`pg_dump` em formato custom, já comprimido):
-
-```bash
-DBU_PG_PASSWORD='...' cargo run -p database-backup-cli -- backup run \
-  --database my_database --user postgres [--output-dir DIR] [--runner auto|native|docker]
-```
-
-- O dump é gravado em streaming num arquivo `.partial`, conferido com `pg_restore --list` e só
-  então renomeado para `<database>-<AAAAMMDDTHHMMSSZ>.dump`. Arquivo parcial nunca vira backup.
-- Ao lado do dump fica o manifesto versionado `<arquivo>.dump.meta.json` (`0600`), com versão do
-  formato, SGBD, versão do utilitário, SHA-256, tamanho, versões e runner, sem credenciais. Detalhes e
-  limites em [`docs/manifesto.md`](docs/manifesto.md).
-- Cada execução (sucesso, falha ou cancelamento) é registrada no histórico SQLite.
-- Destino padrão: `backups/` na pasta de dados do aplicativo (`~/.local/share/database-backup-utility/backups/` no Linux).
-- `--runner auto` usa o `pg_dump` instalado se for compatível; senão, o Docker.
-
-Gerar um backup de um banco SQLite (Online Backup API, sem servidor, usuário nem senha):
-
-```bash
-cargo run -p database-backup-cli -- backup run --engine sqlite --source ./app.db [--output-dir DIR]
-```
-
-- O arquivo de origem é aberto só para leitura. A cópia é consistente mesmo com a aplicação
-  gravando, inclusive em modo WAL, e passa por `PRAGMA integrity_check` antes de virar
-  `<arquivo>-<AAAAMMDDTHHMMSSZ>.sqlite3`. O artefato fica em modo `DELETE` (sem `-wal`/`-shm`).
-- Recusa links simbólicos, arquivos que não são SQLite, o próprio histórico interno do utilitário e
-  origens dentro do diretório de backups.
-- Em modo WAL, o próprio SQLite cria `-wal`/`-shm` ao lado da origem, como faz com qualquer leitor.
-  Os dados da origem não são alterados.
-
-Gerar um backup de um MySQL (`mysqldump`, SQL puro, um banco por arquivo):
-
-```bash
-DBU_MYSQL_PASSWORD='...' cargo run -p database-backup-cli -- backup run --engine mysql \
-  --database my_database --user backup [--port 3306] [--output-dir DIR] [--runner auto|native|docker]
-```
-
-- A senha vem de `--password-file`, `DBU_MYSQL_PASSWORD_FILE` ou `DBU_MYSQL_PASSWORD` e chega ao
-  `mysqldump` por um arquivo de opções temporário (`0600`), nunca por argumento. A porta padrão é 3306.
-- Usa `--single-transaction`, que dá um snapshot consistente só para tabelas InnoDB. Tabelas de
-  outros motores (MyISAM etc.) geram um aviso no log, porque podem ficar inconsistentes se houver
-  escrita durante o backup; a lista também sai no `--json` e no manifesto
-  (`non_transactional_tables`). Rotinas, triggers, eventos e views entram no dump.
-- Um trigger ou evento com o corpo terminado em `;` (criado por ferramentas que enviam vários
-  comandos de uma vez) gera um dump que o próprio MySQL não restaura. Nesse caso o backup falha
-  (código 8) e diz qual objeto recriar, em vez de entregar um backup inútil.
-- O dump é gravado em `.partial`, conferido (cabeçalho do `mysqldump`, linha final
-  `-- Dump completed` e banco certo) e só então vira `<database>-<AAAAMMDDTHHMMSSZ>.sql`, com o
-  manifesto `.sql.meta.json` ao lado.
-- `--runner auto` usa o `mysqldump` instalado se a versão for igual ou maior que a do servidor
-  (major.minor); senão, a imagem `mysql:<major.minor>` no Docker. MariaDB ainda não é suportado (DB-37).
-
-Gerar um backup de um MongoDB (`mongodump --archive`, um banco por arquivo, sem compressão):
-
-```bash
-DBU_MONGO_PASSWORD='...' cargo run -p database-backup-cli -- backup run --engine mongodb \
-  --database my_database --user backup [--auth-database admin] [--port 27017] [--output-dir DIR] [--runner auto|native|docker]
-```
-
-- A senha vem de `--password-file`, `DBU_MONGO_PASSWORD_FILE` ou `DBU_MONGO_PASSWORD` e chega ao
-  `mongodump` por um arquivo YAML temporário (`0600`) passado com `--config`, nunca por argumento.
-  A porta padrão é 27017 e `--auth-database` (padrão `admin`) é o banco onde o usuário foi criado.
-- Só aceita um standalone ou o primário de um replica set; secundário, árbitro e cluster sharded são
-  recusados (código 2). Servidores abaixo do 4.4 são recusados.
-- **Não é um snapshot de um único instante:** cada coleção é lida separadamente, então escritas
-  durante o backup podem deixar coleções inconsistentes entre si. A CLI avisa em todo backup. Detalhes
-  em [`docs/arquitetura.md`](docs/arquitetura.md#mongodb-topologia-e-consistência).
-- O archive é gravado em `.partial`, lido por inteiro (estrutura, banco certo, ao menos uma coleção)
-  e só então vira `<database>-<AAAAMMDDTHHMMSSZ>.archive`, com o manifesto `.archive.meta.json` ao
-  lado (inclui `mongodump_version` e `topology`). Usuários e roles não entram no backup.
-- `--runner auto` usa o `mongodump` instalado (Database Tools `100.x`) se atender à versão do
-  servidor; senão, a imagem `mongo:<major.minor>` no Docker. Matriz em [`docs/stack.md`](docs/stack.md).
-
-Consultar o histórico e verificar um backup sem restaurar:
-
-```bash
-cargo run -p database-backup-cli -- backup list [--database my_database] [--limit 20]
-cargo run -p database-backup-cli -- backup verify --file <arquivo.dump> [--runner auto|native|docker]
-cargo run -p database-backup-cli -- restore list
-```
-
-- `backup verify` recusa symlinks e arquivos graváveis por outros, confere o manifesto (versão, nome
-  do arquivo, tamanho e SHA-256) ou, sem ele, o histórico, e valida a estrutura com
-  `pg_restore --list` (PostgreSQL), pela leitura do dump SQL (MySQL, sem ferramentas externas), pela
-  leitura do archive (MongoDB, sem ferramentas externas) ou `PRAGMA integrity_check` (SQLite). O SGBD vem do manifesto
-  ou, sem ele, do cabeçalho do arquivo. Com o manifesto funciona sem o histórico SQLite, por exemplo depois de copiar
-  o par para outra máquina. Sai com 10 se o arquivo estiver ausente, alterado ou inválido.
-
-Restaurar um backup:
-
-```bash
-DBU_PG_PASSWORD='...' cargo run -p database-backup-cli -- restore run \
-  --file ~/.local/share/database-backup-utility/backups/my_database-20261020T190509Z.dump \
-  --target-database my_database_copy --user postgres
-```
-
-- Antes de restaurar, confere o manifesto `.meta.json` (ou o histórico), valida o arquivo
-  com `pg_restore --list` e recusa backups vindos de um PostgreSQL mais novo que o destino.
-  Arquivos sem checksum conhecido exigem `--allow-unverified`, que emite um aviso e marca o restore
-  como não verificado no histórico; estrutura e versão continuam sendo conferidas.
-- Recusa como origem links simbólicos, caminhos que não são arquivos regulares e (no Linux/macOS)
-  arquivos ou `.meta.json` graváveis por grupo ou outros usuários.
-- Por padrão só **cria um banco novo**. Se o destino já tem dados, é preciso `--overwrite` e
-  confirmar digitando o nome do banco (ou `--confirm <nome>` em scripts). O restore vai para um
-  banco temporário; só se der certo o atual vira `<destino>__previous_<data>` (mantido) e o novo
-  assume o nome. Se falhar, o destino não é tocado.
-- O `pg_restore` roda em uma única transação: uma falha no meio desfaz tudo.
-
-Restaurar um backup SQLite em um arquivo:
-
-```bash
-cargo run -p database-backup-cli -- restore run --engine sqlite \
-  --file ~/.local/share/database-backup-utility/backups/app-20261022T120000Z.sqlite3 --target ./app_copia.db
-```
-
-- O restore é gravado em `<destino>.partial` (`0600`), conferido com `integrity_check` e pela
-  contagem de tabelas, e só então publicado. Um destino novo nunca substitui um arquivo criado por
-  outro processo no meio do caminho.
-- Arquivo de destino existente exige `--overwrite` e a confirmação do caminho (`--confirm <caminho>`
-  em scripts). O atual é mantido como `<destino>.previous-<data>`. Se existir `-wal`, `-shm` ou
-  `-journal` ao lado do destino, o banco parece em uso e o restore é recusado. Também é recusado
-  (código 11, com o PID) se outro processo estiver com o arquivo aberto ou numa transação. A
-  checagem de arquivo aberto só existe no Linux e só vê processos do mesmo usuário; fora disso,
-  feche a aplicação antes de sobrescrever.
-
-Restaurar um backup MySQL em um banco novo:
-
-```bash
-DBU_MYSQL_PASSWORD='...' cargo run -p database-backup-cli -- restore run --engine mysql \
-  --file ~/.local/share/database-backup-utility/backups/my_database-20261023T120000Z.sql \
-  --target-database my_database_copy --user backup
-```
-
-- Só restaura em um banco que **ainda não existe**: o restore cria o banco, aplica o dump e confere a
-  contagem de tabelas. Um banco existente, mesmo vazio, é recusado (código 2) e `--overwrite` ainda
-  não é suportado no MySQL.
-- O restore do MySQL não é transacional. Se falhar ou for cancelado, o banco criado pelo próprio
-  restore é apagado; nenhum outro banco é tocado.
-- O cliente `mysql` roda com `--binary-mode` (comandos do cliente como `\!`/`system` dentro do
-  arquivo são recusados) e `--local-infile=0`. Dumps que trocam ou criam bancos (`USE`,
-  `CREATE DATABASE`, gerados com `--databases`) são recusados.
-- Antes de carregar qualquer dado, o restore cria e apaga um objeto de teste de cada tipo com cada
-  `DEFINER` do dump. Se o usuário não puder recriá-los (falta `SET_ANY_DEFINER`/`SUPER`, ou o binlog
-  exige `SUPER` para triggers e functions), o restore para com código 2, apaga o banco criado e
-  explica o privilégio que falta.
-
-Restaurar um backup MongoDB em um banco novo:
-
-```bash
-DBU_MONGO_PASSWORD='...' cargo run -p database-backup-cli -- restore run --engine mongodb \
-  --file ~/.local/share/database-backup-utility/backups/my_database-20261024T120000Z.archive \
-  --target-database my_database_copy --user backup
-```
-
-- Só restaura em um banco que **ainda não existe** (um banco com coleções é recusado com código 2) e
-  `--overwrite` não é suportado no MongoDB. Bancos reservados (`admin`, `local`, `config`) são recusados.
-- Archives vindos de um servidor mais novo que o destino são recusados (código 10). O `mongorestore`
-  roda sem `--drop` e só renomeia o banco de origem do archive para o destino.
-- Depois do restore, a contagem de documentos de cada coleção e as views do destino são comparadas com
-  as do archive. Se divergirem, se o restore falhar ou for cancelado, o banco criado pelo próprio
-  restore é apagado (código 11); nenhum outro banco é tocado.
-- Usa `--bypassDocumentValidation`, para restaurar documentos antigos que violam o validador atual. O
-  usuário precisa de `readWrite` + `dbAdmin` (ou `dbOwner`) no destino; ver
-  [`docs/configuracao.md`](docs/configuracao.md#mongodb-usuário-banco-de-autenticação-e-permissões).
-
-| Exit code | Significado |
-| --- | --- |
-| 0 | Sucesso |
-| 1 | Erro não classificado (ex.: histórico ou pasta de destino inacessível) |
-| 2 | Parâmetro inválido ou senha ausente |
-| 3 | Autenticação recusada |
-| 4 | Banco inexistente (ou arquivo SQLite de origem inexistente) |
-| 5 | Servidor inacessível ou tempo esgotado |
-| 6 | Falha de TLS |
-| 7 | `pg_dump`/`pg_restore`/`mysqldump`/`mysql`/`mongodump`/`mongorestore` ausente ou incompatível (e Docker indisponível); não se aplica ao SQLite |
-| 8 | O backup falhou |
-| 9 | Backup ou restore cancelado (Ctrl+C) |
-| 10 | Arquivo de backup ausente, corrompido, sem checksum conhecido ou incompatível |
-| 11 | O restore falhou (o destino não foi alterado) |
-| 12 | Destino com dados sem `--overwrite`, ou confirmação ausente/divergente |
-
-## PostgreSQL para desenvolvimento
-
-```bash
-cp .env.example .env
-# Altere a senha em .env antes de iniciar.
+cp .env.example .env                                # troque a senha antes de subir
 docker compose --env-file .env -f infra/docker/compose.yml up -d postgres
-docker compose --env-file .env -f infra/docker/compose.yml ps
-docker compose --env-file .env -f infra/docker/compose.yml down
 ```
-
-- Por padrão somente o PostgreSQL sobe; MySQL e MongoDB possuem perfis opcionais.
-- **Os testes de integração não usam esse volume:** criam containers PostgreSQL efêmeros.
-- Para iniciar MySQL/MongoDB, consulte `docs/configuracao.md`.
-- Não use `down -v` sem intenção explícita de apagar todos os dados dos volumes locais.
-
-## Verificações
-
-```bash
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace --lib --bins
-docker info
-cargo test --workspace --tests
-cargo build --workspace
-python3 -m unittest discover -s .github/scripts -p 'test_*.py'
-```
-
-A etapa de Testcontainers requer Docker funcional e pode baixar imagens na primeira execução.
-O `Cargo.lock` é versionado; **a release manual exige o lockfile no repositório**.
 
 ## Documentação
 
-| Página | Conteúdo |
+| Página | O que tem |
 | --- | --- |
-| [Comandos](docs/comandos.md) | Resumo para rodar, testar e validar antes do PR |
+| [Uso da CLI](docs/uso.md) | Requisitos por SGBD, backup, verificação, restore e exit codes |
+| [Capacidades](docs/capacidades.md) | O que cada SGBD suporta, formatos, consistência e como adicionar um SGBD |
+| [Comandos](docs/comandos.md) | Rodar, testar e validar antes do PR |
 | [Projeto](PROJECT.md) | Decisões, requisitos e roadmap completo |
 | [Guia dos agentes](AGENTS.md) | Padrões obrigatórios de trabalho em pt-BR |
 | [Stack](docs/stack.md) | Ferramentas escolhidas e estado de implementação |
 | [Arquitetura](docs/arquitetura.md) | Limites entre CLI, core, adaptadores e desktop |
 | [Configuração](docs/configuracao.md) | Variáveis, Docker e credenciais |
-| [Segurança](docs/seguranca.md) | Controles do MVP com evidências, riscos aceitos e diferenças por SO |
+| [Segurança](docs/seguranca.md) | Controles com evidências, riscos aceitos e diferenças por SO |
 | [Manifesto](docs/manifesto.md) | Formato versionado do `.meta.json` e limites do checksum |
 | [Testes](docs/testes.md) | Testes unitários, integração e comandos |
 | [CI e PRs](docs/CI.md) | Pipelines, proteção da main e contribuições |
 | [Processo de releases](docs/RELEASE_PROCESS.md) | Publicação manual com Run workflow |
 | [Releases planejadas](docs/RELEASES.md) | Milestones futuras sem confundir planos e entregas |
-| [Modelo de dados](docs/diagramas/modelo-de-dados.md) | Proposta de SQLite interno |
+| [Modelo de dados](docs/diagramas/modelo-de-dados.md) | Histórico interno em SQLite |
 | [Linear](docs/linear/README.md) | Links para issues e milestones |
 | [Changelog](CHANGELOG.md) | Somente alterações concluídas |
 
@@ -333,10 +141,12 @@ O `Cargo.lock` é versionado; **a release manual exige o lockfile no repositóri
 
 - [Desafio original](https://roadmap.sh/projects/database-backup-utility)
 - [Rust Workspaces](https://doc.rust-lang.org/book/ch14-03-cargo-workspaces.html)
-- [Angular](https://angular.dev/)
-- [Tauri](https://tauri.app/)
-- [Tailwind CSS](https://tailwindcss.com/)
+- [PostgreSQL — pg_dump](https://www.postgresql.org/docs/current/app-pgdump.html)
+- [MySQL — mysqldump](https://dev.mysql.com/doc/refman/8.4/en/mysqldump.html)
+- [MongoDB Database Tools](https://www.mongodb.com/docs/database-tools/)
+- [SQLite — Online Backup API](https://www.sqlite.org/backup.html)
 - [Testcontainers for Rust](https://rust.testcontainers.org/)
+- [Tauri](https://tauri.app/) · [Angular](https://angular.dev/) · [Tailwind CSS](https://tailwindcss.com/)
 - [Keep a Changelog](https://keepachangelog.com/)
 
 ## Licença
