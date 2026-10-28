@@ -96,10 +96,13 @@ curl -LO "https://github.com/aqu1no1/database-backup-utility/releases/download/$
 curl -LO "https://github.com/aqu1no1/database-backup-utility/releases/download/$VERSION/SHA256SUMS.txt"
 sha256sum -c SHA256SUMS.txt                         # precisa mostrar OK
 tar -xzf "database-backup-linux-x86_64-$VERSION.tar.gz"
-install -m 755 dbu ~/.local/bin/                    # ou outro diretório do PATH
+install -m 755 database-backup ~/.local/bin/        # ou outro diretório do PATH
 # o tarball traz LICENSE-MIT, LICENSE-APACHE e (a partir da v0.1.1) THIRD-PARTY-LICENSES.md
-dbu --version
+database-backup --version
 ```
+
+Até a v0.1.1 o binário se chama `database-backup`. A partir da v0.2.0 ele passa a ser `dbu`, e
+o tarball traz `database-backup` como link para ele.
 
 Cada SGBD com servidor precisa das ferramentas oficiais **ou** de Docker:
 
