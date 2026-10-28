@@ -10,9 +10,9 @@ use database_backup_adapters::mongo::{
     Admin, MongoTools, MongoVersion, RunnerChoice, Timeouts, ToolError, ToolPaths, inspect_archive,
     test_connection,
 };
-use database_backup_core::{MongoConnectionConfig, Password, TlsMode};
+use database_backup_core::{DatabaseEngine, MongoConnectionConfig, Password, TlsMode};
 use mongodb::bson::{Document, doc};
-use support::{MongoTestDb, TestResult};
+use support::{MongoTestDb, RoundTrip, TestResult, assert_round_trip};
 use tokio::io::AsyncReadExt;
 
 const EXOTIC_PASSWORD: &str = "Ünï\"\\ #: 'x' %$ç end\\";
@@ -164,8 +164,18 @@ async fn dump_and_restore_preserve_documents_indexes_and_views_on_every_runner()
             .wait()
             .await?;
 
-        assert_eq!(db.snapshot(&target).await?, expected, "{runner}");
-        assert_eq!(admin.contents(&target).await?, info.contents, "{runner}");
+        let restored_contents = admin.contents(&target).await?;
+        assert_round_trip(&RoundTrip {
+            engine: DatabaseEngine::Mongodb,
+            label: runner,
+            source_tables: source_contents.documents.len(),
+            artifact_tables: info.contents.documents.len(),
+            restored_tables: restored_contents.documents.len(),
+            source_before: &expected,
+            restored: &db.snapshot(&target).await?,
+            source_after: &db.snapshot(db.database()).await?,
+        });
+        assert_eq!(restored_contents, info.contents, "{runner}");
 
         let again = tools
             .restore(

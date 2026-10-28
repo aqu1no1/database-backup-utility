@@ -1,5 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod support;
+
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, mpsc};
@@ -10,7 +12,9 @@ use database_backup_adapters::sqlite::{
     DEFAULT_BUSY_LIMIT, SqliteError, check_database_file, check_not_in_use, copy_database,
     inspect_backup,
 };
+use database_backup_core::DatabaseEngine;
 use rusqlite::Connection;
+use support::{RoundTrip, assert_round_trip};
 use tempfile::TempDir;
 
 const BATCH: i64 = 10;
@@ -47,6 +51,29 @@ fn copy(source: &Path, destination: &Path) -> Result<(), SqliteError> {
         &AtomicBool::new(false),
         DEFAULT_BUSY_LIMIT,
     )
+}
+
+fn events(path: &Path) -> Vec<(i64, i64)> {
+    Connection::open(path)
+        .unwrap()
+        .prepare("SELECT batch, seq FROM events ORDER BY batch, seq")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap()
+}
+
+fn table_count(path: &Path) -> usize {
+    let count: i64 = Connection::open(path)
+        .unwrap()
+        .query_row(
+            "SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    usize::try_from(count).unwrap()
 }
 
 fn side_files(dir: &Path) -> Vec<String> {
@@ -136,22 +163,25 @@ fn backup_restored_into_new_file_has_the_same_rows() {
         .unwrap()
         .execute_batch("INSERT INTO events VALUES (1, 1), (1, 2), (2, 1);")
         .unwrap();
+    let source_before = events(&source);
+    assert_eq!(source_before, vec![(1, 1), (1, 2), (2, 1)]);
     let artifact = empty_partial(dir.path(), "backup.sqlite3");
     copy(&source, &artifact).unwrap();
+    let artifact_tables = inspect_backup(&artifact).unwrap().tables;
     let restored = empty_partial(dir.path(), "restored.db.partial");
 
     copy(&artifact, &restored).unwrap();
 
-    assert_eq!(inspect_backup(&restored).unwrap().tables, 2);
-    let rows: Vec<(i64, i64)> = Connection::open(&restored)
-        .unwrap()
-        .prepare("SELECT batch, seq FROM events ORDER BY batch, seq")
-        .unwrap()
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
-        .unwrap()
-        .collect::<Result<_, _>>()
-        .unwrap();
-    assert_eq!(rows, vec![(1, 1), (1, 2), (2, 1)]);
+    assert_round_trip(&RoundTrip {
+        engine: DatabaseEngine::Sqlite,
+        label: "backup-api",
+        source_tables: table_count(&source),
+        artifact_tables,
+        restored_tables: inspect_backup(&restored).unwrap().tables,
+        source_before: &source_before,
+        restored: &events(&restored),
+        source_after: &events(&source),
+    });
     assert_eq!(side_files(dir.path()), Vec::<String>::new());
 }
 

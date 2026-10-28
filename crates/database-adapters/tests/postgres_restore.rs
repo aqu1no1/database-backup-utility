@@ -7,8 +7,8 @@ use std::path::Path;
 use database_backup_adapters::postgres::{
     Admin, DatabaseState, PgTools, PgVersion, RunnerChoice, Timeouts, ToolError, test_connection,
 };
-use database_backup_core::{Password, PostgresConnectionConfig, TlsMode};
-use support::{PostgresTestDb, TestResult};
+use database_backup_core::{DatabaseEngine, Password, PostgresConnectionConfig, TlsMode};
+use support::{PostgresTestDb, RoundTrip, TestResult, assert_round_trip};
 
 fn config_for(db: &PostgresTestDb, database: &str) -> PostgresConnectionConfig {
     PostgresConnectionConfig::new(db.host(), db.port(), database, db.user(), TlsMode::Auto)
@@ -52,6 +52,13 @@ async fn scalar(db: &PostgresTestDb, database: &str, sql: &str) -> TestResult<i6
     Ok(client.query_one(sql, &[]).await?.get(0))
 }
 
+async fn snapshot(db: &PostgresTestDb, database: &str) -> TestResult<(i64, i64)> {
+    Ok((
+        scalar(db, database, "SELECT COUNT(*) FROM customers").await?,
+        scalar(db, database, "SELECT SUM(total_cents)::BIGINT FROM orders").await?,
+    ))
+}
+
 #[tokio::test]
 async fn restores_dump_into_new_database_with_same_data() -> TestResult {
     let db = PostgresTestDb::start_seeded().await?;
@@ -61,6 +68,8 @@ async fn restores_dump_into_new_database_with_same_data() -> TestResult {
         &password(&db),
         Timeouts::default(),
     );
+    let source_before = snapshot(&db, db.database()).await?;
+    assert_eq!(source_before, (3, 18490));
     let dir = tempfile::tempdir()?;
     let archive = dir.path().join("seed.dump");
     dump_seed(&tools, &db, &archive).await?;
@@ -72,23 +81,18 @@ async fn restores_dump_into_new_database_with_same_data() -> TestResult {
         .wait()
         .await?;
 
-    assert_eq!(info.tables, 2);
     assert_eq!(info.database.as_deref(), Some(db.database()));
     assert_eq!(info.dumped_from.map(|v| v.major), Some(17));
-    assert_eq!(
-        scalar(&db, "restaurado", "SELECT COUNT(*) FROM customers").await?,
-        3
-    );
-    assert_eq!(
-        scalar(
-            &db,
-            "restaurado",
-            "SELECT SUM(total_cents)::BIGINT FROM orders"
-        )
-        .await?,
-        18490
-    );
-    assert_eq!(admin.count_tables("restaurado").await?, 2);
+    assert_round_trip(&RoundTrip {
+        engine: DatabaseEngine::Postgres,
+        label: tools.kind().as_str(),
+        source_tables: usize::try_from(admin.count_tables(db.database()).await?)?,
+        artifact_tables: info.tables,
+        restored_tables: usize::try_from(admin.count_tables("restaurado").await?)?,
+        source_before: &source_before,
+        restored: &snapshot(&db, "restaurado").await?,
+        source_after: &snapshot(&db, db.database()).await?,
+    });
     Ok(())
 }
 
