@@ -7,7 +7,7 @@ use database_backup_adapters::mongo::{
     MongoVersion, RestoreProcess, Timeouts, ToolError, Topology, inspect_archive,
     latest_known_server, probe_server, test_connection,
 };
-use database_backup_core::{DatabaseEngine, MongoConnectionConfig, Password};
+use database_backup_core::{DatabaseEngine, MongoConnectionConfig, Operation, Password};
 use database_backup_history::{
     ExecutionStatus, History, HistoryError, NewArtifact, NewConnection, NewRestore, RestoreMode,
 };
@@ -25,7 +25,7 @@ use crate::output::{fail, success};
 use crate::restore::RestoreResult;
 use crate::{
     ConnectionArgs, ConnectionResult, MONGO_PORT, RunnerArg, TlsArg, describe, exit, exit_code_for,
-    read_password,
+    read_password, unsupported,
 };
 
 const ENGINE: DatabaseEngine = DatabaseEngine::Mongodb;
@@ -332,9 +332,10 @@ async fn execute_backup(
 
 pub async fn restore(request: &RestoreRequest<'_>) -> ExitCode {
     if request.overwrite {
-        return fail(
-            exit::INVALID_INPUT,
-            "--overwrite ainda não é suportado no MongoDB; restaure em um banco que não existe (--target-database)",
+        return unsupported(
+            ENGINE,
+            Operation::RestoreOverwrite,
+            "restaure em um banco que não existe (--target-database)",
         );
     }
     let file = match std::path::absolute(request.file) {

@@ -9,8 +9,8 @@ use database_backup_adapters::mysql::{
     Admin, AdminError, DumpError, MysqlTools, MysqlVersion, ObjectKind, RunnerChoice, Timeouts,
     ToolError, ToolPaths, inspect_dump, test_connection,
 };
-use database_backup_core::{MysqlConnectionConfig, Password, TlsMode};
-use support::{MysqlTestDb, TestResult};
+use database_backup_core::{DatabaseEngine, MysqlConnectionConfig, Password, TlsMode};
+use support::{MysqlTestDb, RoundTrip, TestResult, assert_round_trip};
 use tokio::io::AsyncReadExt;
 
 const SNAPSHOT: [&str; 4] = [
@@ -91,6 +91,7 @@ async fn dump_and_restore_preserve_schema_data_and_objects_on_every_runner() -> 
         &password(&db),
         Timeouts::default(),
     );
+    let source_tables = usize::try_from(admin.count_tables(db.database()).await?)?;
     let dir = tempfile::tempdir()?;
 
     for tools in available_runners(server_version(&db).await?).await {
@@ -100,11 +101,7 @@ async fn dump_and_restore_preserve_schema_data_and_objects_on_every_runner() -> 
 
         let info = inspect_dump(&file)?;
         assert_eq!(info.database.as_deref(), Some(db.database()), "{runner}");
-        assert_eq!(
-            (info.tables, info.views, info.triggers),
-            (3, 1, 1),
-            "{runner}"
-        );
+        assert_eq!((info.views, info.triggers), (1, 1), "{runner}");
 
         let target = format!("copia_{runner}");
         admin.create_database(&target).await?;
@@ -113,8 +110,16 @@ async fn dump_and_restore_preserve_schema_data_and_objects_on_every_runner() -> 
             .wait()
             .await?;
 
-        assert_eq!(snapshot(&db, &target).await?, expected, "{runner}");
-        assert_eq!(admin.count_tables(&target).await?, 3, "{runner}");
+        assert_round_trip(&RoundTrip {
+            engine: DatabaseEngine::Mysql,
+            label: runner,
+            source_tables,
+            artifact_tables: info.tables,
+            restored_tables: usize::try_from(admin.count_tables(&target).await?)?,
+            source_before: &expected,
+            restored: &snapshot(&db, &target).await?,
+            source_after: &snapshot(&db, db.database()).await?,
+        });
         db.execute(
             &target,
             "INSERT INTO orders (customer_id, total) VALUES (2, 5.00)",
@@ -125,11 +130,6 @@ async fn dump_and_restore_preserve_schema_data_and_objects_on_every_runner() -> 
             audit,
             vec![vec!["5".to_owned()]],
             "o trigger não foi restaurado ({runner})"
-        );
-        assert_eq!(
-            snapshot(&db, db.database()).await?,
-            expected,
-            "a origem mudou"
         );
     }
     Ok(())

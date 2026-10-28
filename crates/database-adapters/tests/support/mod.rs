@@ -3,9 +3,11 @@
 use std::collections::BTreeMap;
 use std::collections::hash_map::RandomState;
 use std::error::Error;
+use std::fmt::Debug;
 use std::hash::{BuildHasher, Hasher};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use database_backup_core::{DatabaseEngine, Operation, Support};
 use mongodb::Client as MongoClient;
 use mongodb::bson::{Document, doc};
 use mongodb::options::{ClientOptions, Credential, ServerAddress};
@@ -60,6 +62,48 @@ const MONGO_READY: &str = "Waiting for connections";
 const MONGO_REPLICA_SET: &str = "rs0";
 
 pub type TestResult<T = ()> = Result<T, Box<dyn Error + Send + Sync>>;
+
+pub struct RoundTrip<'a, T> {
+    pub engine: DatabaseEngine,
+    pub label: &'a str,
+    pub source_tables: usize,
+    pub artifact_tables: usize,
+    pub restored_tables: usize,
+    pub source_before: &'a T,
+    pub restored: &'a T,
+    pub source_after: &'a T,
+}
+
+pub fn assert_round_trip<T: PartialEq + Debug>(case: &RoundTrip<'_, T>) {
+    let (engine, label) = (case.engine, case.label);
+    for operation in [Operation::FullBackup, Operation::Verify, Operation::Restore] {
+        assert_eq!(
+            engine.capability(operation).support,
+            Support::Supported,
+            "{engine} ({label}) passou pelo contrato, mas a matriz não declara {operation:?}"
+        );
+    }
+    assert!(
+        case.source_tables > 0,
+        "{engine} ({label}): a fixture não tem tabelas"
+    );
+    assert_eq!(
+        case.artifact_tables, case.source_tables,
+        "{engine} ({label}): o artefato lido sem servidor não tem as tabelas da origem"
+    );
+    assert_eq!(
+        case.restored_tables, case.source_tables,
+        "{engine} ({label}): o destino restaurado não tem as tabelas da origem"
+    );
+    assert_eq!(
+        case.restored, case.source_before,
+        "{engine} ({label}): o restore não reproduz os dados da origem"
+    );
+    assert_eq!(
+        case.source_after, case.source_before,
+        "{engine} ({label}): o backup ou o restore alterou a origem"
+    );
+}
 
 pub struct PostgresTestDb {
     client: Client,

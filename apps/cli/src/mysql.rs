@@ -6,7 +6,7 @@ use database_backup_adapters::mysql::{
     Admin, AdminError, ConnectionInfo, DatabaseState, DumpInfo, MysqlTools, MysqlVersion,
     RestoreProcess, Timeouts, ToolError, inspect_dump, test_connection,
 };
-use database_backup_core::{DatabaseEngine, MysqlConnectionConfig, Password};
+use database_backup_core::{DatabaseEngine, MysqlConnectionConfig, Operation, Password};
 use database_backup_history::{
     ExecutionStatus, History, HistoryError, NewArtifact, NewConnection, NewRestore, RestoreMode,
 };
@@ -24,7 +24,7 @@ use crate::output::{fail, success};
 use crate::restore::RestoreResult;
 use crate::{
     ConnectionArgs, ConnectionResult, MYSQL_PORT, RunnerArg, TlsArg, describe, exit, exit_code_for,
-    read_password,
+    read_password, unsupported,
 };
 
 const ENGINE: DatabaseEngine = DatabaseEngine::Mysql;
@@ -328,9 +328,10 @@ async fn execute_backup(
 
 pub async fn restore(request: &RestoreRequest<'_>) -> ExitCode {
     if request.overwrite {
-        return fail(
-            exit::INVALID_INPUT,
-            "--overwrite ainda não é suportado no MySQL; restaure em um banco que não existe (--target-database)",
+        return unsupported(
+            ENGINE,
+            Operation::RestoreOverwrite,
+            "restaure em um banco que não existe (--target-database)",
         );
     }
     let file = match std::path::absolute(request.file) {

@@ -81,8 +81,9 @@ fn invalid_arguments_exit_with_code_2() {
 #[test]
 fn every_subcommand_help_has_examples() {
     let dir = TempDir::new().expect("dir");
-    let commands: [&[&str]; 7] = [
+    let commands: [&[&str]; 8] = [
         &[],
+        &["engines"],
         &["connection", "test"],
         &["backup", "run"],
         &["backup", "list"],
@@ -161,6 +162,93 @@ fn verify_without_known_checksum_is_rejected() {
 
     assert_eq!(output.status.code(), Some(10));
     assert!(stderr(&output).contains("--allow-unverified"));
+}
+
+#[test]
+fn engines_lists_every_engine_without_claiming_unimplemented_operations() {
+    let dir = TempDir::new().expect("dir");
+
+    let output = cli(&dir, &["--json", "engines"]);
+
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let report = json(&output);
+    let engines = report["engines"].as_array().expect("lista de engines");
+    let names: Vec<&str> = engines
+        .iter()
+        .map(|engine| engine["engine"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["postgres", "mysql", "mongodb", "sqlite"]);
+    for engine in engines {
+        let support = |operation: &str| {
+            engine["capabilities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|capability| capability["operation"] == operation)
+                .map(|capability| capability["support"].as_str().unwrap().to_owned())
+        };
+        assert_eq!(support("full_backup").as_deref(), Some("supported"));
+        assert_eq!(support("restore").as_deref(), Some("supported"));
+        assert_eq!(
+            support("point_in_time_recovery").as_deref(),
+            Some("unsupported")
+        );
+        assert_eq!(support("encryption").as_deref(), Some("planned"));
+    }
+
+    let text = cli(&dir, &["engines"]);
+    assert_eq!(text.status.code(), Some(0));
+    assert!(
+        stdout(&text).contains("SQLite (sqlite)"),
+        "{}",
+        stdout(&text)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn operations_outside_the_matrix_fail_with_code_2_and_the_reason() {
+    let dir = TempDir::new().expect("dir");
+    let dump = dir.path().join("app.sql");
+    private_file(&dump, b"-- MySQL dump 10.13\n");
+
+    let sqlite = cli(
+        &dir,
+        &[
+            "connection",
+            "test",
+            "--engine",
+            "sqlite",
+            "--database",
+            "app",
+            "--user",
+            "u",
+        ],
+    );
+    let runner = cli(
+        &dir,
+        &[
+            "backup",
+            "verify",
+            "--runner",
+            "docker",
+            "--file",
+            dump.to_str().unwrap(),
+        ],
+    );
+
+    assert_eq!(sqlite.status.code(), Some(2));
+    assert!(
+        stderr(&sqlite).contains("teste de conexão não está disponível para SQLite"),
+        "{}",
+        stderr(&sqlite)
+    );
+    assert_eq!(runner.status.code(), Some(2));
+    assert!(
+        stderr(&runner).contains("--runner só vale no verify de backups PostgreSQL"),
+        "{}",
+        stderr(&runner)
+    );
 }
 
 #[cfg(unix)]

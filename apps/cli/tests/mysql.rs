@@ -306,7 +306,11 @@ async fn existing_database_and_overwrite_are_refused_without_changes() -> TestRe
     assert!(text(&existing).contains("já existe"), "{}", text(&existing));
     assert_code(&empty, 2);
     assert_code(&overwrite, 2);
-    assert!(text(&overwrite).contains("--overwrite ainda não é suportado"));
+    assert!(
+        text(&overwrite).contains("restore sobrescrevendo destino existente não está disponível"),
+        "{}",
+        text(&overwrite)
+    );
     assert_eq!(snapshot(&db, db.database()).await?, before);
     assert_eq!(
         db.rows(

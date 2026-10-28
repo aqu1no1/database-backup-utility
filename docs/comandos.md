@@ -14,6 +14,7 @@ docker info                                                      # Docker Engine
 
 ```bash
 cargo run -p database-backup-cli -- --help
+cargo run -p database-backup-cli -- engines
 DBU_PG_PASSWORD='...' cargo run -p database-backup-cli -- connection test --database my_database --user postgres
 DBU_PG_PASSWORD='...' cargo run -p database-backup-cli -- backup run --database my_database --user postgres
 cargo run -p database-backup-cli -- backup list --json
@@ -41,7 +42,11 @@ indica o banco onde o usuário foi criado; o restore só cria bancos novos (`--o
 só são aceitos um standalone ou o primário de um replica set; e o backup é de um banco, sem
 snapshot de um único instante (a CLI avisa). Permissões necessárias em
 [`configuracao.md`](configuracao.md#mongodb-usuário-banco-de-autenticação-e-permissões).
-`backup verify` descobre o SGBD pelo manifesto ou pelo cabeçalho do arquivo, sem `--engine`.
+`backup verify` descobre o SGBD pelo manifesto ou pelo cabeçalho do arquivo, sem `--engine`. Seu
+`--runner` só vale para backups PostgreSQL; nos outros SGBDs ele é recusado (código 2).
+
+`engines` mostra o que cada SGBD suporta (sim, planejado ou não, com o motivo). Operações fora da
+matriz falham com código 2 e o mesmo texto. A matriz completa está em [`capacidades.md`](capacidades.md).
 
 Arquivos `.partial` que sobram no diretório de backups vêm de um backup interrompido à força
 (`kill -9`, queda de energia). Ctrl+C, timeout e erros os removem na hora. Cada backup em andamento

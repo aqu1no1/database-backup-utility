@@ -16,6 +16,8 @@ pub enum DatabaseEngine {
 pub struct UnknownEngine(pub String);
 
 impl DatabaseEngine {
+    pub const ALL: [Self; 4] = [Self::Postgres, Self::Mysql, Self::Mongodb, Self::Sqlite];
+
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
