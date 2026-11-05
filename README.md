@@ -72,9 +72,9 @@ Erro: o arquivo ~/demo/app.db já existe; use --overwrite para substituí-lo (o 
 
 | Comando | O que faz |
 | --- | --- |
-| `dbu backup -d app -u backup` | Gera um backup completo com checksum e manifesto (`-e mysql`, `-e mongodb`, `-e sqlite --source ./app.db`) |
+| `dbu backup -d app -u backup` | Gera um backup completo com checksum e manifesto (`-e mysql`, `-e mongodb`; SQLite: `dbu backup ./app.db`) |
 | `dbu verify <ARQUIVO>` | Confere checksum e estrutura de um backup, sem restaurar |
-| `dbu restore <ARQUIVO> --to <DESTINO>` | Restaura um backup conferido em um destino novo (ou com `--overwrite`, onde suportado) |
+| `dbu restore <ARQUIVO> --to <DESTINO>` | Restaura um backup conferido em um destino novo (ou com `--overwrite`, onde suportado); o SGBD vem do arquivo |
 | `dbu list` / `dbu list restores` | Lista os backups ou as restaurações do histórico |
 | `dbu test -d app -u backup` | Valida os parâmetros e testa a conexão (PostgreSQL, MySQL, MongoDB) |
 | `dbu connection add prod -d app -u backup` | Salva um perfil de conexão sem a senha; depois, `dbu backup prod` (`list`, `remove`) |

@@ -26,15 +26,15 @@ DBU_PG_PASSWORD='...' cargo run -p database-backup-cli -- restore run --file <ar
 cargo run -p database-backup-cli -- restore list
 cargo run -p database-backup-cli -- backup run --engine sqlite --source ./app.db
 cargo run -p database-backup-cli -- backup verify --file <arquivo.sqlite3>
-cargo run -p database-backup-cli -- restore run --engine sqlite --file <arquivo.sqlite3> --target ./app_copia.db
+cargo run -p database-backup-cli -- restore run --file <arquivo.sqlite3> --target ./app_copia.db
 DBU_MYSQL_PASSWORD='...' cargo run -p database-backup-cli -- connection test --engine mysql --database my_database --user backup
 DBU_MYSQL_PASSWORD='...' cargo run -p database-backup-cli -- backup run --engine mysql --database my_database --user backup
 cargo run -p database-backup-cli -- backup verify --file <arquivo.sql>
-DBU_MYSQL_PASSWORD='...' cargo run -p database-backup-cli -- restore run --engine mysql --file <arquivo.sql> --target-database my_database_copy --user backup
+DBU_MYSQL_PASSWORD='...' cargo run -p database-backup-cli -- restore run --file <arquivo.sql> --target-database my_database_copy --user backup
 DBU_MONGO_PASSWORD='...' cargo run -p database-backup-cli -- connection test --engine mongodb --database my_database --user backup --auth-database admin
 DBU_MONGO_PASSWORD='...' cargo run -p database-backup-cli -- backup run --engine mongodb --database my_database --user backup
 cargo run -p database-backup-cli -- backup verify --file <arquivo.archive>
-DBU_MONGO_PASSWORD='...' cargo run -p database-backup-cli -- restore run --engine mongodb --file <arquivo.archive> --target-database my_database_copy --user backup
+DBU_MONGO_PASSWORD='...' cargo run -p database-backup-cli -- restore run --file <arquivo.archive> --target-database my_database_copy --user backup
 cargo run -p database-backup-cli -- connection add dev --database my_database --user postgres --password-file ~/.config/dbu/pg.pass
 cargo run -p database-backup-cli -- connection list --json
 cargo run -p database-backup-cli -- backup run --profile dev
@@ -47,6 +47,9 @@ Perfis (`connection add/list/remove`) guardam a conexão sem a senha, só o cami
 
 `--engine` vale `postgres` (padrão), `mysql`, `mongodb` ou `sqlite`. Com `sqlite` não há servidor nem senha: `--source`
 (backup) e `--target` (restore) indicam os arquivos, e as opções de conexão do PostgreSQL são recusadas.
+No `restore`, o SGBD vem do manifesto ou do cabeçalho do arquivo, e `--engine` é opcional: um `--engine`
+(ou perfil) de outro SGBD é recusado com código 10, antes de qualquer conexão. No `backup`, um caminho
+de arquivo como argumento (`dbu backup ./app.db`) é um backup SQLite; um nome é um perfil.
 Com `mysql`, a porta padrão é 3306 e o restore só cria bancos novos (`--overwrite` é recusado).
 Com `mongodb`, a porta padrão é 27017; `--auth-database` (padrão `admin`; só vale com este SGBD)
 indica o banco onde o usuário foi criado; o restore só cria bancos novos (`--overwrite` é recusado);

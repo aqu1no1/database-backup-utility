@@ -138,8 +138,10 @@ dbu connection remove prod                        # pede o nome de novo; -y conf
   usuário, TLS e arquivo de senha continuam vindo do perfil. A configuração final é validada de novo.
 - Perfil inexistente sai com código 2.
 - No `restore`, o perfil dá só o servidor de destino: `--to` continua obrigatório, para o restore
-  nunca cair no banco de origem do perfil.
-- Perfis não valem para SQLite, que não tem servidor (use `--source`).
+  nunca cair no banco de origem do perfil. Um perfil de outro SGBD que não o do arquivo é recusado
+  (código 10).
+- Perfis não valem para SQLite, que não tem servidor (use `dbu backup ./app.db` ou `--source`). Um nome
+  que é ao mesmo tempo arquivo na pasta atual e perfil sai com código 2.
 - `connection remove` apaga só o perfil. Backups, histórico e o arquivo de senha ficam onde estão.
   Sem terminal e sem `-y`, sai com código 12.
 
