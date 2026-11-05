@@ -1,7 +1,7 @@
 # Modelo do histórico interno
 
-Schema aplicado pelas migrations `crates/history/migrations/0001_initial.sql`, `0002_restores.sql` e
-`0003_restore_checksum_verified.sql`. Datas em UTC no formato RFC 3339 e IDs UUID v7.
+Schema aplicado pelas migrations `crates/history/migrations/0001_initial.sql`, `0002_restores.sql`,
+`0003_restore_checksum_verified.sql`, `0004_restore_targets.sql` e `0005_profiles.sql`. Datas em UTC no formato RFC 3339 e IDs UUID v7.
 
 ```mermaid
 erDiagram
@@ -64,6 +64,17 @@ erDiagram
         integer duration_ms
         text error_message
     }
+    PROFILES {
+        text name PK
+        text engine
+        text host
+        integer port
+        text database_name
+        text username
+        text tls
+        text auth_database
+        text password_file
+    }
 ```
 
 | Tabela | Guarda |
@@ -75,6 +86,8 @@ erDiagram
 | `restore_executions` | Cada restore: arquivo de origem (e o artefato, quando conhecido), se o checksum foi conferido com uma referência (`checksum_verified = 0` quando veio de `--allow-unverified`), destino sem senha, modo `create`/`overwrite`, banco anterior mantido, status, duração e erro saneado. |
 
 - Tabelas `STRICT`, chaves estrangeiras ativas e `ON DELETE CASCADE`.
-- Nenhuma coluna guarda senha ou token; um teste verifica isso.
+| `profiles` | Perfis de conexão do `dbu connection add`, sem relação com as outras tabelas. `password_file` é só o caminho do arquivo de senha; `auth_database` só existe no MongoDB. |
+
+- Nenhuma coluna guarda senha ou token; um teste verifica isso (`profiles.password_file` é um caminho, a única exceção ao nome).
 - `schedules` entra quando o agendamento for implementado.
 - Para identificar um artefato sem o histórico, o backup (DB-10) vai gravar um arquivo de metadados ao lado do dump.

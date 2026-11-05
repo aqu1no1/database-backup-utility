@@ -16,6 +16,12 @@ Os exemplos usam `cargo run -p database-backup-cli --`. Com o binário da releas
 | `dbu restore <ARQUIVO> --to <DESTINO>` | `dbu restore run --file <ARQUIVO> --target-database <DESTINO>` (ou `--target`, no SQLite) |
 | `dbu list` / `dbu list restores` | `dbu backup list` / `dbu restore list` |
 | `dbu test …` | `dbu connection test …` |
+| `dbu backup <PERFIL>` / `dbu test <PERFIL>` | `dbu backup run --profile <PERFIL>` / `dbu connection test --profile <PERFIL>` |
+
+Perfis de conexão (`dbu connection add`, `list` e `remove`) guardam host, porta, banco, usuário, TLS
+e SGBD, sem a senha. `backup` e `test` aceitam o perfil como argumento ou com `--profile`; `restore`,
+só com `--profile` e sempre com `--to`. Flags explícitas têm prioridade. Detalhes em
+[`configuracao.md`](configuracao.md#perfis-de-conexão).
 
 Flags curtas: `-e/--engine`, `-H/--host`, `-p/--port`, `-d/--database`, `-u/--user`, `-f/--file`,
 `-o/--output-dir`. Os comandos e flags longos continuam valendo, e `database-backup` (o nome
@@ -150,7 +156,7 @@ cargo run -p database-backup-cli -- --help
 cargo run -p database-backup-cli -- backup --help
 ```
 
-Comandos: `connection test`, `backup run`, `backup list`, `backup verify`, `restore run`,
+Comandos: `connection test`, `connection add`, `connection list`, `connection remove`, `backup run`, `backup list`, `backup verify`, `restore run`,
 `restore list` e `engines` (matriz de capacidades). Cada `--help` traz exemplos.
 
 - `--json` (em qualquer comando) imprime o resultado em uma linha JSON no stdout:
