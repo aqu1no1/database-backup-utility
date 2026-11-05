@@ -15,7 +15,7 @@ use time::OffsetDateTime;
 use time::macros::format_description;
 use tracing::{info, warn};
 
-use crate::archive::{check_target, read_archive, verify_checksum};
+use crate::archive::{check_target, detect_engine, read_archive, verify_checksum};
 use crate::output::{fail, success};
 use crate::{
     AUTH_DATABASE_ONLY_MONGODB, EngineArg, RunnerArg, TlsArg, describe, exit, exit_code_for,
@@ -26,7 +26,12 @@ const MAINTENANCE_DATABASE: &str = "postgres";
 
 #[derive(Debug, Args)]
 pub struct RestoreArgs {
-    #[arg(short, long, value_enum, help = "SGBD do backup")]
+    #[arg(
+        short,
+        long,
+        value_enum,
+        help = "SGBD do backup (padrão: detectado pelo arquivo; divergente é recusado)"
+    )]
     engine: Option<EngineArg>,
     #[arg(
         long,
@@ -52,14 +57,14 @@ pub struct RestoreArgs {
         long,
         value_name = "DESTINO",
         conflicts_with_all = ["target", "target_database"],
-        help = "Banco de destino (ou arquivo de destino, com --engine sqlite)"
+        help = "Banco de destino (ou arquivo de destino, num backup SQLite)"
     )]
     to: Option<String>,
     #[arg(
         long,
         value_name = "ARQUIVO",
         conflicts_with_all = ["target_database", "host", "port", "user", "tls", "auth_database", "runner", "password_file"],
-        help = "Arquivo SQLite de destino (com --engine sqlite; o mesmo que --to)"
+        help = "Arquivo SQLite de destino (num backup SQLite; o mesmo que --to)"
     )]
     target: Option<PathBuf>,
     #[arg(long, help = "Banco de destino (o mesmo que --to)")]
@@ -154,18 +159,27 @@ pub async fn run(mut args: RestoreArgs) -> ExitCode {
         Ok(profile) => profile,
         Err(code) => return code,
     };
-    let profile_engine = match profile
-        .as_ref()
-        .map(crate::profiles::profile_engine)
-        .transpose()
-    {
+    let engine = match detect_source_engine(args.file(), args.engine).await {
         Ok(engine) => engine,
         Err(code) => return code,
     };
-    let engine = args
-        .engine
-        .or(profile_engine)
-        .unwrap_or(EngineArg::Postgres);
+    if let Some(profile) = profile.as_ref() {
+        match crate::profiles::profile_engine(profile) {
+            Ok(profile_engine) if profile_engine == engine => {}
+            Ok(_) => {
+                return fail(
+                    exit::INVALID_ARCHIVE,
+                    &format!(
+                        "o perfil {} é de {}, mas o arquivo é um backup de {}; nada foi restaurado",
+                        profile.name,
+                        profile.engine,
+                        engine_name(engine)
+                    ),
+                );
+            }
+            Err(code) => return code,
+        }
+    }
     if let Some(to) = args.to.take() {
         if engine == EngineArg::Sqlite {
             args.target = Some(PathBuf::from(to));
@@ -217,11 +231,11 @@ pub async fn run(mut args: RestoreArgs) -> ExitCode {
         }
         (EngineArg::Sqlite, None) => fail(
             exit::INVALID_INPUT,
-            "--to (ou --target) é obrigatório com --engine sqlite",
+            "--to (ou --target) é obrigatório no restore de um backup SQLite",
         ),
         (EngineArg::Postgres | EngineArg::Mysql | EngineArg::Mongodb, Some(_)) => fail(
             exit::INVALID_INPUT,
-            "--target só vale com --engine sqlite; para PostgreSQL, MySQL e MongoDB use --target-database",
+            "--target só vale para backups SQLite; para PostgreSQL, MySQL e MongoDB use --to ou --target-database",
         ),
         (EngineArg::Mongodb, None) => match (&args.target_database, &args.user) {
             (Some(target_database), Some(user)) => {
@@ -243,7 +257,7 @@ pub async fn run(mut args: RestoreArgs) -> ExitCode {
             }
             _ => fail(
                 exit::INVALID_INPUT,
-                "--to (ou --target-database) e --user são obrigatórios com --engine mongodb",
+                "--to (ou --target-database) e --user são obrigatórios no restore de MongoDB",
             ),
         },
         (EngineArg::Mysql, None) => match (&args.target_database, &args.user) {
@@ -265,16 +279,51 @@ pub async fn run(mut args: RestoreArgs) -> ExitCode {
             }
             _ => fail(
                 exit::INVALID_INPUT,
-                "--to (ou --target-database) e --user são obrigatórios com --engine mysql",
+                "--to (ou --target-database) e --user são obrigatórios no restore de MySQL",
             ),
         },
         (EngineArg::Postgres, None) => match (&args.target_database, &args.user) {
             (Some(target_database), Some(user)) => run_postgres(&args, target_database, user).await,
             _ => fail(
                 exit::INVALID_INPUT,
-                "--to (ou --target-database) e --user são obrigatórios com --engine postgres",
+                "--to (ou --target-database) e --user são obrigatórios no restore de PostgreSQL",
             ),
         },
+    }
+}
+
+async fn detect_source_engine(
+    file: &Path,
+    requested: Option<EngineArg>,
+) -> Result<EngineArg, ExitCode> {
+    let file = std::path::absolute(file)
+        .map_err(|error| fail(exit::INVALID_ARCHIVE, &error.to_string()))?;
+    check_restore_source(&file)
+        .await
+        .map_err(|error| fail(exit::INVALID_ARCHIVE, &describe(&error)))?;
+    let detected = detect_engine(&file)
+        .await
+        .map(EngineArg::from)
+        .map_err(|message| fail(exit::INVALID_ARCHIVE, &message))?;
+    match requested {
+        Some(requested) if requested != detected => Err(fail(
+            exit::INVALID_ARCHIVE,
+            &format!(
+                "o arquivo é um backup de {}, não de {}; nada foi restaurado",
+                engine_name(detected),
+                engine_name(requested)
+            ),
+        )),
+        _ => Ok(detected),
+    }
+}
+
+fn engine_name(engine: EngineArg) -> &'static str {
+    match engine {
+        EngineArg::Postgres => DatabaseEngine::Postgres.display_name(),
+        EngineArg::Mysql => DatabaseEngine::Mysql.display_name(),
+        EngineArg::Mongodb => DatabaseEngine::Mongodb.display_name(),
+        EngineArg::Sqlite => DatabaseEngine::Sqlite.display_name(),
     }
 }
 

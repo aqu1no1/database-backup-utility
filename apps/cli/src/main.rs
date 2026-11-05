@@ -44,10 +44,10 @@ macro_rules! password_note {
     after_help = "Exemplos:
   dbu backup -d app -u postgres
   dbu backup -e mysql -d app -u backup
-  dbu backup -e sqlite --source ./app.db
+  dbu backup ./app.db
   dbu verify app-20261021T120000Z.dump
   dbu restore app-20261021T120000Z.dump --to app_copia -u postgres
-  dbu restore -e sqlite app-20261021T120000Z.sqlite3 --to ./app_copia.db
+  dbu restore app-20261021T120000Z.sqlite3 --to ./app_copia.db
   dbu list
   dbu list restores
   dbu test -e mysql -d app -u backup
@@ -134,7 +134,7 @@ const BACKUP_HELP: &str = concat!(
     "  dbu backup -d app -u postgres -o /srv/backups --runner docker\n",
     "  dbu backup -e mysql -d app -u backup\n",
     "  dbu backup -e mongodb -d app -u backup --auth-database admin\n",
-    "  dbu backup -e sqlite --source ./app.db\n",
+    "  dbu backup ./app.db\n",
     "  dbu backup list\n\n",
     "Com --engine sqlite não há servidor, usuário nem senha: o arquivo de origem é aberto só para leitura.\n",
     "No MongoDB o backup é de um banco, sem snapshot de um único instante: escritas durante o backup podem deixar\n",
@@ -153,13 +153,14 @@ const RESTORE_HELP: &str = concat!(
     "Por padrão só cria um banco novo. Sobrescrever um banco com dados exige --overwrite e confirmação;\n",
     "o anterior é mantido como <destino>__previous_<data> (PostgreSQL) ou <arquivo>.previous-<data> (SQLite).\n",
     "No MySQL e no MongoDB só é possível restaurar em um banco que ainda não existe (--overwrite não é suportado).\n",
-    "--to é o banco de destino (ou o arquivo de destino, com --engine sqlite).\n\n",
+    "O SGBD vem do manifesto ou do cabeçalho do arquivo; um --engine (ou perfil) de outro SGBD é recusado (código 10).\n",
+    "--to é o banco de destino (ou o arquivo de destino, num backup SQLite).\n\n",
     "Exemplos:\n",
     "  dbu restore app-20261021T120000Z.dump --to app_copia -u postgres\n",
     "  dbu restore app-20261021T120000Z.dump --to app -u postgres --overwrite --confirm app\n",
-    "  dbu restore -e mysql app-20261021T120000Z.sql --to app_copia -u backup\n",
-    "  dbu restore -e mongodb app-20261021T120000Z.archive --to app_copia -u backup\n",
-    "  dbu restore -e sqlite app-20261021T120000Z.sqlite3 --to ./app_copia.db\n",
+    "  dbu restore app-20261021T120000Z.sql --to app_copia -u backup\n",
+    "  dbu restore app-20261021T120000Z.archive --to app_copia -u backup\n",
+    "  dbu restore app-20261021T120000Z.sqlite3 --to ./app_copia.db\n",
     "  dbu restore list\n\n",
     password_note!()
 );
@@ -326,6 +327,17 @@ enum EngineArg {
     Mysql,
     Mongodb,
     Sqlite,
+}
+
+impl From<DatabaseEngine> for EngineArg {
+    fn from(engine: DatabaseEngine) -> Self {
+        match engine {
+            DatabaseEngine::Postgres => Self::Postgres,
+            DatabaseEngine::Mysql => Self::Mysql,
+            DatabaseEngine::Mongodb => Self::Mongodb,
+            DatabaseEngine::Sqlite => Self::Sqlite,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
