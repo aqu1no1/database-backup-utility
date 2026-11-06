@@ -1,13 +1,9 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-
-mod support;
-
 use std::net::TcpListener;
 use std::time::Duration;
 
+use crate::support::{MysqlTestDb, TestResult};
 use database_backup_adapters::mysql::{ConnectionError, Timeouts, test_connection};
 use database_backup_core::{MysqlConnectionConfig, Password, TlsMode};
-use support::{MysqlTestDb, TestResult};
 
 fn config_for(db: &MysqlTestDb, database: &str, tls: TlsMode) -> MysqlConnectionConfig {
     MysqlConnectionConfig::new(db.host(), db.port(), database, db.user(), tls)

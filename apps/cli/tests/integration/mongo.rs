@@ -1,14 +1,9 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-
-#[path = "../../../crates/database-adapters/tests/support/mod.rs"]
-mod support;
-
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
+use crate::support::{MongoTestDb, TestResult};
 use database_backup_adapters::mongo::{MongoTools, MongoVersion, RunnerChoice};
 use mongodb::bson::doc;
-use support::{MongoTestDb, TestResult};
 use tempfile::TempDir;
 
 const INT32_ID_2: [u8; 9] = [0x10, b'_', b'i', b'd', 0x00, 0x02, 0x00, 0x00, 0x00];

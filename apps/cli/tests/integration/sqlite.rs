@@ -1,5 +1,3 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 

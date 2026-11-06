@@ -1,13 +1,9 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-
-mod support;
-
 use std::net::TcpListener;
 use std::time::Duration;
 
+use crate::support::{PostgresTestDb, TestResult};
 use database_backup_adapters::postgres::{ConnectionError, Timeouts, test_connection};
 use database_backup_core::{Password, PostgresConnectionConfig, TlsMode};
-use support::{PostgresTestDb, TestResult};
 
 fn config_for(db: &PostgresTestDb, database: &str, user: &str) -> PostgresConnectionConfig {
     PostgresConnectionConfig::new(db.host(), db.port(), database, user, TlsMode::Auto)

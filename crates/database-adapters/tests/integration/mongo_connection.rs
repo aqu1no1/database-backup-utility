@@ -1,15 +1,11 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-
-mod support;
-
 use std::net::TcpListener;
 use std::time::Duration;
 
+use crate::support::{MongoTestDb, TestResult};
 use database_backup_adapters::mongo::{
     ConnectionError, MongoVersion, Timeouts, Topology, probe_server, test_connection,
 };
 use database_backup_core::{MongoConnectionConfig, Password, TlsMode};
-use support::{MongoTestDb, TestResult};
 
 fn config_for(
     db: &MongoTestDb,

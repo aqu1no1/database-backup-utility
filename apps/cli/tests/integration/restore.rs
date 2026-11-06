@@ -1,13 +1,7 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-
-mod common;
-#[path = "../../../crates/database-adapters/tests/support/mod.rs"]
-mod support;
-
 use std::path::{Path, PathBuf};
 
-use common::{Workspace, text};
-use support::{PostgresTestDb, TestResult};
+use crate::common::{Workspace, text};
+use crate::support::{PostgresTestDb, TestResult};
 
 async fn connect(db: &PostgresTestDb, database: &str) -> TestResult<tokio_postgres::Client> {
     let (client, connection) = tokio_postgres::Config::new()

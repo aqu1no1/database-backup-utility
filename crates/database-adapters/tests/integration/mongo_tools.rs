@@ -1,18 +1,14 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-
-mod support;
-
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
+use crate::support::{MongoTestDb, RoundTrip, TestResult, assert_round_trip};
 use database_backup_adapters::mongo::{
     Admin, MongoTools, MongoVersion, RunnerChoice, Timeouts, ToolError, ToolPaths, inspect_archive,
     test_connection,
 };
 use database_backup_core::{DatabaseEngine, MongoConnectionConfig, Password, TlsMode};
 use mongodb::bson::{Document, doc};
-use support::{MongoTestDb, RoundTrip, TestResult, assert_round_trip};
 use tokio::io::AsyncReadExt;
 
 const EXOTIC_PASSWORD: &str = "Ünï\"\\ #: 'x' %$ç end\\";
