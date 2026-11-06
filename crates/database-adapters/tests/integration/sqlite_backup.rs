@@ -1,20 +1,16 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-
-mod support;
-
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::Duration;
 
+use crate::support::{RoundTrip, assert_round_trip};
 use database_backup_adapters::sqlite::{
     DEFAULT_BUSY_LIMIT, SqliteError, check_database_file, check_not_in_use, copy_database,
     inspect_backup,
 };
 use database_backup_core::DatabaseEngine;
 use rusqlite::Connection;
-use support::{RoundTrip, assert_round_trip};
 use tempfile::TempDir;
 
 const BATCH: i64 = 10;

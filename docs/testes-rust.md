@@ -42,24 +42,33 @@ crates/core/src/*.rs                 # unitários em #[cfg(test)] mod tests (con
 crates/storage/src/lib.rs            # unitários: .partial, permissões, manifesto, checksum
 crates/history/src/lib.rs            # unitários com SQLite em diretório temporário (migrations, consultas)
 crates/database-adapters/src/        # unitários de parsing e escape (versões, .pgpass, dbname)
-crates/database-adapters/tests/      # integração com PostgreSQL real (Testcontainers)
+crates/database-adapters/tests/      # integração com bancos reais (Testcontainers)
   support/mod.rs                     # PostgresTestDb, MysqlTestDb, MongoTestDb, fixtures e o contrato assert_round_trip
-  mysql_connection.rs, mysql_tools.rs # MySQL real (Testcontainers mysql:8.4)
-  mongo_connection.rs, mongo_tools.rs # MongoDB real (Testcontainers mongo:7.0, standalone e replica set)
-  sqlite_backup.rs                   # Backup API do SQLite com arquivos temporários (sem Docker)
+  integration/main.rs                # binário único de integração: declara os módulos abaixo
+  integration/postgres_*.rs          # PostgreSQL real
+  integration/mysql_*.rs             # MySQL real (Testcontainers mysql:8.4)
+  integration/mongo_*.rs             # MongoDB real (Testcontainers mongo:7.0, standalone e replica set)
+  integration/sqlite_backup.rs       # Backup API do SQLite com arquivos temporários (sem Docker)
 apps/cli/tests/                      # contrato da CLI executando o binário real
-  cli.rs                             # sem Docker: argumentos, ajuda, JSON, fontes de senha
-  backup.rs, restore.rs, test_connection.rs
-  sqlite.rs                          # backup/verify/restore SQLite pela CLI (sem Docker)
-  mysql.rs                           # backup/verify/restore MySQL pela CLI (Testcontainers)
-  mongo.rs                           # backup/verify/restore MongoDB pela CLI (Testcontainers)
-  e2e.rs                             # ciclos completos com dois servidores e os dois runners
+  integration/main.rs                # binário único de integração: declara os módulos abaixo
+  integration/cli.rs                 # sem Docker: argumentos, ajuda, JSON, fontes de senha
+  integration/backup.rs, restore.rs, test_connection.rs
+  integration/sqlite.rs              # backup/verify/restore SQLite pela CLI (sem Docker)
+  integration/mysql.rs               # backup/verify/restore MySQL pela CLI (Testcontainers)
+  integration/mongo.rs               # backup/verify/restore MongoDB pela CLI (Testcontainers)
+  e2e.rs                             # binário próprio: ciclos completos, confere containers do runner que sobraram
   common/mod.rs                      # Workspace (DBU_DATA_DIR, TMPDIR e saída isolados)
 tests/fixtures/postgres/, mysql/, mongodb/ # dados de teste compartilhados, sem dados reais
 ```
 
 - **Unitários** ficam ao lado do código, em `#[cfg(test)] mod tests`, com `#[test]` e asserts nativos.
-- **Integração** fica em `tests/` da crate responsável e usa a API pública com dependências reais.
+- **Integração** fica em `tests/integration/` da crate responsável e usa a API pública com dependências reais.
+  Um arquivo novo vira um módulo em `tests/integration/main.rs`, não um `tests/<nome>.rs`: cada
+  arquivo solto em `tests/` é um binário a mais, ligado de novo com todas as dependências (cerca de
+  200 MB cada). Só o `e2e.rs` fica separado, porque confere o estado global do Docker e precisa rodar
+  sem outros testes em paralelo.
+- `.cargo/config.toml` limita os testes a 8 threads (`RUST_TEST_THREADS`), para o binário único não
+  subir mais containers ao mesmo tempo. `RUST_TEST_THREADS` no ambiente tem prioridade.
 - **CLI/E2E** executa o binário e confere exit code, stdout/stderr e efeitos (arquivos, banco, histórico).
 - Testes entre crates só para fronteiras relevantes. Não reestruture pastas só para seguir este guia.
 - **Sem doctests.** O `AGENTS.md` proíbe comentários no código, inclusive `///`, então exemplos de
@@ -205,7 +214,8 @@ Execução direcionada:
 
 ```bash
 cargo test -p database-backup-storage                        # uma crate
-cargo test -p database-backup-cli --test e2e                 # um arquivo de integração
+cargo test -p database-backup-cli --test integration mysql:: # um módulo de integração
+cargo test -p database-backup-cli --test e2e                 # só o E2E
 cargo test -p database-backup-cli --test e2e hostile         # filtro pelo nome
 DBU_REQUIRE_NATIVE=1 cargo test -p database-backup-cli --test e2e   # exige pg_dump 17 nativo
 cargo test -p database-backup-cli --test e2e -- --nocapture  # ver a saída ao diagnosticar

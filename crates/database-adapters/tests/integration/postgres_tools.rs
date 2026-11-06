@@ -1,15 +1,11 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-
-mod support;
-
 use std::path::PathBuf;
 use std::process::Command;
 
+use crate::support::{PostgresTestDb, TestResult};
 use database_backup_adapters::postgres::{
     PgTools, PgVersion, RunnerChoice, RunnerKind, Timeouts, ToolError, ToolPaths, test_connection,
 };
 use database_backup_core::{Password, PostgresConnectionConfig, TlsMode};
-use support::{PostgresTestDb, TestResult};
 use tokio::io::AsyncReadExt;
 
 fn config_for(db: &PostgresTestDb, database: &str) -> PostgresConnectionConfig {

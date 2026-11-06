@@ -1,13 +1,8 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-
-#[path = "../../../crates/database-adapters/tests/support/mod.rs"]
-mod support;
-
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
+use crate::support::{MysqlTestDb, TestResult};
 use database_backup_adapters::mysql::{MysqlTools, MysqlVersion, RunnerChoice};
-use support::{MysqlTestDb, TestResult};
 use tempfile::TempDir;
 
 const SNAPSHOT: [&str; 4] = [

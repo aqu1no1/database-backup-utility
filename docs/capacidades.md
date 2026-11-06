@@ -117,7 +117,7 @@ Use o MariaDB (DB-37) como referência do próximo caso.
 6. **Testes:**
    - harness e fixture em `tests/support/mod.rs` e `tests/fixtures/<sgbd>/`;
    - round-trip chamando `assert_round_trip`;
-   - testes de CLI em `apps/cli/tests/<sgbd>.rs`.
+   - testes de CLI em `apps/cli/tests/integration/<sgbd>.rs`, declarados em `main.rs`.
 
    Siga [`testes-rust.md`](testes-rust.md).
 7. **Docs:**

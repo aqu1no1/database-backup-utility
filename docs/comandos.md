@@ -92,20 +92,20 @@ Por padrão só o PostgreSQL sobe. MySQL e MongoDB ficam nos perfis opcionais `m
 ## Testes
 
 ```bash
-cargo test --workspace --lib --bins                                   # unitários, sem Docker
-cargo test --workspace --tests                                        # tudo, inclui Testcontainers (Docker)
-cargo test -p database-backup-adapters --test postgres_connection     # teste de conexão
-cargo test -p database-backup-history                                 # histórico SQLite
-cargo test -p database-backup-adapters --test postgres_tools          # pg_dump/pg_restore (native e Docker)
-cargo test -p database-backup-cli --test backup                       # backup ponta a ponta
-cargo test -p database-backup-adapters --test postgres_restore        # pg_restore e administração de bancos
-cargo test -p database-backup-cli --test restore                      # restore ponta a ponta
-cargo test -p database-backup-cli --test cli                          # argumentos, ajuda e JSON (sem Docker)
-cargo test -p database-backup-cli --test e2e                          # ciclos completos (Docker)
-cargo test -p database-backup-adapters --test mongo_connection        # conexão MongoDB (Docker)
-cargo test -p database-backup-adapters --test mongo_tools             # mongodump/mongorestore (Docker)
-cargo test -p database-backup-cli --test mongo                        # backup/verify/restore MongoDB (Docker)
-cargo test -p database-backup-cli --test e2e -- hostile               # um cenário pelo nome
+cargo test --workspace --lib --bins                                              # unitários, sem Docker
+cargo test --workspace --tests                                                   # tudo, inclui Testcontainers (Docker)
+cargo test -p database-backup-adapters --test integration postgres_connection::  # teste de conexão
+cargo test -p database-backup-history                                            # histórico SQLite
+cargo test -p database-backup-adapters --test integration postgres_tools::       # pg_dump/pg_restore (native e Docker)
+cargo test -p database-backup-cli --test integration backup::                    # backup ponta a ponta
+cargo test -p database-backup-adapters --test integration postgres_restore::     # pg_restore e administração de bancos
+cargo test -p database-backup-cli --test integration restore::                   # restore ponta a ponta
+cargo test -p database-backup-cli --test integration cli::                       # argumentos, ajuda e JSON (sem Docker)
+cargo test -p database-backup-cli --test e2e                                     # ciclos completos (Docker)
+cargo test -p database-backup-adapters --test integration mongo_connection::     # conexão MongoDB (Docker)
+cargo test -p database-backup-adapters --test integration mongo_tools::          # mongodump/mongorestore (Docker)
+cargo test -p database-backup-cli --test integration mongo::                     # backup/verify/restore MongoDB (Docker)
+cargo test -p database-backup-cli --test e2e -- hostile                          # um cenário pelo nome
 ```
 
 Os testes de integração criam PostgreSQL, MySQL e MongoDB temporários e não usam os bancos do Compose.

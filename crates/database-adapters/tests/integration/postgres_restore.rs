@@ -1,14 +1,10 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-
-mod support;
-
 use std::path::Path;
 
+use crate::support::{PostgresTestDb, RoundTrip, TestResult, assert_round_trip};
 use database_backup_adapters::postgres::{
     Admin, DatabaseState, PgTools, PgVersion, RunnerChoice, Timeouts, ToolError, test_connection,
 };
 use database_backup_core::{DatabaseEngine, Password, PostgresConnectionConfig, TlsMode};
-use support::{PostgresTestDb, RoundTrip, TestResult, assert_round_trip};
 
 fn config_for(db: &PostgresTestDb, database: &str) -> PostgresConnectionConfig {
     PostgresConnectionConfig::new(db.host(), db.port(), database, db.user(), TlsMode::Auto)

@@ -1,16 +1,12 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-
-mod support;
-
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use crate::support::{MysqlTestDb, RoundTrip, TestResult, assert_round_trip};
 use database_backup_adapters::mysql::{
     Admin, AdminError, DumpError, MysqlTools, MysqlVersion, ObjectKind, RunnerChoice, Timeouts,
     ToolError, ToolPaths, inspect_dump, test_connection,
 };
 use database_backup_core::{DatabaseEngine, MysqlConnectionConfig, Password, TlsMode};
-use support::{MysqlTestDb, RoundTrip, TestResult, assert_round_trip};
 use tokio::io::AsyncReadExt;
 
 const SNAPSHOT: [&str; 4] = [
