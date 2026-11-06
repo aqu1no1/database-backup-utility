@@ -18,6 +18,12 @@ Para publicar, mova as entradas para uma nova seção com data real:
 Seção versionada: `[X.Y.Z] - AAAA-MM-DD`
 O workflow manual rejeita releases sem seção publicada e sem mudanças reais. -->
 
+### Added
+- Perfis de conexão: `dbu connection add <NOME>` salva host, porta, banco, usuário, TLS e SGBD (testa a conexão antes; `--no-test` pula o teste), `dbu connection list [--json]` lista e `dbu connection remove <NOME>` remove com confirmação (ou `-y`). `dbu backup <PERFIL>`, `dbu test <PERFIL>` e `--profile` em backup, test e restore usam o perfil; flags explícitas têm prioridade. Perfil inexistente sai com código 2.
+
+### Security
+- O perfil nunca guarda a senha, só o caminho absoluto do `--password-file`, que segue as regras de permissão a cada uso. Restore com perfil exige `--to`, para nunca restaurar no banco de origem do perfil.
+
 ## [0.2.0] - 2026-10-28
 
 Suporte a MySQL, MongoDB e SQLite, além do PostgreSQL, com a matriz de capacidades de cada SGBD e

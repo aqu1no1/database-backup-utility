@@ -18,22 +18,25 @@ use tracing::{info, warn};
 
 use crate::output::{fail, success};
 use crate::{
-    AUTH_DATABASE_ONLY_MONGODB, ConnectionArgs, EngineArg, PORT_HELP, RunnerArg, TlsArg, describe,
-    exit, exit_code_for, read_password,
+    AUTH_DATABASE_ONLY_MONGODB, ConnectionArgs, EngineArg, RunnerArg, describe, exit,
+    exit_code_for, read_password,
 };
 
 const FORMAT: &str = "pg_dump-custom";
 
 #[derive(Debug, Args)]
 pub struct BackupArgs {
+    #[arg(short, long, value_enum, help = "SGBD de origem")]
+    engine: Option<EngineArg>,
+    #[arg(value_name = "PERFIL", conflicts_with_all = ["profile", "source"], help = "Perfil de conexão salvo")]
+    name: Option<String>,
     #[arg(
-        short,
         long,
-        value_enum,
-        default_value_t = EngineArg::Postgres,
-        help = "SGBD de origem"
+        value_name = "NOME",
+        conflicts_with = "source",
+        help = "Perfil de conexão salvo"
     )]
-    engine: EngineArg,
+    profile: Option<String>,
     #[arg(
         long,
         value_name = "ARQUIVO",
@@ -43,7 +46,7 @@ pub struct BackupArgs {
     )]
     source: Option<PathBuf>,
     #[command(flatten)]
-    server: ServerArgs,
+    server: crate::profiles::ConnectionOptions,
     #[arg(
         short,
         long,
@@ -59,61 +62,6 @@ pub struct BackupArgs {
     runner: RunnerArg,
     #[arg(long, value_parser = clap::value_parser!(u64).range(1..), help = "Tempo máximo do backup em segundos (padrão: sem limite)")]
     timeout: Option<u64>,
-}
-
-#[derive(Debug, Args)]
-struct ServerArgs {
-    #[arg(
-        short = 'H',
-        long,
-        default_value = "localhost",
-        help = "Host do servidor"
-    )]
-    host: String,
-    #[arg(short, long, help = PORT_HELP)]
-    port: Option<u16>,
-    #[arg(
-        short,
-        long,
-        required_unless_present = "source",
-        help = "Nome do banco"
-    )]
-    database: Option<String>,
-    #[arg(short, long, required_unless_present = "source", help = "Usuário")]
-    user: Option<String>,
-    #[arg(
-        long,
-        value_enum,
-        default_value_t = TlsArg::Auto,
-        help = "auto: sem TLS só em localhost; verify-full: TLS com certificado validado"
-    )]
-    tls: TlsArg,
-    #[arg(
-        long,
-        value_name = "NOME",
-        help = "Banco de autenticação do MongoDB (padrão: admin)"
-    )]
-    auth_database: Option<String>,
-    #[arg(
-        long,
-        value_name = "ARQUIVO",
-        help = "Arquivo com a senha (permissão 600 ou 400)"
-    )]
-    password_file: Option<PathBuf>,
-}
-
-impl ServerArgs {
-    fn into_connection(self) -> Option<ConnectionArgs> {
-        Some(ConnectionArgs {
-            host: self.host,
-            port: self.port,
-            database: self.database?,
-            user: self.user?,
-            tls: self.tls,
-            auth_database: self.auth_database,
-            password_file: self.password_file,
-        })
-    }
 }
 
 #[derive(Serialize)]
@@ -142,16 +90,31 @@ struct Completed {
 pub async fn run(args: BackupArgs) -> ExitCode {
     let BackupArgs {
         engine,
+        name,
+        profile,
         source,
         server,
         output_dir,
         runner,
         timeout,
     } = args;
-    if engine != EngineArg::Mongodb && server.auth_database.is_some() {
-        return fail(exit::INVALID_INPUT, AUTH_DATABASE_ONLY_MONGODB);
-    }
+    let profile = match crate::profiles::load(profile.as_deref().or(name.as_deref())) {
+        Ok(profile) => profile,
+        Err(code) => return code,
+    };
+    let profile_engine = match profile
+        .as_ref()
+        .map(crate::profiles::profile_engine)
+        .transpose()
+    {
+        Ok(engine) => engine,
+        Err(code) => return code,
+    };
+    let engine = engine.or(profile_engine).unwrap_or(EngineArg::Postgres);
     match (engine, source) {
+        (EngineArg::Sqlite, _) if server.auth_database.is_some() => {
+            fail(exit::INVALID_INPUT, AUTH_DATABASE_ONLY_MONGODB)
+        }
         (EngineArg::Sqlite, Some(source)) => {
             crate::sqlite::backup(&source, output_dir, timeout).await
         }
@@ -162,27 +125,21 @@ pub async fn run(args: BackupArgs) -> ExitCode {
         (EngineArg::Postgres | EngineArg::Mysql | EngineArg::Mongodb, Some(_)) => {
             fail(exit::INVALID_INPUT, "--source só vale com --engine sqlite")
         }
-        (EngineArg::Mongodb, None) => match server.into_connection() {
-            Some(connection) => crate::mongo::backup(connection, output_dir, runner, timeout).await,
-            None => fail(
-                exit::INVALID_INPUT,
-                "--database e --user são obrigatórios com --engine mongodb",
-            ),
-        },
-        (EngineArg::Mysql, None) => match server.into_connection() {
-            Some(connection) => crate::mysql::backup(connection, output_dir, runner, timeout).await,
-            None => fail(
-                exit::INVALID_INPUT,
-                "--database e --user são obrigatórios com --engine mysql",
-            ),
-        },
-        (EngineArg::Postgres, None) => match server.into_connection() {
-            Some(connection) => run_postgres(connection, output_dir, runner, timeout).await,
-            None => fail(
-                exit::INVALID_INPUT,
-                "--database e --user são obrigatórios com --engine postgres",
-            ),
-        },
+        (engine, None) => {
+            let connection = match server.resolve(Some(engine), profile.as_ref()) {
+                Ok((_, connection)) => connection,
+                Err(code) => return code,
+            };
+            match engine {
+                EngineArg::Mongodb => {
+                    crate::mongo::backup(connection, output_dir, runner, timeout).await
+                }
+                EngineArg::Mysql => {
+                    crate::mysql::backup(connection, output_dir, runner, timeout).await
+                }
+                _ => run_postgres(connection, output_dir, runner, timeout).await,
+            }
+        }
     }
 }
 

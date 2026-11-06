@@ -20,6 +20,7 @@ const MIGRATIONS: &[M<'static>] = &[
         "../migrations/0003_restore_checksum_verified.sql"
     )),
     M::up(include_str!("../migrations/0004_restore_targets.sql")),
+    M::up(include_str!("../migrations/0005_profiles.sql")),
 ];
 
 #[derive(Debug, Error)]
@@ -44,6 +45,21 @@ pub enum HistoryError {
     ExecutionNotRunning { id: String },
     #[error("uma execução não pode ser finalizada com o status running")]
     FinishWithRunning,
+    #[error("o perfil {0} já existe")]
+    ProfileExists(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectionProfile {
+    pub name: String,
+    pub engine: String,
+    pub host: String,
+    pub port: u16,
+    pub database_name: String,
+    pub username: String,
+    pub tls: String,
+    pub auth_database: Option<String>,
+    pub password_file: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -228,6 +244,53 @@ impl History {
         Ok(self
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))?)
+    }
+
+    pub fn add_profile(&self, profile: &ConnectionProfile) -> Result<(), HistoryError> {
+        let inserted = self.conn.execute(
+            "INSERT INTO profiles
+             (name, engine, host, port, database_name, username, tls, auth_database, password_file)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+             ON CONFLICT(name) DO NOTHING",
+            params![
+                profile.name,
+                profile.engine,
+                profile.host,
+                profile.port,
+                profile.database_name,
+                profile.username,
+                profile.tls,
+                profile.auth_database,
+                profile.password_file
+            ],
+        )?;
+        if inserted == 0 {
+            return Err(HistoryError::ProfileExists(profile.name.clone()));
+        }
+        Ok(())
+    }
+
+    pub fn get_profile(&self, name: &str) -> Result<Option<ConnectionProfile>, HistoryError> {
+        Ok(self.conn.query_row(
+            "SELECT name, engine, host, port, database_name, username, tls, auth_database, password_file
+             FROM profiles WHERE name = ?1", [name], profile_from_row,
+        ).optional()?)
+    }
+
+    pub fn list_profiles(&self) -> Result<Vec<ConnectionProfile>, HistoryError> {
+        let mut statement = self.conn.prepare(
+            "SELECT name, engine, host, port, database_name, username, tls, auth_database, password_file
+             FROM profiles ORDER BY name",
+        )?;
+        let rows = statement.query_map([], profile_from_row)?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    pub fn remove_profile(&self, name: &str) -> Result<bool, HistoryError> {
+        Ok(self
+            .conn
+            .execute("DELETE FROM profiles WHERE name = ?1", [name])?
+            != 0)
     }
 
     pub fn upsert_connection(
@@ -538,6 +601,20 @@ impl History {
         })
         .collect()
     }
+}
+
+fn profile_from_row(row: &Row<'_>) -> rusqlite::Result<ConnectionProfile> {
+    Ok(ConnectionProfile {
+        name: row.get(0)?,
+        engine: row.get(1)?,
+        host: row.get(2)?,
+        port: row.get(3)?,
+        database_name: row.get(4)?,
+        username: row.get(5)?,
+        tls: row.get(6)?,
+        auth_database: row.get(7)?,
+        password_file: row.get(8)?,
+    })
 }
 
 struct RawRestore {
@@ -1043,10 +1120,56 @@ mod tests {
         for (table, column) in columns {
             let lowered = column.to_lowercase();
             assert!(
-                !lowered.contains("password") && !lowered.contains("token"),
+                (!lowered.contains("password")
+                    || (table == "profiles" && column == "password_file"))
+                    && !lowered.contains("token"),
                 "{table}.{column}"
             );
         }
+    }
+
+    #[test]
+    fn profiles_upgrade_without_changing_history_and_duplicate_names_never_replace_data() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join(DATABASE_FILE);
+        let old = History::open_with(&path, &Migrations::from_slice(&MIGRATIONS[..4])).unwrap();
+        let connection_id = old.upsert_connection(&sample_connection()).unwrap();
+        let job = old.create_job(&connection_id, "daily").unwrap();
+        let execution = old.start_execution(&job).unwrap();
+        old.finish_execution(&execution, ExecutionStatus::Succeeded, None)
+            .unwrap();
+        drop(old);
+        let history = History::open(&path).unwrap();
+        let profile = ConnectionProfile {
+            name: "prod".to_owned(),
+            engine: "postgres".to_owned(),
+            host: "localhost".to_owned(),
+            port: 5432,
+            database_name: "app".to_owned(),
+            username: "backup".to_owned(),
+            tls: "auto".to_owned(),
+            auth_database: None,
+            password_file: Some("/secrets/pg.pass".to_owned()),
+        };
+        history.add_profile(&profile).unwrap();
+        let duplicate = ConnectionProfile {
+            host: "other.example.org".to_owned(),
+            ..profile.clone()
+        };
+        assert!(matches!(
+            history.add_profile(&duplicate),
+            Err(HistoryError::ProfileExists(_))
+        ));
+        assert_eq!(history.get_profile("prod").unwrap(), Some(profile.clone()));
+        assert_eq!(history.list_profiles().unwrap(), vec![profile]);
+        assert!(history.remove_profile("prod").unwrap());
+        assert!(!history.remove_profile("prod").unwrap());
+        assert!(history.get_profile("prod").unwrap().is_none());
+        assert_eq!(history.list_executions(&job, 10).unwrap()[0].id, execution);
+        drop(history);
+        let reopened = History::open(&path).unwrap();
+        assert!(reopened.list_profiles().unwrap().is_empty());
+        assert_eq!(reopened.list_backups(10, None).unwrap().len(), 1);
     }
 
     #[test]

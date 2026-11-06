@@ -61,7 +61,7 @@ enum Outcome {
     Failed(String),
 }
 
-pub async fn test(connection: &ConnectionArgs, timeout: u64) -> ExitCode {
+pub async fn test(connection: &ConnectionArgs, timeout: u64, report: bool) -> ExitCode {
     let config = match config_from(connection) {
         Ok(config) => config,
         Err(code) => return code,
@@ -76,6 +76,7 @@ pub async fn test(connection: &ConnectionArgs, timeout: u64) -> ExitCode {
         query: timeout,
     };
     match test_connection(&config, &password, timeouts).await {
+        Ok(_) if !report => ExitCode::SUCCESS,
         Ok(server) => {
             info!(
                 operation = "connection.test",

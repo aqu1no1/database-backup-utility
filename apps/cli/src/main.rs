@@ -6,6 +6,7 @@ mod listing;
 mod mongo;
 mod mysql;
 mod output;
+mod profiles;
 mod restore;
 mod sqlite;
 mod verify;
@@ -207,6 +208,21 @@ enum ListCommand {
 #[derive(Debug, Subcommand)]
 enum ConnectionCommand {
     #[command(
+        about = "Salva um perfil sem armazenar a senha.",
+        after_help = "Exemplos:\n  dbu connection add dev -d app -u backup\n  dbu connection add dev -e mysql -d app -u backup --no-test"
+    )]
+    Add(profiles::AddArgs),
+    #[command(
+        about = "Lista os perfis de conexão.",
+        after_help = "Exemplos:\n  dbu connection list --json"
+    )]
+    List,
+    #[command(
+        about = "Remove um perfil, sem apagar backups ou credenciais.",
+        after_help = "Exemplos:\n  dbu connection remove dev -y"
+    )]
+    Remove(profiles::RemoveArgs),
+    #[command(
         about = "Valida a configuração e testa a conexão com um PostgreSQL, MySQL ou MongoDB.",
         after_help = TEST_HELP
     )]
@@ -250,39 +266,14 @@ enum RestoreCommand {
     List(listing::RestoreListArgs),
 }
 
-#[derive(Debug, Args)]
+#[derive(Debug)]
 struct ConnectionArgs {
-    #[arg(
-        short = 'H',
-        long,
-        default_value = "localhost",
-        help = "Host do servidor"
-    )]
     host: String,
-    #[arg(short, long, help = PORT_HELP)]
     port: Option<u16>,
-    #[arg(short, long, help = "Nome do banco")]
     database: String,
-    #[arg(short, long, help = "Usuário")]
     user: String,
-    #[arg(
-        long,
-        value_enum,
-        default_value_t = TlsArg::Auto,
-        help = "auto: sem TLS só em localhost; verify-full: TLS com certificado validado"
-    )]
     tls: TlsArg,
-    #[arg(
-        long,
-        value_name = "NOME",
-        help = "Banco de autenticação do MongoDB (padrão: admin)"
-    )]
     auth_database: Option<String>,
-    #[arg(
-        long,
-        value_name = "ARQUIVO",
-        help = "Arquivo com a senha (permissão 600 ou 400)"
-    )]
     password_file: Option<PathBuf>,
 }
 
@@ -312,12 +303,19 @@ struct TestConnectionArgs {
         short,
         long,
         value_enum,
-        default_value_t = EngineArg::Postgres,
         help = "SGBD do servidor (postgres, mysql ou mongodb)"
     )]
-    engine: EngineArg,
+    engine: Option<EngineArg>,
+    #[arg(
+        value_name = "PERFIL",
+        conflicts_with = "profile",
+        help = "Perfil de conexão salvo"
+    )]
+    name: Option<String>,
+    #[arg(long, value_name = "NOME", help = "Perfil de conexão salvo")]
+    profile: Option<String>,
     #[command(flatten)]
-    connection: ConnectionArgs,
+    connection: profiles::ConnectionOptions,
     #[arg(long, default_value_t = 10, value_parser = clap::value_parser!(u64).range(1..=300), help = "Timeout em segundos para conexão e consulta")]
     timeout: u64,
 }
@@ -414,42 +412,63 @@ async fn main() -> ExitCode {
         Commands::Test(args) | Commands::Connection(ConnectionCommand::Test(args)) => {
             run_test_connection(args).await
         }
+        Commands::Connection(ConnectionCommand::Add(args)) => profiles::add(args).await,
+        Commands::Connection(ConnectionCommand::List) => profiles::list(),
+        Commands::Connection(ConnectionCommand::Remove(args)) => profiles::remove(args),
         Commands::Engines => engines::run(),
     }
 }
 
 async fn run_test_connection(args: TestConnectionArgs) -> ExitCode {
-    if args.engine != EngineArg::Mongodb && args.connection.auth_database.is_some() {
-        return fail(exit::INVALID_INPUT, AUTH_DATABASE_ONLY_MONGODB);
+    let profile = match profiles::load(args.profile.as_deref().or(args.name.as_deref())) {
+        Ok(profile) => profile,
+        Err(code) => return code,
+    };
+    if args.engine == Some(EngineArg::Sqlite) {
+        return unsupported(DatabaseEngine::Sqlite, Operation::ConnectionTest, "");
     }
-    match args.engine {
+    let (engine, connection) = match args.connection.resolve(args.engine, profile.as_ref()) {
+        Ok(value) => value,
+        Err(code) => return code,
+    };
+    test_resolved(engine, connection, args.timeout, true).await
+}
+
+async fn test_resolved(
+    engine: EngineArg,
+    connection: ConnectionArgs,
+    timeout: u64,
+    report: bool,
+) -> ExitCode {
+    match engine {
         EngineArg::Postgres => {}
-        EngineArg::Mysql => return mysql::test(&args.connection, args.timeout).await,
-        EngineArg::Mongodb => return mongo::test(&args.connection, args.timeout).await,
+        EngineArg::Mysql => return mysql::test(&connection, timeout, report).await,
+        EngineArg::Mongodb => return mongo::test(&connection, timeout, report).await,
         EngineArg::Sqlite => {
             return unsupported(DatabaseEngine::Sqlite, Operation::ConnectionTest, "");
         }
     }
-    let config = match args.connection.config() {
+    let config = match connection.config() {
         Ok(config) => config,
         Err(code) => return code,
     };
     let password = match read_password(
         DatabaseEngine::Postgres,
         &config,
-        args.connection.password_file.clone(),
+        connection.password_file.clone(),
     ) {
         Ok((password, _)) => password,
         Err(message) => return fail(exit::INVALID_INPUT, &message),
     };
 
-    let timeout = Duration::from_secs(args.timeout);
+    let timeout = Duration::from_secs(timeout);
     let timeouts = Timeouts {
         connect: timeout,
         query: timeout,
     };
 
     match test_connection(&config, &password, timeouts).await {
+        Ok(_) if !report => ExitCode::SUCCESS,
         Ok(info) => {
             info!(
                 operation = "connection.test",

@@ -60,6 +60,19 @@ Todos os testes citados rodam na CI (`cargo test --workspace --tests`, job
 | Falha não deixa dados parciais | `--single-transaction`; `failed_restore_leaves_target_without_partial_data` | ok |
 | Erros sanitizados | mensagens via `describe` sem senha; E2E `Session` em todos os passos | ok |
 
+## Perfis de conexão (DB-41)
+
+| Controle | Evidência | Status |
+| --- | --- | --- |
+| Perfil nunca guarda a senha, só o caminho do arquivo | migration `0005_profiles.sql` sem coluna de senha; `schema_has_no_password_columns` (só `profiles.password_file` é permitida); `profile_password_path_is_not_a_secret_and_conflicting_sources_are_refused` e `tested_profile_drives_backup_test_and_restore_…` varrem `DBU_DATA_DIR` e as saídas atrás da senha | ok (DB-41) |
+| Arquivo de senha do perfil segue as regras de `read_password_file` | conferido no `add` e a cada uso; arquivo removido → exit 2; conflito com `DBU_PG_PASSWORD` → exit 2 (mesmo teste acima) | ok (DB-41) |
+| Perfil não afrouxa TLS nem validação | a configuração final (perfil + flags) é validada de novo; `--tls disable` para host remoto é recusado no `add`; `effective_configuration_is_revalidated_after_overrides`, `invalid_profiles_and_unknown_names_fail_without_network_access` | ok (DB-41) |
+| Troca de SGBD não herda porta nem `--auth-database` do perfil | `switching_engine_drops_profile_settings_specific_to_the_profile_engine` | ok (DB-41) |
+| Nome do perfil não é caminho nem string livre | nome ASCII com até 64 caracteres; `../bad` recusado; `CHECK` na migration | ok (DB-41) |
+| Nome duplicado não sobrescreve perfil | `ON CONFLICT DO NOTHING` + exit 2; `profiles_upgrade_without_changing_history_and_duplicate_names_never_replace_data` | ok (DB-41) |
+| Restore com perfil exige destino explícito | `--to` obrigatório com `--profile`; `tested_profile_drives_backup_test_and_restore_without_using_its_database_as_target` | ok (DB-41) |
+| Remoção exige confirmação | nome repetido no terminal ou `-y`; sem terminal → exit 12; não apaga backups nem o arquivo de senha; `profiles_are_persistent_unique_and_removal_requires_confirmation` | ok (DB-41) |
+
 ## SQLite (DB-22)
 
 | Controle | Evidência | Status |
@@ -177,6 +190,9 @@ Nenhum advisory RustSec ignorado.
 - **`DBU_PG_PASSWORD` é visível** em `/proc/<pid>/environ` para o próprio usuário e o root.
   Prefira `--password-file`.
 - **Dono do arquivo de senha não é conferido.** Só as permissões são.
+- **Perfil aponta para um caminho, não para um arquivo fixo.** Quem consegue trocar o arquivo nesse
+  caminho troca a senha usada pelo perfil. As regras de permissão e de symlink valem a cada uso, e a
+  proteção da pasta onde o arquivo fica é responsabilidade do usuário.
 - **v0.1.0 sem avisos de terceiros.** O tarball publicado em 2026-10-21 não traz as notas de licença
   das dependências embutidas. Corrigido no workflow (DB-35); a v0.1.1 já inclui o arquivo. Use a v0.1.1 em vez da v0.1.0.
 - **SQLite: `-wal`/`-shm` ao lado da origem.** Em modo WAL, o próprio SQLite cria esses arquivos

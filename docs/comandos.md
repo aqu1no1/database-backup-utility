@@ -35,7 +35,15 @@ DBU_MONGO_PASSWORD='...' cargo run -p database-backup-cli -- connection test --e
 DBU_MONGO_PASSWORD='...' cargo run -p database-backup-cli -- backup run --engine mongodb --database my_database --user backup
 cargo run -p database-backup-cli -- backup verify --file <arquivo.archive>
 DBU_MONGO_PASSWORD='...' cargo run -p database-backup-cli -- restore run --engine mongodb --file <arquivo.archive> --target-database my_database_copy --user backup
+cargo run -p database-backup-cli -- connection add dev --database my_database --user postgres --password-file ~/.config/dbu/pg.pass
+cargo run -p database-backup-cli -- connection list --json
+cargo run -p database-backup-cli -- backup run --profile dev
+cargo run -p database-backup-cli -- restore run --file <arquivo.dump> --profile dev --target-database my_database_copy
+cargo run -p database-backup-cli -- connection remove dev -y
 ```
+
+Perfis (`connection add/list/remove`) guardam a conexão sem a senha, só o caminho do
+`--password-file`. Veja [`configuracao.md`](configuracao.md#perfis-de-conexão).
 
 `--engine` vale `postgres` (padrão), `mysql`, `mongodb` ou `sqlite`. Com `sqlite` não há servidor nem senha: `--source`
 (backup) e `--target` (restore) indicam os arquivos, e as opções de conexão do PostgreSQL são recusadas.

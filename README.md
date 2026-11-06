@@ -77,6 +77,7 @@ Erro: o arquivo ~/demo/app.db já existe; use --overwrite para substituí-lo (o 
 | `dbu restore <ARQUIVO> --to <DESTINO>` | Restaura um backup conferido em um destino novo (ou com `--overwrite`, onde suportado) |
 | `dbu list` / `dbu list restores` | Lista os backups ou as restaurações do histórico |
 | `dbu test -d app -u backup` | Valida os parâmetros e testa a conexão (PostgreSQL, MySQL, MongoDB) |
+| `dbu connection add prod -d app -u backup` | Salva um perfil de conexão sem a senha; depois, `dbu backup prod` (`list`, `remove`) |
 | `dbu engines` | Mostra o que cada SGBD suporta, planeja ou não suporta |
 
 Flags curtas: `-e` SGBD, `-H` host, `-p` porta, `-d` banco, `-u` usuário, `-f` arquivo, `-o` pasta de saída.
