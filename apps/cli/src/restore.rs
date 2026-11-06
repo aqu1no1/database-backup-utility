@@ -166,6 +166,9 @@ pub async fn run(mut args: RestoreArgs) -> ExitCode {
         .engine
         .or(profile_engine)
         .unwrap_or(EngineArg::Postgres);
+    if profile.is_some() && (engine == EngineArg::Sqlite || args.target.is_some()) {
+        return fail(exit::INVALID_INPUT, crate::profiles::SQLITE_UNSUPPORTED);
+    }
     if let Some(to) = args.to.take() {
         if engine == EngineArg::Sqlite {
             args.target = Some(PathBuf::from(to));

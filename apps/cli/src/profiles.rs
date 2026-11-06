@@ -10,6 +10,9 @@ use serde::Serialize;
 use crate::output::{fail, success};
 use crate::{ConnectionArgs, EngineArg, TlsArg, describe, exit};
 
+pub const SQLITE_UNSUPPORTED: &str =
+    "perfis de conexão não suportam SQLite; use --source ou --target com o arquivo";
+
 #[derive(Debug, Default, Args)]
 pub struct ConnectionOptions {
     #[arg(short = 'H', long, help = "Host do servidor (padrão: localhost)")]
@@ -49,14 +52,17 @@ impl ConnectionOptions {
         let profile_engine = profile.map(profile_engine).transpose()?;
         let engine = engine.or(profile_engine).unwrap_or(EngineArg::Postgres);
         let same_engine_profile = profile.filter(|_| profile_engine == Some(engine));
+        if engine != EngineArg::Mongodb && self.auth_database.is_some() {
+            return Err(fail(exit::INVALID_INPUT, crate::AUTH_DATABASE_ONLY_MONGODB));
+        }
         let database = self
             .database
             .or_else(|| profile.map(|p| p.database_name.clone()))
-            .ok_or_else(|| fail(exit::INVALID_INPUT, "--database é obrigatório sem perfil"))?;
+            .ok_or_else(|| fail(exit::INVALID_INPUT, "--database é obrigatório"))?;
         let user = self
             .user
             .or_else(|| profile.map(|p| p.username.clone()))
-            .ok_or_else(|| fail(exit::INVALID_INPUT, "--user é obrigatório sem perfil"))?;
+            .ok_or_else(|| fail(exit::INVALID_INPUT, "--user é obrigatório"))?;
         let tls = self
             .tls
             .or(profile.map(profile_tls).transpose()?)
@@ -97,9 +103,6 @@ pub fn profile_tls(profile: &ConnectionProfile) -> Result<TlsArg, ExitCode> {
 }
 
 fn validate(engine: EngineArg, connection: &ConnectionArgs) -> Result<(), ExitCode> {
-    if engine != EngineArg::Mongodb && connection.auth_database.is_some() {
-        return Err(fail(exit::INVALID_INPUT, crate::AUTH_DATABASE_ONLY_MONGODB));
-    }
     let result = match engine {
         EngineArg::Postgres => return connection.config().map(|_| ()),
         EngineArg::Mysql => MysqlConnectionConfig::new(
@@ -120,10 +123,7 @@ fn validate(engine: EngineArg, connection: &ConnectionArgs) -> Result<(), ExitCo
         )
         .map(|_| ()),
         EngineArg::Sqlite => {
-            return Err(fail(
-                exit::INVALID_INPUT,
-                "perfis de conexão não suportam SQLite; use dbu backup -e sqlite --source <ARQUIVO>",
-            ));
+            return Err(fail(exit::INVALID_INPUT, SQLITE_UNSUPPORTED));
         }
     };
     result.map_err(|error| fail(exit::INVALID_INPUT, &error.to_string()))
@@ -160,7 +160,7 @@ pub fn load(name: Option<&str>) -> Result<Option<ConnectionProfile>, ExitCode> {
         .get_profile(name)
         .map_err(|error| fail(exit::FAILURE, &describe(&error)))?
         .map(Some)
-        .ok_or_else(|| fail(exit::INVALID_INPUT, &format!("o perfil {name} não existe")))
+        .ok_or_else(|| not_found(name))
 }
 
 #[derive(Debug, Args)]
@@ -340,8 +340,17 @@ pub struct RemoveArgs {
 }
 
 pub fn remove(args: RemoveArgs) -> ExitCode {
-    if let Err(code) = load(Some(&args.name)) {
+    if let Err(code) = valid_name(&args.name) {
         return code;
+    }
+    let history = match history() {
+        Ok(history) => history,
+        Err(code) => return code,
+    };
+    match history.get_profile(&args.name) {
+        Ok(Some(_)) => {}
+        Ok(None) => return not_found(&args.name),
+        Err(error) => return fail(exit::FAILURE, &describe(&error)),
     }
     if !args.yes {
         if !std::io::stdin().is_terminal() {
@@ -361,21 +370,18 @@ pub fn remove(args: RemoveArgs) -> ExitCode {
             return fail(exit::CONFIRMATION_REQUIRED, "remoção não confirmada");
         }
     }
-    let history = match history() {
-        Ok(history) => history,
-        Err(code) => return code,
-    };
     match history.remove_profile(&args.name) {
         Ok(true) => success(
             &ProfileName { name: &args.name },
             &format!("Perfil {} removido.", args.name),
         ),
-        Ok(false) => fail(
-            exit::INVALID_INPUT,
-            &format!("o perfil {} não existe", args.name),
-        ),
+        Ok(false) => not_found(&args.name),
         Err(error) => fail(exit::FAILURE, &describe(&error)),
     }
+}
+
+fn not_found(name: &str) -> ExitCode {
+    fail(exit::INVALID_INPUT, &format!("o perfil {name} não existe"))
 }
 
 #[cfg(test)]

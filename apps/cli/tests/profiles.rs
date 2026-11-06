@@ -138,6 +138,48 @@ fn invalid_profiles_and_unknown_names_fail_without_network_access() {
     assert_eq!(check(&empty, 0)["profiles"], serde_json::json!([]));
 }
 
+#[test]
+fn profiles_refuse_sqlite_restore_and_add_reports_missing_fields_plainly() {
+    let dir = TempDir::new().unwrap();
+    check(&add_offline(&dir, "postgres"), 0);
+    for args in [
+        vec![
+            "restore",
+            "x.db",
+            "--profile",
+            "dev",
+            "-e",
+            "sqlite",
+            "--to",
+            "y.db",
+        ],
+        vec!["restore", "x.db", "--profile", "dev", "--target", "y.db"],
+    ] {
+        let output = cli(&dir).args(args).arg("--json").output().unwrap();
+        check(&output, 2);
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("não suportam SQLite"),
+            "{output:?}"
+        );
+    }
+    let missing = cli(&dir)
+        .args([
+            "connection",
+            "add",
+            "other",
+            "-u",
+            "backup",
+            "--no-test",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    check(&missing, 2);
+    let stderr = String::from_utf8_lossy(&missing.stderr);
+    assert!(stderr.contains("--database é obrigatório"), "{stderr}");
+    assert!(!stderr.contains("sem perfil"), "{stderr}");
+}
+
 #[cfg(unix)]
 fn password_file(path: &Path, password: &str) {
     use std::os::unix::fs::PermissionsExt;

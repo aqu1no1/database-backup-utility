@@ -111,18 +111,10 @@ pub async fn run(args: BackupArgs) -> ExitCode {
         Err(code) => return code,
     };
     let engine = engine.or(profile_engine).unwrap_or(EngineArg::Postgres);
-    if engine != EngineArg::Mongodb && server.auth_database.is_some() {
-        return fail(exit::INVALID_INPUT, AUTH_DATABASE_ONLY_MONGODB);
-    }
-    let connection = if engine != EngineArg::Sqlite && source.is_none() {
-        match server.resolve(Some(engine), profile.as_ref()) {
-            Ok((_, connection)) => Some(connection),
-            Err(code) => return code,
-        }
-    } else {
-        None
-    };
     match (engine, source) {
+        (EngineArg::Sqlite, _) if server.auth_database.is_some() => {
+            fail(exit::INVALID_INPUT, AUTH_DATABASE_ONLY_MONGODB)
+        }
         (EngineArg::Sqlite, Some(source)) => {
             crate::sqlite::backup(&source, output_dir, timeout).await
         }
@@ -133,27 +125,21 @@ pub async fn run(args: BackupArgs) -> ExitCode {
         (EngineArg::Postgres | EngineArg::Mysql | EngineArg::Mongodb, Some(_)) => {
             fail(exit::INVALID_INPUT, "--source só vale com --engine sqlite")
         }
-        (EngineArg::Mongodb, None) => match connection {
-            Some(connection) => crate::mongo::backup(connection, output_dir, runner, timeout).await,
-            None => fail(
-                exit::INVALID_INPUT,
-                "--database e --user são obrigatórios com --engine mongodb",
-            ),
-        },
-        (EngineArg::Mysql, None) => match connection {
-            Some(connection) => crate::mysql::backup(connection, output_dir, runner, timeout).await,
-            None => fail(
-                exit::INVALID_INPUT,
-                "--database e --user são obrigatórios com --engine mysql",
-            ),
-        },
-        (EngineArg::Postgres, None) => match connection {
-            Some(connection) => run_postgres(connection, output_dir, runner, timeout).await,
-            None => fail(
-                exit::INVALID_INPUT,
-                "--database e --user são obrigatórios com --engine postgres",
-            ),
-        },
+        (engine, None) => {
+            let connection = match server.resolve(Some(engine), profile.as_ref()) {
+                Ok((_, connection)) => connection,
+                Err(code) => return code,
+            };
+            match engine {
+                EngineArg::Mongodb => {
+                    crate::mongo::backup(connection, output_dir, runner, timeout).await
+                }
+                EngineArg::Mysql => {
+                    crate::mysql::backup(connection, output_dir, runner, timeout).await
+                }
+                _ => run_postgres(connection, output_dir, runner, timeout).await,
+            }
+        }
     }
 }
 
