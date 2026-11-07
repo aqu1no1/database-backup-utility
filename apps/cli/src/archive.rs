@@ -11,6 +11,7 @@ use tokio::io::AsyncReadExt;
 use crate::describe;
 
 const MYSQL_DUMP_HEADER: &[u8] = b"-- MySQL dump ";
+const POSTGRES_ARCHIVE_MAGIC: &[u8] = b"PGDMP";
 
 pub struct VerifiedSource {
     pub artifact_id: Option<String>,
@@ -20,12 +21,12 @@ pub struct VerifiedSource {
     pub manifest: Option<StoredMetadata>,
 }
 
-pub async fn detect_engine(file: &Path) -> Result<DatabaseEngine, String> {
+pub async fn detect_engine(file: &Path) -> Result<Option<DatabaseEngine>, String> {
     if let Some(manifest) = read_metadata(file)
         .await
         .map_err(|error| describe(&error))?
     {
-        return manifest.engine.parse().map_err(|_| {
+        return manifest.engine.parse().map(Some).map_err(|_| {
             format!(
                 "o manifesto descreve um backup de {}, que esta versão não suporta",
                 manifest.engine
@@ -37,14 +38,17 @@ pub async fn detect_engine(file: &Path) -> Result<DatabaseEngine, String> {
         .await
         .map_err(|error| error.to_string())?;
     match header {
-        Ok(()) => Ok(DatabaseEngine::Sqlite),
+        Ok(()) => Ok(Some(DatabaseEngine::Sqlite)),
+        Err(SqliteError::NotSqlite(_)) if starts_with(file, POSTGRES_ARCHIVE_MAGIC).await? => {
+            Ok(Some(DatabaseEngine::Postgres))
+        }
         Err(SqliteError::NotSqlite(_)) if starts_with(file, MYSQL_DUMP_HEADER).await? => {
-            Ok(DatabaseEngine::Mysql)
+            Ok(Some(DatabaseEngine::Mysql))
         }
         Err(SqliteError::NotSqlite(_)) if starts_with(file, &MONGO_ARCHIVE_MAGIC).await? => {
-            Ok(DatabaseEngine::Mongodb)
+            Ok(Some(DatabaseEngine::Mongodb))
         }
-        Err(SqliteError::NotSqlite(_)) => Ok(DatabaseEngine::Postgres),
+        Err(SqliteError::NotSqlite(_)) => Ok(None),
         Err(error) => Err(describe(&error)),
     }
 }

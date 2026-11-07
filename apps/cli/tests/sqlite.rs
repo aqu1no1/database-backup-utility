@@ -28,6 +28,7 @@ impl Env {
     fn run(&self, args: &[&str]) -> Output {
         Command::new(env!("CARGO_BIN_EXE_dbu"))
             .args(args)
+            .current_dir(self.dir.path())
             .env("DBU_DATA_DIR", &self.data)
             .env_remove("RUST_LOG")
             .env_remove("DBU_PG_PASSWORD")
@@ -394,6 +395,285 @@ fn invalid_sources_and_mixed_engine_arguments_are_rejected() {
         );
     }
     assert_eq!(env.out_files(), Vec::<String>::new());
+}
+
+#[test]
+fn backup_target_and_restore_engine_are_inferred_from_the_files() {
+    let env = Env::new();
+    let source = env.path("app.db");
+    source_db(&source, &[(1, "inferido"), (2, "sem --engine")]);
+    let out = env.out.to_str().unwrap();
+
+    let backup = env.run(&["--json", "backup", "app.db", "-o", out]);
+    assert_eq!(backup.status.code(), Some(0), "{}", text(&backup));
+    let artifact = json(&backup)["file"].as_str().unwrap().to_owned();
+    assert!(artifact.ends_with(".sqlite3"), "{artifact}");
+
+    let target = env.path("copia.db");
+    let restore = env.run(&[
+        "--json",
+        "restore",
+        &artifact,
+        "--to",
+        target.to_str().unwrap(),
+    ]);
+    assert_eq!(restore.status.code(), Some(0), "{}", text(&restore));
+    assert_eq!(notes(&target), notes(&source));
+
+    let explicit_out = env.path("explicito");
+    let explicit = env.run(&[
+        "--json",
+        "backup",
+        "./app.db",
+        "-e",
+        "sqlite",
+        "-o",
+        explicit_out.to_str().unwrap(),
+    ]);
+    assert_eq!(explicit.status.code(), Some(0), "{}", text(&explicit));
+}
+
+#[test]
+fn backup_target_that_is_ambiguous_or_mixed_with_server_options_is_refused() {
+    let env = Env::new();
+    source_db(&env.path("app.db"), &[(1, "x")]);
+    let added = env.run(&[
+        "connection",
+        "add",
+        "app.db",
+        "-e",
+        "mysql",
+        "-d",
+        "app",
+        "-u",
+        "backup",
+        "--no-test",
+    ]);
+    assert_eq!(added.status.code(), Some(0), "{}", text(&added));
+    let out = env.out.to_str().unwrap();
+
+    let cases: Vec<(Vec<&str>, &str)> = vec![
+        (
+            vec!["backup", "app.db", "-o", out],
+            "também um perfil salvo",
+        ),
+        (
+            vec!["backup", "./app.db", "-d", "app", "-o", out],
+            "opções de conexão",
+        ),
+        (
+            vec!["backup", "./app.db", "--runner", "docker", "-o", out],
+            "--runner",
+        ),
+        (
+            vec!["backup", "./app.db", "-e", "postgres", "-o", out],
+            "só backups SQLite",
+        ),
+    ];
+    for (args, expected) in cases {
+        let output = env.run(&args);
+        assert_eq!(output.status.code(), Some(2), "{args:?}: {}", text(&output));
+        assert!(
+            text(&output).contains(expected),
+            "{args:?}: {}",
+            text(&output)
+        );
+    }
+    assert_eq!(env.out_files(), Vec::<String>::new());
+
+    for args in [
+        vec!["backup", "./nao-existe.db", "-o", out],
+        vec!["backup", "nao-existe.db", "-e", "sqlite", "-o", out],
+    ] {
+        let missing = env.run(&args);
+        assert_eq!(
+            missing.status.code(),
+            Some(4),
+            "{args:?}: {}",
+            text(&missing)
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn restore_never_runs_when_the_engine_diverges_from_the_file() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let env = Env::new();
+    let source = env.path("app.db");
+    source_db(&source, &[(1, "x")]);
+    let backup = env.backup(&source);
+    assert_eq!(backup.status.code(), Some(0), "{}", text(&backup));
+    let artifact = json(&backup)["file"].as_str().unwrap().to_owned();
+    let mysql_dump = env.path("externo.sql");
+    std::fs::write(&mysql_dump, b"-- MySQL dump 10.13\n").unwrap();
+    std::fs::set_permissions(&mysql_dump, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let mysql_dump = mysql_dump.to_str().unwrap();
+    let postgres_dump = env.path("externo.dump");
+    std::fs::write(&postgres_dump, b"PGDMP\x01\x0e\x00").unwrap();
+    std::fs::set_permissions(&postgres_dump, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let postgres_dump = postgres_dump.to_str().unwrap();
+    let added = env.run(&[
+        "connection",
+        "add",
+        "dev",
+        "-e",
+        "mysql",
+        "-d",
+        "app",
+        "-u",
+        "backup",
+        "--no-test",
+    ]);
+    assert_eq!(added.status.code(), Some(0), "{}", text(&added));
+    let target = env.path("copia.db");
+    let target = target.to_str().unwrap();
+
+    let cases: Vec<(Vec<&str>, &str)> = vec![
+        (
+            vec![
+                "restore", &artifact, "-e", "postgres", "--to", "x", "-u", "u",
+            ],
+            "backup de SQLite, não de PostgreSQL",
+        ),
+        (
+            vec!["restore", &artifact, "-e", "mysql", "--to", target],
+            "backup de SQLite, não de MySQL",
+        ),
+        (
+            vec![
+                "restore",
+                mysql_dump,
+                "-e",
+                "postgres",
+                "--to",
+                "x",
+                "-u",
+                "u",
+                "--allow-unverified",
+            ],
+            "backup de MySQL, não de PostgreSQL",
+        ),
+        (
+            vec![
+                "restore",
+                mysql_dump,
+                "-e",
+                "mongodb",
+                "--to",
+                "x",
+                "-u",
+                "u",
+                "--allow-unverified",
+            ],
+            "backup de MySQL, não de MongoDB",
+        ),
+        (
+            vec![
+                "restore",
+                postgres_dump,
+                "-e",
+                "mysql",
+                "--to",
+                "x",
+                "-u",
+                "u",
+                "--allow-unverified",
+            ],
+            "backup de PostgreSQL, não de MySQL",
+        ),
+        (
+            vec!["restore", &artifact, "--profile", "dev", "--to", target],
+            "o perfil dev é de mysql",
+        ),
+    ];
+    for (args, expected) in cases {
+        let output = env.run(&args);
+        assert_eq!(
+            output.status.code(),
+            Some(10),
+            "{args:?}: {}",
+            text(&output)
+        );
+        assert!(
+            text(&output).contains(expected),
+            "{args:?}: {}",
+            text(&output)
+        );
+    }
+    assert!(!env.path("copia.db").exists());
+    let restores = json(&env.run(&["--json", "restore", "list"]));
+    assert_eq!(restores["restores"], serde_json::json!([]));
+}
+
+#[cfg(unix)]
+#[test]
+fn restore_of_an_unrecognized_file_follows_the_requested_engine() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let env = Env::new();
+    let dump = env.path("mariadb.sql");
+    std::fs::write(
+        &dump,
+        b"-- MariaDB dump 10.19  Distrib 10.11.6-MariaDB\nCREATE TABLE t (id int);\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&dump, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let dump = dump.to_str().unwrap();
+    let added = env.run(&[
+        "connection",
+        "add",
+        "dev",
+        "-e",
+        "mysql",
+        "-d",
+        "app",
+        "-u",
+        "backup",
+        "--no-test",
+    ]);
+    assert_eq!(added.status.code(), Some(0), "{}", text(&added));
+
+    let cases: Vec<(Vec<&str>, &str)> = vec![
+        (
+            vec![
+                "restore",
+                dump,
+                "-e",
+                "mysql",
+                "--to",
+                "x",
+                "--allow-unverified",
+            ],
+            "obrigatórios no restore de MySQL",
+        ),
+        (
+            vec![
+                "restore",
+                dump,
+                "-e",
+                "postgres",
+                "--profile",
+                "dev",
+                "--to",
+                "x",
+                "--allow-unverified",
+            ],
+            "o perfil dev é de mysql, mas --engine pede PostgreSQL",
+        ),
+    ];
+    for (args, expected) in cases {
+        let output = env.run(&args);
+        assert_eq!(output.status.code(), Some(2), "{args:?}: {}", text(&output));
+        assert!(
+            text(&output).contains(expected),
+            "{args:?}: {}",
+            text(&output)
+        );
+    }
+    let restores = json(&env.run(&["--json", "restore", "list"]));
+    assert_eq!(restores["restores"], serde_json::json!([]));
 }
 
 #[cfg(unix)]

@@ -8,14 +8,16 @@ use database_backup_adapters::postgres::{
     Admin, ArchiveInfo, DatabaseState, PgTools, PgVersion, Timeouts, derived_name, test_connection,
 };
 use database_backup_core::{DatabaseEngine, Password, PostgresConnectionConfig};
-use database_backup_history::{ExecutionStatus, History, NewRestore, RestoreMode};
+use database_backup_history::{
+    ConnectionProfile, ExecutionStatus, History, NewRestore, RestoreMode,
+};
 use database_backup_storage::check_restore_source;
 use serde::Serialize;
 use time::OffsetDateTime;
 use time::macros::format_description;
 use tracing::{info, warn};
 
-use crate::archive::{check_target, read_archive, verify_checksum};
+use crate::archive::{check_target, detect_engine, read_archive, verify_checksum};
 use crate::output::{fail, success};
 use crate::{
     AUTH_DATABASE_ONLY_MONGODB, EngineArg, RunnerArg, TlsArg, describe, exit, exit_code_for,
@@ -26,7 +28,12 @@ const MAINTENANCE_DATABASE: &str = "postgres";
 
 #[derive(Debug, Args)]
 pub struct RestoreArgs {
-    #[arg(short, long, value_enum, help = "SGBD do backup")]
+    #[arg(
+        short,
+        long,
+        value_enum,
+        help = "SGBD do backup (padrão: detectado pelo arquivo; divergente é recusado)"
+    )]
     engine: Option<EngineArg>,
     #[arg(
         long,
@@ -52,14 +59,14 @@ pub struct RestoreArgs {
         long,
         value_name = "DESTINO",
         conflicts_with_all = ["target", "target_database"],
-        help = "Banco de destino (ou arquivo de destino, com --engine sqlite)"
+        help = "Banco de destino (ou arquivo de destino, num backup SQLite)"
     )]
     to: Option<String>,
     #[arg(
         long,
         value_name = "ARQUIVO",
         conflicts_with_all = ["target_database", "host", "port", "user", "tls", "auth_database", "runner", "password_file"],
-        help = "Arquivo SQLite de destino (com --engine sqlite; o mesmo que --to)"
+        help = "Arquivo SQLite de destino (num backup SQLite; o mesmo que --to)"
     )]
     target: Option<PathBuf>,
     #[arg(long, help = "Banco de destino (o mesmo que --to)")]
@@ -154,21 +161,13 @@ pub async fn run(mut args: RestoreArgs) -> ExitCode {
         Ok(profile) => profile,
         Err(code) => return code,
     };
-    let profile_engine = match profile
-        .as_ref()
-        .map(crate::profiles::profile_engine)
-        .transpose()
-    {
+    if profile.is_some() && (args.engine == Some(EngineArg::Sqlite) || args.target.is_some()) {
+        return fail(exit::INVALID_INPUT, crate::profiles::SQLITE_UNSUPPORTED);
+    }
+    let engine = match resolve_engine(args.file(), args.engine, profile.as_ref()).await {
         Ok(engine) => engine,
         Err(code) => return code,
     };
-    let engine = args
-        .engine
-        .or(profile_engine)
-        .unwrap_or(EngineArg::Postgres);
-    if profile.is_some() && (engine == EngineArg::Sqlite || args.target.is_some()) {
-        return fail(exit::INVALID_INPUT, crate::profiles::SQLITE_UNSUPPORTED);
-    }
     if let Some(to) = args.to.take() {
         if engine == EngineArg::Sqlite {
             args.target = Some(PathBuf::from(to));
@@ -220,11 +219,11 @@ pub async fn run(mut args: RestoreArgs) -> ExitCode {
         }
         (EngineArg::Sqlite, None) => fail(
             exit::INVALID_INPUT,
-            "--to (ou --target) é obrigatório com --engine sqlite",
+            "--to (ou --target) é obrigatório no restore de um backup SQLite",
         ),
         (EngineArg::Postgres | EngineArg::Mysql | EngineArg::Mongodb, Some(_)) => fail(
             exit::INVALID_INPUT,
-            "--target só vale com --engine sqlite; para PostgreSQL, MySQL e MongoDB use --target-database",
+            "--target só vale para backups SQLite; para PostgreSQL, MySQL e MongoDB use --to ou --target-database",
         ),
         (EngineArg::Mongodb, None) => match (&args.target_database, &args.user) {
             (Some(target_database), Some(user)) => {
@@ -246,7 +245,7 @@ pub async fn run(mut args: RestoreArgs) -> ExitCode {
             }
             _ => fail(
                 exit::INVALID_INPUT,
-                "--to (ou --target-database) e --user são obrigatórios com --engine mongodb",
+                "--to (ou --target-database) e --user são obrigatórios no restore de MongoDB",
             ),
         },
         (EngineArg::Mysql, None) => match (&args.target_database, &args.user) {
@@ -268,16 +267,79 @@ pub async fn run(mut args: RestoreArgs) -> ExitCode {
             }
             _ => fail(
                 exit::INVALID_INPUT,
-                "--to (ou --target-database) e --user são obrigatórios com --engine mysql",
+                "--to (ou --target-database) e --user são obrigatórios no restore de MySQL",
             ),
         },
         (EngineArg::Postgres, None) => match (&args.target_database, &args.user) {
             (Some(target_database), Some(user)) => run_postgres(&args, target_database, user).await,
             _ => fail(
                 exit::INVALID_INPUT,
-                "--to (ou --target-database) e --user são obrigatórios com --engine postgres",
+                "--to (ou --target-database) e --user são obrigatórios no restore de PostgreSQL",
             ),
         },
+    }
+}
+
+async fn resolve_engine(
+    file: &Path,
+    requested: Option<EngineArg>,
+    profile: Option<&ConnectionProfile>,
+) -> Result<EngineArg, ExitCode> {
+    let file = std::path::absolute(file)
+        .map_err(|error| fail(exit::INVALID_ARCHIVE, &error.to_string()))?;
+    check_restore_source(&file)
+        .await
+        .map_err(|error| fail(exit::INVALID_ARCHIVE, &describe(&error)))?;
+    let detected = detect_engine(&file)
+        .await
+        .map_err(|message| fail(exit::INVALID_ARCHIVE, &message))?
+        .map(EngineArg::from);
+    let profile_engine = profile.map(crate::profiles::profile_engine).transpose()?;
+    let engine = detected
+        .or(requested)
+        .or(profile_engine)
+        .unwrap_or(EngineArg::Postgres);
+    if let Some(requested) = requested.filter(|requested| *requested != engine) {
+        return Err(fail(
+            exit::INVALID_ARCHIVE,
+            &format!(
+                "o arquivo é um backup de {}, não de {}; nada foi restaurado",
+                engine_name(engine),
+                engine_name(requested)
+            ),
+        ));
+    }
+    match (profile, profile_engine) {
+        (Some(profile), Some(profile_engine)) if profile_engine != engine => Err(match detected {
+            Some(_) => fail(
+                exit::INVALID_ARCHIVE,
+                &format!(
+                    "o perfil {} é de {}, mas o arquivo é um backup de {}; nada foi restaurado",
+                    profile.name,
+                    profile.engine,
+                    engine_name(engine)
+                ),
+            ),
+            None => fail(
+                exit::INVALID_INPUT,
+                &format!(
+                    "o perfil {} é de {}, mas --engine pede {}; nada foi restaurado",
+                    profile.name,
+                    profile.engine,
+                    engine_name(engine)
+                ),
+            ),
+        }),
+        _ => Ok(engine),
+    }
+}
+
+fn engine_name(engine: EngineArg) -> &'static str {
+    match engine {
+        EngineArg::Postgres => DatabaseEngine::Postgres.display_name(),
+        EngineArg::Mysql => DatabaseEngine::Mysql.display_name(),
+        EngineArg::Mongodb => DatabaseEngine::Mongodb.display_name(),
+        EngineArg::Sqlite => DatabaseEngine::Sqlite.display_name(),
     }
 }
 

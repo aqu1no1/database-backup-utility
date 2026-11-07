@@ -256,6 +256,28 @@ async fn backup_verify_and_restore_round_trip_preserves_data() -> TestResult {
         assert_eq!(json(&restore)["mode"], "create");
         assert_eq!(snapshot(&db, &target).await?, expected, "{runner}");
 
+        let inferred_target = format!("inferido_{runner}");
+        let inferred = env.run(
+            &db,
+            &[
+                "--json",
+                "restore",
+                file.to_str().unwrap(),
+                "--to",
+                &inferred_target,
+                "--runner",
+                "docker",
+                "-H",
+                db.host(),
+                "-p",
+                &port,
+                "-u",
+                db.user(),
+            ],
+        );
+        assert_code(&inferred, 0);
+        assert_eq!(snapshot(&db, &inferred_target).await?, expected, "{runner}");
+
         let history = rusqlite::Connection::open(env.data.join("history.sqlite3"))?;
         let engines: (String, String) = history.query_row(
             "SELECT (SELECT engine FROM connections), (SELECT engine FROM restore_executions)",

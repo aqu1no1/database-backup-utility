@@ -56,6 +56,7 @@ Todos os testes citados rodam na CI (`cargo test --workspace --tests`, job
 | --- | --- | --- |
 | Integridade antes de restaurar | checksum + manifesto + `pg_restore --list`; `unverified_archive_requires_explicit_flag_and_is_recorded`, E2E `corrupted_and_partial_archives_are_rejected` e `verify_and_restore_without_history` | ok |
 | Origem segura | sem symlink e sem permissão aberta no dump ou no manifesto; `rejects_unsafe_source_files`, `restore_source_rejects_symlink_and_directory` | ok |
+| SGBD divergente nunca restaura (DB-40) | o SGBD vem do manifesto ou do cabeçalho, depois da checagem de origem e antes de qualquer conexão; `--engine` ou perfil de outro SGBD → código 10, com e sem manifesto; `restore_never_runs_when_the_engine_diverges_from_the_file` (mutação manual: sem a checagem, o teste falha e o restore roda) | ok (DB-40) |
 | Destino explícito e confirmação para operação destrutiva | `--target-database` obrigatório; `--overwrite` + nome; E2E `destructive_restore_requires_confirmation` | ok |
 | Falha não deixa dados parciais | `--single-transaction`; `failed_restore_leaves_target_without_partial_data` | ok |
 | Erros sanitizados | mensagens via `describe` sem senha; E2E `Session` em todos os passos | ok |
@@ -190,6 +191,10 @@ Nenhum advisory RustSec ignorado.
 - **`DBU_PG_PASSWORD` é visível** em `/proc/<pid>/environ` para o próprio usuário e o root.
   Prefira `--password-file`.
 - **Dono do arquivo de senha não é conferido.** Só as permissões são.
+- **Sem manifesto, arquivo desconhecido segue o `--engine` ou o perfil.** O restore e o verify reconhecem
+  PostgreSQL, SQLite, MySQL e MongoDB pelo cabeçalho; um arquivo que não bate com nenhum deles segue o
+  `--engine` (ou o perfil) e, sem eles, o caminho do PostgreSQL. Quem recusa o arquivo é a checagem do
+  adaptador (`pg_restore --list`, cabeçalho do `mysqldump`, número mágico do archive), com código 10.
 - **Perfil aponta para um caminho, não para um arquivo fixo.** Quem consegue trocar o arquivo nesse
   caminho troca a senha usada pelo perfil. As regras de permissão e de symlink valem a cada uso, e a
   proteção da pasta onde o arquivo fica é responsabilidade do usuário.
