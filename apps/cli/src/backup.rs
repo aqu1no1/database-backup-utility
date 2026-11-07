@@ -28,7 +28,11 @@ const FORMAT: &str = "pg_dump-custom";
 pub struct BackupArgs {
     #[arg(short, long, value_enum, help = "SGBD de origem")]
     engine: Option<EngineArg>,
-    #[arg(value_name = "PERFIL", conflicts_with_all = ["profile", "source"], help = "Perfil de conexão salvo")]
+    #[arg(
+        value_name = "ALVO",
+        conflicts_with_all = ["profile", "source"],
+        help = "Arquivo SQLite de origem ou perfil de conexão salvo"
+    )]
     name: Option<String>,
     #[arg(
         long,
@@ -40,9 +44,8 @@ pub struct BackupArgs {
     #[arg(
         long,
         value_name = "ARQUIVO",
-        required_if_eq("engine", "sqlite"),
         conflicts_with_all = ["host", "port", "database", "user", "tls", "auth_database", "password_file", "runner"],
-        help = "Arquivo do banco SQLite de origem (com --engine sqlite)"
+        help = "Arquivo do banco SQLite de origem (o mesmo que o ALVO de um arquivo)"
     )]
     source: Option<PathBuf>,
     #[command(flatten)]
@@ -56,10 +59,9 @@ pub struct BackupArgs {
     #[arg(
         long,
         value_enum,
-        default_value_t = RunnerArg::Auto,
-        help = "auto: pg_dump/mysqldump/mongodump nativo se compatível, senão Docker"
+        help = "auto (padrão): pg_dump/mysqldump/mongodump nativo se compatível, senão Docker"
     )]
-    runner: RunnerArg,
+    runner: Option<RunnerArg>,
     #[arg(long, value_parser = clap::value_parser!(u64).range(1..), help = "Tempo máximo do backup em segundos (padrão: sem limite)")]
     timeout: Option<u64>,
 }
@@ -98,7 +100,16 @@ pub async fn run(args: BackupArgs) -> ExitCode {
         runner,
         timeout,
     } = args;
-    let profile = match crate::profiles::load(profile.as_deref().or(name.as_deref())) {
+    let (engine, source, profile) = match name {
+        Some(target) => match resolve_target(target, engine, &server, runner) {
+            Ok(Target::File(path)) => (Some(EngineArg::Sqlite), Some(path), None),
+            Ok(Target::Profile(name)) => (engine, None, Some(name)),
+            Err(code) => return code,
+        },
+        None => (engine, source, profile),
+    };
+    let runner = runner.unwrap_or(RunnerArg::Auto);
+    let profile = match crate::profiles::load(profile.as_deref()) {
         Ok(profile) => profile,
         Err(code) => return code,
     };
@@ -120,7 +131,7 @@ pub async fn run(args: BackupArgs) -> ExitCode {
         }
         (EngineArg::Sqlite, None) => fail(
             exit::INVALID_INPUT,
-            "--source é obrigatório com --engine sqlite",
+            "--source (ou o arquivo como ALVO) é obrigatório com --engine sqlite",
         ),
         (EngineArg::Postgres | EngineArg::Mysql | EngineArg::Mongodb, Some(_)) => {
             fail(exit::INVALID_INPUT, "--source só vale com --engine sqlite")
@@ -141,6 +152,54 @@ pub async fn run(args: BackupArgs) -> ExitCode {
             }
         }
     }
+}
+
+enum Target {
+    File(PathBuf),
+    Profile(String),
+}
+
+fn resolve_target(
+    target: String,
+    engine: Option<EngineArg>,
+    server: &crate::profiles::ConnectionOptions,
+    runner: Option<RunnerArg>,
+) -> Result<Target, ExitCode> {
+    let path = PathBuf::from(&target);
+    let looks_like_path = path.components().count() > 1 || path.is_absolute();
+    let is_file = std::fs::symlink_metadata(&path).is_ok_and(|metadata| !metadata.is_dir());
+    let is_source_file = match engine {
+        Some(EngineArg::Sqlite) => true,
+        Some(_) if looks_like_path => {
+            return Err(fail(
+                exit::INVALID_INPUT,
+                &format!(
+                    "{target} é um caminho de arquivo; só backups SQLite usam um arquivo de origem"
+                ),
+            ));
+        }
+        Some(_) => false,
+        None if looks_like_path => true,
+        None if is_file && crate::profiles::exists(&target)? => {
+            return Err(fail(
+                exit::INVALID_INPUT,
+                &format!(
+                    "{target} é um arquivo e também um perfil salvo; use --source {target} ou --profile {target}"
+                ),
+            ));
+        }
+        None => is_file,
+    };
+    if !is_source_file {
+        return Ok(Target::Profile(target));
+    }
+    if !server.is_empty() || runner.is_some() {
+        return Err(fail(
+            exit::INVALID_INPUT,
+            "opções de conexão e --runner não valem no backup de um arquivo SQLite",
+        ));
+    }
+    Ok(Target::File(path))
 }
 
 async fn run_postgres(

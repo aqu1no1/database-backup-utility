@@ -44,6 +44,16 @@ pub struct ConnectionOptions {
 }
 
 impl ConnectionOptions {
+    pub fn is_empty(&self) -> bool {
+        self.host.is_none()
+            && self.port.is_none()
+            && self.database.is_none()
+            && self.user.is_none()
+            && self.tls.is_none()
+            && self.auth_database.is_none()
+            && self.password_file.is_none()
+    }
+
     pub fn resolve(
         self,
         engine: Option<EngineArg>,
@@ -129,14 +139,19 @@ fn validate(engine: EngineArg, connection: &ConnectionArgs) -> Result<(), ExitCo
     result.map_err(|error| fail(exit::INVALID_INPUT, &error.to_string()))
 }
 
-fn valid_name(name: &str) -> Result<(), ExitCode> {
-    if name.is_empty()
-        || name.len() > 64
-        || !name.as_bytes()[0].is_ascii_alphanumeric()
-        || !name
+fn is_valid_name(name: &str) -> bool {
+    name.len() <= 64
+        && name
+            .as_bytes()
+            .first()
+            .is_some_and(u8::is_ascii_alphanumeric)
+        && name
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
-    {
+}
+
+fn valid_name(name: &str) -> Result<(), ExitCode> {
+    if !is_valid_name(name) {
         return Err(fail(
             exit::INVALID_INPUT,
             "o nome do perfil deve ter até 64 caracteres, começar com letra ou número e conter apenas letras ASCII, números, -, _ ou .",
@@ -148,6 +163,16 @@ fn valid_name(name: &str) -> Result<(), ExitCode> {
 fn history() -> Result<History, ExitCode> {
     History::default_path()
         .and_then(|path| History::open(&path))
+        .map_err(|error| fail(exit::FAILURE, &describe(&error)))
+}
+
+pub fn exists(name: &str) -> Result<bool, ExitCode> {
+    if !is_valid_name(name) {
+        return Ok(false);
+    }
+    history()?
+        .get_profile(name)
+        .map(|profile| profile.is_some())
         .map_err(|error| fail(exit::FAILURE, &describe(&error)))
 }
 

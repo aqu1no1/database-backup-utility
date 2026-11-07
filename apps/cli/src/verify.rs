@@ -76,7 +76,7 @@ pub async fn run(args: VerifyArgs) -> ExitCode {
         return fail(exit::INVALID_ARCHIVE, &describe(&error));
     }
     let engine = match detect_engine(&file).await {
-        Ok(engine) => engine,
+        Ok(engine) => engine.unwrap_or(DatabaseEngine::Postgres),
         Err(message) => return fail(exit::INVALID_ARCHIVE, &message),
     };
     if args.runner.is_some() && engine != DatabaseEngine::Postgres {
