@@ -481,8 +481,18 @@ fn backup_target_that_is_ambiguous_or_mixed_with_server_options_is_refused() {
     }
     assert_eq!(env.out_files(), Vec::<String>::new());
 
-    let missing = env.run(&["backup", "./nao-existe.db", "-o", out]);
-    assert_eq!(missing.status.code(), Some(4), "{}", text(&missing));
+    for args in [
+        vec!["backup", "./nao-existe.db", "-o", out],
+        vec!["backup", "nao-existe.db", "-e", "sqlite", "-o", out],
+    ] {
+        let missing = env.run(&args);
+        assert_eq!(
+            missing.status.code(),
+            Some(4),
+            "{args:?}: {}",
+            text(&missing)
+        );
+    }
 }
 
 #[cfg(unix)]
@@ -500,6 +510,10 @@ fn restore_never_runs_when_the_engine_diverges_from_the_file() {
     std::fs::write(&mysql_dump, b"-- MySQL dump 10.13\n").unwrap();
     std::fs::set_permissions(&mysql_dump, std::fs::Permissions::from_mode(0o600)).unwrap();
     let mysql_dump = mysql_dump.to_str().unwrap();
+    let postgres_dump = env.path("externo.dump");
+    std::fs::write(&postgres_dump, b"PGDMP\x01\x0e\x00").unwrap();
+    std::fs::set_permissions(&postgres_dump, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let postgres_dump = postgres_dump.to_str().unwrap();
     let added = env.run(&[
         "connection",
         "add",
@@ -556,6 +570,20 @@ fn restore_never_runs_when_the_engine_diverges_from_the_file() {
             "backup de MySQL, não de MongoDB",
         ),
         (
+            vec![
+                "restore",
+                postgres_dump,
+                "-e",
+                "mysql",
+                "--to",
+                "x",
+                "-u",
+                "u",
+                "--allow-unverified",
+            ],
+            "backup de PostgreSQL, não de MySQL",
+        ),
+        (
             vec!["restore", &artifact, "--profile", "dev", "--to", target],
             "o perfil dev é de mysql",
         ),
@@ -575,6 +603,75 @@ fn restore_never_runs_when_the_engine_diverges_from_the_file() {
         );
     }
     assert!(!env.path("copia.db").exists());
+    let restores = json(&env.run(&["--json", "restore", "list"]));
+    assert_eq!(restores["restores"], serde_json::json!([]));
+}
+
+#[cfg(unix)]
+#[test]
+fn restore_of_an_unrecognized_file_follows_the_requested_engine() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let env = Env::new();
+    let dump = env.path("mariadb.sql");
+    std::fs::write(
+        &dump,
+        b"-- MariaDB dump 10.19  Distrib 10.11.6-MariaDB\nCREATE TABLE t (id int);\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&dump, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let dump = dump.to_str().unwrap();
+    let added = env.run(&[
+        "connection",
+        "add",
+        "dev",
+        "-e",
+        "mysql",
+        "-d",
+        "app",
+        "-u",
+        "backup",
+        "--no-test",
+    ]);
+    assert_eq!(added.status.code(), Some(0), "{}", text(&added));
+
+    let cases: Vec<(Vec<&str>, &str)> = vec![
+        (
+            vec![
+                "restore",
+                dump,
+                "-e",
+                "mysql",
+                "--to",
+                "x",
+                "--allow-unverified",
+            ],
+            "obrigatórios no restore de MySQL",
+        ),
+        (
+            vec![
+                "restore",
+                dump,
+                "-e",
+                "postgres",
+                "--profile",
+                "dev",
+                "--to",
+                "x",
+                "--allow-unverified",
+            ],
+            "o perfil dev é de mysql, mas --engine pede PostgreSQL",
+        ),
+    ];
+    for (args, expected) in cases {
+        let output = env.run(&args);
+        assert_eq!(output.status.code(), Some(2), "{args:?}: {}", text(&output));
+        assert!(
+            text(&output).contains(expected),
+            "{args:?}: {}",
+            text(&output)
+        );
+    }
     let restores = json(&env.run(&["--json", "restore", "list"]));
     assert_eq!(restores["restores"], serde_json::json!([]));
 }

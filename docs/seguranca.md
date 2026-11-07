@@ -191,9 +191,10 @@ Nenhum advisory RustSec ignorado.
 - **`DBU_PG_PASSWORD` é visível** em `/proc/<pid>/environ` para o próprio usuário e o root.
   Prefira `--password-file`.
 - **Dono do arquivo de senha não é conferido.** Só as permissões são.
-- **Sem manifesto, arquivo desconhecido é tratado como PostgreSQL.** O restore e o verify reconhecem
-  SQLite, MySQL e MongoDB pelo cabeçalho; qualquer outro arquivo vai para o caminho do PostgreSQL e é
-  recusado pelo `pg_restore --list` (código 10), com uma mensagem menos direta.
+- **Sem manifesto, arquivo desconhecido segue o `--engine` ou o perfil.** O restore e o verify reconhecem
+  PostgreSQL, SQLite, MySQL e MongoDB pelo cabeçalho; um arquivo que não bate com nenhum deles segue o
+  `--engine` (ou o perfil) e, sem eles, o caminho do PostgreSQL. Quem recusa o arquivo é a checagem do
+  adaptador (`pg_restore --list`, cabeçalho do `mysqldump`, número mágico do archive), com código 10.
 - **Perfil aponta para um caminho, não para um arquivo fixo.** Quem consegue trocar o arquivo nesse
   caminho troca a senha usada pelo perfil. As regras de permissão e de symlink valem a cada uso, e a
   proteção da pasta onde o arquivo fica é responsabilidade do usuário.

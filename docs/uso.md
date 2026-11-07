@@ -24,7 +24,7 @@ O `restore` descobre o SGBD pelo manifesto ou, sem manifesto, pelo cabeçalho do
 com código 10, antes de qualquer conexão ou criação de banco.
 
 No `backup`, o argumento é um **arquivo SQLite** quando é um caminho (`./app.db`, `/dados/app.db`) ou
-um arquivo existente na pasta atual; senão, é um **perfil**. Se um nome for ao mesmo tempo arquivo e
+um arquivo existente na pasta atual, ou qualquer nome com `-e sqlite`; senão, é um **perfil**. Se um nome for ao mesmo tempo arquivo e
 perfil (`app.db`), a CLI sai com código 2 e pede `--source` ou `--profile`. Com um arquivo, opções de
 conexão, `--runner` e `-e` de outro SGBD são recusados (código 2).
 

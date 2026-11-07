@@ -182,24 +182,30 @@ fn resolve_target(
     let path = PathBuf::from(&target);
     let looks_like_path = path.components().count() > 1 || path.is_absolute();
     let is_file = std::fs::symlink_metadata(&path).is_ok_and(|metadata| !metadata.is_dir());
-    if !looks_like_path && !(is_file && engine.is_none_or(|engine| engine == EngineArg::Sqlite)) {
+    let is_source_file = match engine {
+        Some(EngineArg::Sqlite) => true,
+        Some(_) if looks_like_path => {
+            return Err(fail(
+                exit::INVALID_INPUT,
+                &format!(
+                    "{target} é um caminho de arquivo; só backups SQLite usam um arquivo de origem"
+                ),
+            ));
+        }
+        Some(_) => false,
+        None if looks_like_path => true,
+        None if is_file && crate::profiles::exists(&target)? => {
+            return Err(fail(
+                exit::INVALID_INPUT,
+                &format!(
+                    "{target} é um arquivo e também um perfil salvo; use --source {target} ou --profile {target}"
+                ),
+            ));
+        }
+        None => is_file,
+    };
+    if !is_source_file {
         return Ok(Target::Profile(target));
-    }
-    if !looks_like_path && crate::profiles::exists(&target)? {
-        return Err(fail(
-            exit::INVALID_INPUT,
-            &format!(
-                "{target} é um arquivo e também um perfil salvo; use --source {target} ou --profile {target}"
-            ),
-        ));
-    }
-    if engine.is_some_and(|engine| engine != EngineArg::Sqlite) {
-        return Err(fail(
-            exit::INVALID_INPUT,
-            &format!(
-                "{target} é um caminho de arquivo; só backups SQLite usam um arquivo de origem"
-            ),
-        ));
     }
     if !server.is_empty() || runner.is_some() {
         return Err(fail(

@@ -8,7 +8,9 @@ use database_backup_adapters::postgres::{
     Admin, ArchiveInfo, DatabaseState, PgTools, PgVersion, Timeouts, derived_name, test_connection,
 };
 use database_backup_core::{DatabaseEngine, Password, PostgresConnectionConfig};
-use database_backup_history::{ExecutionStatus, History, NewRestore, RestoreMode};
+use database_backup_history::{
+    ConnectionProfile, ExecutionStatus, History, NewRestore, RestoreMode,
+};
 use database_backup_storage::check_restore_source;
 use serde::Serialize;
 use time::OffsetDateTime;
@@ -159,27 +161,10 @@ pub async fn run(mut args: RestoreArgs) -> ExitCode {
         Ok(profile) => profile,
         Err(code) => return code,
     };
-    let engine = match detect_source_engine(args.file(), args.engine).await {
+    let engine = match resolve_engine(args.file(), args.engine, profile.as_ref()).await {
         Ok(engine) => engine,
         Err(code) => return code,
     };
-    if let Some(profile) = profile.as_ref() {
-        match crate::profiles::profile_engine(profile) {
-            Ok(profile_engine) if profile_engine == engine => {}
-            Ok(_) => {
-                return fail(
-                    exit::INVALID_ARCHIVE,
-                    &format!(
-                        "o perfil {} é de {}, mas o arquivo é um backup de {}; nada foi restaurado",
-                        profile.name,
-                        profile.engine,
-                        engine_name(engine)
-                    ),
-                );
-            }
-            Err(code) => return code,
-        }
-    }
     if let Some(to) = args.to.take() {
         if engine == EngineArg::Sqlite {
             args.target = Some(PathBuf::from(to));
@@ -292,9 +277,10 @@ pub async fn run(mut args: RestoreArgs) -> ExitCode {
     }
 }
 
-async fn detect_source_engine(
+async fn resolve_engine(
     file: &Path,
     requested: Option<EngineArg>,
+    profile: Option<&ConnectionProfile>,
 ) -> Result<EngineArg, ExitCode> {
     let file = std::path::absolute(file)
         .map_err(|error| fail(exit::INVALID_ARCHIVE, &error.to_string()))?;
@@ -303,18 +289,45 @@ async fn detect_source_engine(
         .map_err(|error| fail(exit::INVALID_ARCHIVE, &describe(&error)))?;
     let detected = detect_engine(&file)
         .await
-        .map(EngineArg::from)
-        .map_err(|message| fail(exit::INVALID_ARCHIVE, &message))?;
-    match requested {
-        Some(requested) if requested != detected => Err(fail(
+        .map_err(|message| fail(exit::INVALID_ARCHIVE, &message))?
+        .map(EngineArg::from);
+    let profile_engine = profile.map(crate::profiles::profile_engine).transpose()?;
+    let engine = detected
+        .or(requested)
+        .or(profile_engine)
+        .unwrap_or(EngineArg::Postgres);
+    if let Some(requested) = requested.filter(|requested| *requested != engine) {
+        return Err(fail(
             exit::INVALID_ARCHIVE,
             &format!(
                 "o arquivo é um backup de {}, não de {}; nada foi restaurado",
-                engine_name(detected),
+                engine_name(engine),
                 engine_name(requested)
             ),
-        )),
-        _ => Ok(detected),
+        ));
+    }
+    match (profile, profile_engine) {
+        (Some(profile), Some(profile_engine)) if profile_engine != engine => Err(match detected {
+            Some(_) => fail(
+                exit::INVALID_ARCHIVE,
+                &format!(
+                    "o perfil {} é de {}, mas o arquivo é um backup de {}; nada foi restaurado",
+                    profile.name,
+                    profile.engine,
+                    engine_name(engine)
+                ),
+            ),
+            None => fail(
+                exit::INVALID_INPUT,
+                &format!(
+                    "o perfil {} é de {}, mas --engine pede {}; nada foi restaurado",
+                    profile.name,
+                    profile.engine,
+                    engine_name(engine)
+                ),
+            ),
+        }),
+        _ => Ok(engine),
     }
 }
 
