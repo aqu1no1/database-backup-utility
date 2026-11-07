@@ -84,10 +84,9 @@ erDiagram
 | `backup_executions` | Cada execução: `running`, `succeeded`, `failed` ou `canceled`, com duração e erro já sanitizado. |
 | `backup_artifacts` | Arquivos gerados: local, formato, tamanho, SHA-256 e versão da ferramenta. |
 | `restore_executions` | Cada restore: arquivo de origem (e o artefato, quando conhecido), se o checksum foi conferido com uma referência (`checksum_verified = 0` quando veio de `--allow-unverified`), destino sem senha, modo `create`/`overwrite`, banco anterior mantido, status, duração e erro saneado. |
-
-- Tabelas `STRICT`, chaves estrangeiras ativas e `ON DELETE CASCADE`.
 | `profiles` | Perfis de conexão do `dbu connection add`, sem relação com as outras tabelas. `password_file` é só o caminho do arquivo de senha; `auth_database` só existe no MongoDB. |
 
+- Tabelas `STRICT`, chaves estrangeiras ativas e `ON DELETE CASCADE`.
 - Nenhuma coluna guarda senha ou token; um teste verifica isso (`profiles.password_file` é um caminho, a única exceção ao nome).
 - `schedules` entra quando o agendamento for implementado.
 - Para identificar um artefato sem o histórico, o backup (DB-10) vai gravar um arquivo de metadados ao lado do dump.

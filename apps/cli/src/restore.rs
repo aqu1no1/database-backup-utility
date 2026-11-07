@@ -161,6 +161,9 @@ pub async fn run(mut args: RestoreArgs) -> ExitCode {
         Ok(profile) => profile,
         Err(code) => return code,
     };
+    if profile.is_some() && (args.engine == Some(EngineArg::Sqlite) || args.target.is_some()) {
+        return fail(exit::INVALID_INPUT, crate::profiles::SQLITE_UNSUPPORTED);
+    }
     let engine = match resolve_engine(args.file(), args.engine, profile.as_ref()).await {
         Ok(engine) => engine,
         Err(code) => return code,

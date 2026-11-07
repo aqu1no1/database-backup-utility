@@ -452,9 +452,6 @@ async fn test_resolved(
     timeout: u64,
     report: bool,
 ) -> ExitCode {
-    if engine != EngineArg::Mongodb && connection.auth_database.is_some() {
-        return fail(exit::INVALID_INPUT, AUTH_DATABASE_ONLY_MONGODB);
-    }
     match engine {
         EngineArg::Postgres => {}
         EngineArg::Mysql => return mysql::test(&connection, timeout, report).await,
