@@ -51,6 +51,10 @@ const MYSQL_TAG_VARIABLE: &str = "DBU_MYSQL_TAG";
 const MYSQL_USER: &str = "root";
 const MYSQL_DATABASE: &str = "backup_test";
 const MYSQL_READY: &str = "port: 3306  MySQL Community Server";
+const MARIADB_IMAGE: &str = "mariadb";
+const MARIADB_DEFAULT_TAG: &str = "11.4";
+const MARIADB_TAG_VARIABLE: &str = "DBU_MARIADB_TAG";
+const MARIADB_READY: &str = "port: 3306  mariadb.org binary distribution";
 
 const MONGO_IMAGE: &str = "mongo";
 const MONGO_DEFAULT_TAG: &str = "7.0";
@@ -203,34 +207,66 @@ impl Drop for PostgresTestDb {
     }
 }
 
+struct MysqlImage {
+    name: &'static str,
+    tag: String,
+    ready: &'static str,
+    env_prefix: &'static str,
+}
+
 pub struct MysqlTestDb {
     host: String,
     port: u16,
     password: String,
+    image: &'static str,
     tag: String,
     _container: ContainerAsync<GenericImage>,
 }
 
 impl MysqlTestDb {
     pub async fn start() -> TestResult<Self> {
-        let tag = mysql_tag();
+        Self::launch(MysqlImage {
+            name: MYSQL_IMAGE,
+            tag: image_tag(MYSQL_TAG_VARIABLE, MYSQL_DEFAULT_TAG),
+            ready: MYSQL_READY,
+            env_prefix: "MYSQL",
+        })
+        .await
+    }
+
+    pub async fn start_mariadb() -> TestResult<Self> {
+        Self::launch(MysqlImage {
+            name: MARIADB_IMAGE,
+            tag: image_tag(MARIADB_TAG_VARIABLE, MARIADB_DEFAULT_TAG),
+            ready: MARIADB_READY,
+            env_prefix: "MARIADB",
+        })
+        .await
+    }
+
+    async fn launch(image: MysqlImage) -> TestResult<Self> {
+        let MysqlImage {
+            name,
+            tag,
+            ready,
+            env_prefix,
+        } = image;
         let password = random_password();
-        let container = GenericImage::new(MYSQL_IMAGE, tag.as_str())
+        let container = GenericImage::new(name, tag.as_str())
             .with_exposed_port(3306.tcp())
-            .with_wait_for(WaitFor::message_on_stderr(MYSQL_READY))
-            .with_env_var("MYSQL_ROOT_PASSWORD", &password)
-            .with_env_var("MYSQL_DATABASE", MYSQL_DATABASE)
+            .with_wait_for(WaitFor::message_on_stderr(ready))
+            .with_env_var(format!("{env_prefix}_ROOT_PASSWORD"), &password)
+            .with_env_var(format!("{env_prefix}_DATABASE"), MYSQL_DATABASE)
             .start()
             .await
-            .map_err(|error| {
-                format!("falha ao iniciar o container {MYSQL_IMAGE}:{tag}: {error}")
-            })?;
+            .map_err(|error| format!("falha ao iniciar o container {name}:{tag}: {error}"))?;
         let host = container.get_host().await?.to_string();
         let port = container.get_host_port_ipv4(3306.tcp()).await?;
         let db = Self {
             host,
             port,
             password,
+            image: name,
             tag,
             _container: container,
         };
@@ -239,7 +275,15 @@ impl MysqlTestDb {
     }
 
     pub async fn start_seeded() -> TestResult<Self> {
-        let db = Self::start().await?;
+        Self::start().await?.seed().await
+    }
+
+    pub async fn start_mariadb_seeded() -> TestResult<Self> {
+        Self::start_mariadb().await?.seed().await
+    }
+
+    async fn seed(self) -> TestResult<Self> {
+        let db = self;
         let mut conn = db.conn(MYSQL_DATABASE).await?;
         for statement in MYSQL_SEED_SQL.split(";\n").filter(|s| !s.trim().is_empty()) {
             conn.query_drop(statement).await.map_err(|error| {
@@ -267,8 +311,8 @@ impl MysqlTestDb {
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
         Err(format!(
-            "falha ao conectar no MySQL de teste em {}:{}: {last:?}",
-            self.host, self.port
+            "falha ao conectar no {} de teste em {}:{}: {last:?}",
+            self.image, self.host, self.port
         )
         .into())
     }
@@ -573,11 +617,11 @@ impl MongoTestDb {
     }
 }
 
-fn mysql_tag() -> String {
-    std::env::var(MYSQL_TAG_VARIABLE)
+fn image_tag(variable: &str, default: &str) -> String {
+    std::env::var(variable)
         .ok()
         .filter(|tag| !tag.is_empty())
-        .unwrap_or_else(|| MYSQL_DEFAULT_TAG.to_owned())
+        .unwrap_or_else(|| default.to_owned())
 }
 
 fn mongo_tag() -> String {

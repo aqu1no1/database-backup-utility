@@ -3,7 +3,7 @@
 
   # Database Backup Utility
 
-  CLI em Rust para backup, verificação e restauração de PostgreSQL, MySQL, MongoDB e SQLite, com um
+  CLI em Rust para backup, verificação e restauração de PostgreSQL, MySQL, MariaDB, MongoDB e SQLite, com um
   app desktop Tauri + Angular planejado sobre as mesmas crates.
 </div>
 
@@ -14,7 +14,7 @@ ou via Docker) ou, no SQLite, com a Online Backup API. Cada arquivo é gravado d
 SHA-256 e um manifesto versionado ao lado, e o restore sempre confere o backup antes de tocar no
 destino. O futuro app desktop vai usar as mesmas crates Rust, sem regra de backup no frontend.
 
-**Tecnologias:** CLI `Rust / Clap / Tokio` · Bancos `PostgreSQL / MySQL / MongoDB / SQLite` ·
+**Tecnologias:** CLI `Rust / Clap / Tokio` · Bancos `PostgreSQL / MySQL / MariaDB / MongoDB / SQLite` ·
 Histórico `SQLite` · Desktop (planejado) `Tauri / Angular / Tailwind v4` · Workspace `Cargo`
 
 > **Estado atual (v0.2.0):** backup, verificação e restore de PostgreSQL, MySQL, MongoDB e SQLite
@@ -43,7 +43,7 @@ flowchart LR
 | --- | --- | --- |
 | `apps/cli` | Comandos, saída texto/JSON, exit codes e fluxo de cada SGBD | [Organização da CLI](docs/arquitetura.md#organização-da-cli) |
 | `crates/core` | `DatabaseEngine`, matriz de capacidades, configurações de conexão e segredos | [Capacidades](docs/capacidades.md) |
-| `crates/database-adapters` | Conexão, `pg_dump`/`mysqldump`/`mongodump` e restores, Backup API do SQLite | [Arquitetura](docs/arquitetura.md) |
+| `crates/database-adapters` | Conexão, `pg_dump`/`mysqldump`/`mariadb-dump`/`mongodump` e restores, Backup API do SQLite | [Arquitetura](docs/arquitetura.md) |
 | `crates/storage` | Arquivo `.partial`, SHA-256, `rename` atômico e manifesto | [Manifesto](docs/manifesto.md) |
 | `crates/history` | Histórico interno de backups e restores com migrations | [Modelo de dados](docs/diagramas/modelo-de-dados.md) |
 | `apps/desktop` | App Tauri + Angular (planejado para a v0.3.0) | [Releases](docs/RELEASES.md) |
@@ -72,11 +72,11 @@ Erro: o arquivo ~/demo/app.db já existe; use --overwrite para substituí-lo (o 
 
 | Comando | O que faz |
 | --- | --- |
-| `dbu backup -d app -u backup` | Gera um backup completo com checksum e manifesto (`-e mysql`, `-e mongodb`; SQLite: `dbu backup ./app.db`) |
+| `dbu backup -d app -u backup` | Gera um backup completo com checksum e manifesto (`-e mysql`, `-e mariadb`, `-e mongodb`; SQLite: `dbu backup ./app.db`) |
 | `dbu verify <ARQUIVO>` | Confere checksum e estrutura de um backup, sem restaurar |
 | `dbu restore <ARQUIVO> --to <DESTINO>` | Restaura um backup conferido em um destino novo (ou com `--overwrite`, onde suportado); o SGBD vem do arquivo |
 | `dbu list` / `dbu list restores` | Lista os backups ou as restaurações do histórico |
-| `dbu test -d app -u backup` | Valida os parâmetros e testa a conexão (PostgreSQL, MySQL, MongoDB) |
+| `dbu test -d app -u backup` | Valida os parâmetros e testa a conexão (PostgreSQL, MySQL, MariaDB, MongoDB) |
 | `dbu connection add prod -d app -u backup` | Salva um perfil de conexão sem a senha; depois, `dbu backup prod` (`list`, `remove`) |
 | `dbu engines` | Mostra o que cada SGBD suporta, planeja ou não suporta |
 
@@ -107,6 +107,7 @@ Cada SGBD com servidor precisa das ferramentas oficiais **ou** de Docker:
 
 - **PostgreSQL:** `pg_dump`/`pg_restore` com versão maior ou igual à do servidor.
 - **MySQL:** `mysqldump`/`mysql` com versão maior ou igual à do servidor.
+- **MariaDB:** `mariadb-dump`/`mariadb` com versão maior ou igual à do servidor.
 - **MongoDB:** Database Tools `100.x`.
 - **SQLite:** nada externo.
 
@@ -148,6 +149,7 @@ docker compose --env-file .env -f infra/docker/compose.yml up -d postgres
 - [Rust Workspaces](https://doc.rust-lang.org/book/ch14-03-cargo-workspaces.html)
 - [PostgreSQL — pg_dump](https://www.postgresql.org/docs/current/app-pgdump.html)
 - [MySQL — mysqldump](https://dev.mysql.com/doc/refman/8.4/en/mysqldump.html)
+- [MariaDB — mariadb-dump](https://mariadb.com/kb/en/mariadb-dump/)
 - [MongoDB Database Tools](https://www.mongodb.com/docs/database-tools/)
 - [SQLite — Online Backup API](https://www.sqlite.org/backup.html)
 - [Testcontainers for Rust](https://rust.testcontainers.org/)

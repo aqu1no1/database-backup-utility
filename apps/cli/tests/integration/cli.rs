@@ -175,7 +175,7 @@ fn engines_lists_every_engine_without_claiming_unimplemented_operations() {
         .iter()
         .map(|engine| engine["engine"].as_str().unwrap())
         .collect();
-    assert_eq!(names, ["postgres", "mysql", "mongodb", "sqlite"]);
+    assert_eq!(names, ["postgres", "mysql", "mariadb", "mongodb", "sqlite"]);
     for engine in engines {
         let support = |operation: &str| {
             engine["capabilities"]

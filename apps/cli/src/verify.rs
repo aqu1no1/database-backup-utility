@@ -105,7 +105,7 @@ pub async fn run(args: VerifyArgs) -> ExitCode {
     }
     let structure = match engine {
         DatabaseEngine::Sqlite => sqlite_structure(&file).await,
-        DatabaseEngine::Mysql => mysql_structure(&file).await,
+        DatabaseEngine::Mysql | DatabaseEngine::Mariadb => mysql_structure(&file, engine).await,
         DatabaseEngine::Mongodb => mongo_structure(&file).await,
         DatabaseEngine::Postgres => {
             postgres_structure(&file, &verified, args.runner.unwrap_or(RunnerArg::Auto)).await
@@ -187,10 +187,20 @@ async fn sqlite_structure(file: &Path) -> Result<Structure, ExitCode> {
     })
 }
 
-async fn mysql_structure(file: &Path) -> Result<Structure, ExitCode> {
+async fn mysql_structure(file: &Path, engine: DatabaseEngine) -> Result<Structure, ExitCode> {
     let dump = crate::mysql::inspect(file)
         .await
         .map_err(|message| fail(exit::INVALID_ARCHIVE, &message))?;
+    if crate::mysql::engine(dump.flavor) != engine {
+        return Err(fail(
+            exit::INVALID_ARCHIVE,
+            &format!(
+                "o arquivo é um dump do {}, mas o manifesto diz {}",
+                dump.flavor,
+                engine.display_name()
+            ),
+        ));
+    }
     Ok(Structure {
         objects: dump.objects(),
         tables: dump.tables,

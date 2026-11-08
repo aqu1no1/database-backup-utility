@@ -21,6 +21,7 @@ const MIGRATIONS: &[M<'static>] = &[
     )),
     M::up(include_str!("../migrations/0004_restore_targets.sql")),
     M::up(include_str!("../migrations/0005_profiles.sql")),
+    M::up(include_str!("../migrations/0006_mariadb.sql")).foreign_key_check(),
 ];
 
 #[derive(Debug, Error)]
@@ -235,8 +236,9 @@ impl History {
         }
         let mut conn = Connection::open(path)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
-        conn.pragma_update(None, "foreign_keys", true)?;
+        conn.pragma_update(None, "foreign_keys", false)?;
         migrations.to_latest(&mut conn)?;
+        conn.pragma_update(None, "foreign_keys", true)?;
         Ok(Self { conn })
     }
 
@@ -1097,6 +1099,112 @@ mod tests {
         );
         assert_eq!(name, "dev-local");
         assert_eq!(notes, None);
+    }
+
+    #[test]
+    fn mariadb_migration_keeps_every_row_and_its_links() {
+        let dir = TempDir::new().expect("diretório temporário");
+        let path = dir.path().join(DATABASE_FILE);
+        let before = History::open_with(&path, &Migrations::from_slice(&MIGRATIONS[..5]))
+            .expect("histórico v5");
+        let connection_id = before
+            .upsert_connection(&sample_connection())
+            .expect("conexão");
+        let job_id = before.create_job(&connection_id, "dev-full").expect("job");
+        let execution_id = before.start_execution(&job_id).expect("execução");
+        let artifact_id = before
+            .add_artifact(
+                &execution_id,
+                &NewArtifact {
+                    location: "/backups/app.dump",
+                    format: "pg_dump-custom",
+                    size_bytes: 10,
+                    checksum_sha256: None,
+                    tool_version: None,
+                },
+            )
+            .expect("artefato");
+        before
+            .start_restore(&NewRestore {
+                artifact_id: Some(&artifact_id),
+                source_location: "/backups/app.dump",
+                source_sha256: None,
+                checksum_verified: true,
+                engine: "postgres",
+                target_host: Some("localhost"),
+                target_port: Some(5432),
+                target_database: "copia",
+                mode: RestoreMode::Create,
+            })
+            .expect("restore");
+        let profile = ConnectionProfile {
+            name: "prod".to_owned(),
+            engine: "mysql".to_owned(),
+            host: "localhost".to_owned(),
+            port: 3306,
+            database_name: "app".to_owned(),
+            username: "backup".to_owned(),
+            tls: "auto".to_owned(),
+            auth_database: None,
+            password_file: None,
+        };
+        before.add_profile(&profile).expect("perfil");
+        drop(before);
+
+        let after = History::open(&path).expect("migrar para v6");
+        let count = |table: &str| -> i64 {
+            after
+                .conn
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .expect("contagem")
+        };
+        for table in [
+            "connections",
+            "backup_jobs",
+            "backup_executions",
+            "backup_artifacts",
+            "restore_executions",
+            "profiles",
+        ] {
+            assert_eq!(count(table), 1, "{table}");
+        }
+        let restored_artifact: Option<String> = after
+            .conn
+            .query_row("SELECT artifact_id FROM restore_executions", [], |row| {
+                row.get(0)
+            })
+            .expect("restore");
+        assert_eq!(restored_artifact.as_deref(), Some(artifact_id.as_str()));
+        assert_eq!(after.get_profile("prod").expect("perfil"), Some(profile));
+
+        after
+            .upsert_connection(&NewConnection {
+                display_name: "maria",
+                engine: "mariadb",
+                ..sample_connection()
+            })
+            .expect("conexão MariaDB");
+        after
+            .add_profile(&ConnectionProfile {
+                name: "maria".to_owned(),
+                engine: "mariadb".to_owned(),
+                host: "localhost".to_owned(),
+                port: 3306,
+                database_name: "app".to_owned(),
+                username: "backup".to_owned(),
+                tls: "auto".to_owned(),
+                auth_database: None,
+                password_file: None,
+            })
+            .expect("perfil MariaDB");
+
+        after
+            .conn
+            .execute("DELETE FROM connections", [])
+            .expect("apagar conexões");
+        assert_eq!(count("backup_jobs"), 0, "a FK em cascata continua ativa");
     }
 
     #[test]

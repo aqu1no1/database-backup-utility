@@ -32,7 +32,7 @@ pub enum AdminError {
         source: mysql_async::Error,
     },
     #[error(
-        "o usuário de restore não consegue criar {kind} com DEFINER {definer} no destino: {detail}; use um usuário com SET_ANY_DEFINER (ou SUPER, que também cobre o binlog), ou restaure com o próprio {definer}"
+        "o usuário de restore não consegue criar {kind} com DEFINER {definer} no destino: {detail}; use um usuário com SET_ANY_DEFINER no MySQL ou SET USER no MariaDB (ou SUPER, que também cobre o binlog), ou restaure com o próprio {definer}"
     )]
     DefinerRefused {
         kind: ObjectKind,

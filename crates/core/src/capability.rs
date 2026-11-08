@@ -223,6 +223,61 @@ const MYSQL: [Capability; 12] = [
     ),
 ];
 
+const MARIADB: [Capability; 12] = [
+    entry(
+        Operation::ConnectionTest,
+        Support::Supported,
+        "mysql_async, com TLS verify-full opcional; recusa servidor MySQL",
+    ),
+    entry(
+        Operation::FullBackup,
+        Support::Supported,
+        "mariadb-dump --single-transaction; consistente só para tabelas InnoDB",
+    ),
+    entry(
+        Operation::Verify,
+        Support::Supported,
+        "checksum e leitura do SQL em Rust, sem ferramenta externa",
+    ),
+    entry(
+        Operation::Restore,
+        Support::Supported,
+        "cliente mariadb em banco novo, com --binary-mode e --local-infile=0",
+    ),
+    entry(
+        Operation::RestoreOverwrite,
+        Support::Unsupported,
+        "o MariaDB não tem RENAME DATABASE para uma troca atômica",
+    ),
+    entry(
+        Operation::SelectiveRestore,
+        Support::Unsupported,
+        "o dump SQL é aplicado inteiro",
+    ),
+    entry(
+        Operation::IncrementalBackup,
+        Support::Unsupported,
+        "exige binlog ou mariadb-backup, fora do escopo do mariadb-dump",
+    ),
+    entry(
+        Operation::DifferentialBackup,
+        Support::Unsupported,
+        "exige mariadb-backup, fora do escopo do mariadb-dump",
+    ),
+    entry(
+        Operation::PointInTimeRecovery,
+        Support::Unsupported,
+        "exige replay de binlog a partir de um backup base",
+    ),
+    COMPRESSION,
+    ENCRYPTION,
+    entry(
+        Operation::DockerRunner,
+        Support::Supported,
+        "imagem mariadb:<major.minor> quando não há cliente nativo compatível",
+    ),
+];
+
 const MONGODB: [Capability; 12] = [
     entry(
         Operation::ConnectionTest,
@@ -339,6 +394,7 @@ impl DatabaseEngine {
         match self {
             Self::Postgres => &POSTGRES,
             Self::Mysql => &MYSQL,
+            Self::Mariadb => &MARIADB,
             Self::Mongodb => &MONGODB,
             Self::Sqlite => &SQLITE,
         }

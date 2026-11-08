@@ -5,11 +5,13 @@ use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
-use super::tools::MysqlVersion;
+use super::tools::{Flavor, MysqlVersion};
 
 const KEPT_LINE_BYTES: usize = 256;
 const KEPT_TAIL_BYTES: usize = 32;
-const HEADER: &str = "-- MySQL dump ";
+const MYSQL_HEADER: &str = "-- MySQL dump ";
+const MARIADB_HEADER: &str = "-- MariaDB dump ";
+const MARIADB_SANDBOX: &str = "/*M!999999\\- enable the sandbox mode */";
 const FOOTER: &str = "-- Dump completed";
 const DATABASE_STATEMENTS: [&str; 3] = ["USE ", "CREATE DATABASE", "DROP DATABASE"];
 const TRIGGER_MARKER: &str = "*/ /*!50003 TRIGGER ";
@@ -56,8 +58,9 @@ impl fmt::Display for Definer {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DumpInfo {
+    pub flavor: Flavor,
     pub database: Option<String>,
     pub dumped_from: Option<MysqlVersion>,
     pub dumped_by: Option<MysqlVersion>,
@@ -67,6 +70,42 @@ pub struct DumpInfo {
     pub routines: usize,
     pub events: usize,
     pub definers: BTreeSet<(ObjectKind, Definer)>,
+}
+
+impl Default for DumpInfo {
+    fn default() -> Self {
+        Self {
+            flavor: Flavor::Mysql,
+            database: None,
+            dumped_from: None,
+            dumped_by: None,
+            tables: 0,
+            views: 0,
+            triggers: 0,
+            routines: 0,
+            events: 0,
+            definers: BTreeSet::new(),
+        }
+    }
+}
+
+#[must_use]
+pub fn dump_flavor(first_lines: &str) -> Option<Flavor> {
+    let mut lines = first_lines.lines().map(|line| line.trim_end_matches('\r'));
+    let mut line = lines.next()?;
+    if line.trim_end() == MARIADB_SANDBOX {
+        line = lines.next()?;
+    }
+    header_flavor(line).map(|(flavor, _)| flavor)
+}
+
+fn header_flavor(line: &str) -> Option<(Flavor, &str)> {
+    line.strip_prefix(MYSQL_HEADER)
+        .map(|rest| (Flavor::Mysql, rest))
+        .or_else(|| {
+            line.strip_prefix(MARIADB_HEADER)
+                .map(|rest| (Flavor::Mariadb, rest))
+        })
 }
 
 impl DumpInfo {
@@ -84,16 +123,16 @@ pub enum DumpError {
         #[source]
         source: io::Error,
     },
-    #[error("o arquivo não começa com o cabeçalho do mysqldump")]
+    #[error("o arquivo não começa com o cabeçalho do mysqldump nem do mariadb-dump")]
     NotMysqlDump,
-    #[error("o dump está incompleto: falta a linha final \"-- Dump completed\" do mysqldump")]
+    #[error("o dump está incompleto: falta a linha final \"-- Dump completed\"")]
     Incomplete,
     #[error(
         "o dump troca ou cria bancos ({statement}); só são aceitos dumps de um banco, sem --databases"
     )]
     SelectsDatabase { statement: String },
     #[error(
-        "o {kind} `{name}` tem o corpo terminado em \";\", e o mysqldump gera para ele um comando que o próprio MySQL não consegue restaurar; recrie o {kind} sem o \";\" final (por exemplo, pelo cliente mysql) e gere o backup de novo"
+        "o {kind} `{name}` tem o corpo terminado em \";\", e o dump gera para ele um comando que o próprio servidor não consegue restaurar; recrie o {kind} sem o \";\" final (por exemplo, pelo cliente mysql ou mariadb) e gere o backup de novo"
     )]
     UnrestorableObject { kind: ObjectKind, name: String },
 }
@@ -156,6 +195,7 @@ impl Tail {
 struct Scanner {
     info: DumpInfo,
     started: bool,
+    sandboxed: bool,
     last: Vec<u8>,
     open: Option<(ObjectKind, String)>,
 }
@@ -202,12 +242,20 @@ impl Scanner {
         let text = String::from_utf8_lossy(raw);
         let line = text.trim_end_matches('\r');
         if !self.started {
-            let Some(header) = line.strip_prefix(HEADER) else {
+            if line.trim_end() == MARIADB_SANDBOX && !self.sandboxed {
+                self.sandboxed = true;
+                return Ok(());
+            }
+            let Some((flavor, header)) = header_flavor(line) else {
                 return Err(DumpError::NotMysqlDump);
             };
-            self.info.dumped_by = header
-                .split_once("Distrib ")
-                .and_then(|(_, rest)| MysqlVersion::parse(rest));
+            self.info.flavor = flavor;
+            self.info.dumped_by = match flavor {
+                Flavor::Mysql => header
+                    .split_once("Distrib ")
+                    .and_then(|(_, rest)| MysqlVersion::parse(rest)),
+                Flavor::Mariadb => MysqlVersion::parse_as(flavor, header),
+            };
             self.started = true;
         }
         if line.trim().is_empty() {
@@ -233,7 +281,7 @@ impl Scanner {
             if let Some((_, database)) = comment.split_once("Database: ") {
                 self.info.database = Some(database.trim().to_owned());
             } else if let Some(version) = comment.strip_prefix("Server version") {
-                self.info.dumped_from = MysqlVersion::parse(version);
+                self.info.dumped_from = MysqlVersion::parse_as(self.info.flavor, version);
             }
         } else if line.starts_with("CREATE TABLE `") {
             self.info.tables += 1;
@@ -452,6 +500,66 @@ DELIMITER ;
         assert!(matches!(scan_text(cut), Err(DumpError::Incomplete)));
         let crlf = DUMP.replace('\n', "\r\n");
         assert!(scan_text(&crlf).is_ok());
+    }
+
+    const MARIADB_DUMP_START: &str = "/*M!999999\\- enable the sandbox mode */ \n-- MariaDB dump 10.19-11.4.2-MariaDB, for debian-linux-gnu (x86_64)
+--
+-- Host: 127.0.0.1    Database: app
+-- ------------------------------------------------------
+-- Server version\t11.4.2-MariaDB-ubu2404
+";
+
+    fn mariadb_dump(start: &str) -> String {
+        let body = &DUMP[DUMP.find("\n/*!40101").expect("corpo")..];
+        format!("{start}{body}")
+    }
+
+    #[test]
+    fn reads_mariadb_dumps_with_and_without_the_sandbox_line() {
+        let v114 = Some(MysqlVersion {
+            major: 11,
+            minor: 4,
+        });
+        let sandboxed = mariadb_dump(MARIADB_DUMP_START);
+        let plain = mariadb_dump(
+            "-- MariaDB dump 10.19  Distrib 10.11.6-MariaDB, for debian-linux-gnu (x86_64)\n--\n-- Host: h    Database: app\n-- Server version\t10.11.6-MariaDB-1\n",
+        );
+
+        let info = scan_text(&sandboxed).expect("dump MariaDB com sandbox");
+        assert_eq!(info.flavor, Flavor::Mariadb);
+        assert_eq!((info.dumped_by, info.dumped_from), (v114, v114));
+        assert_eq!(info.database.as_deref(), Some("app"));
+        assert_eq!(info.objects(), 8);
+
+        let info = scan_text(&plain).expect("dump MariaDB sem sandbox");
+        let v1011 = Some(MysqlVersion {
+            major: 10,
+            minor: 11,
+        });
+        assert_eq!((info.flavor, info.dumped_from), (Flavor::Mariadb, v1011));
+        assert_eq!(scan_text(DUMP).expect("dump MySQL").flavor, Flavor::Mysql);
+    }
+
+    #[test]
+    fn flavor_is_read_from_the_first_lines() {
+        assert_eq!(dump_flavor(MARIADB_DUMP_START), Some(Flavor::Mariadb));
+        assert_eq!(dump_flavor(DUMP), Some(Flavor::Mysql));
+        assert_eq!(
+            dump_flavor("/*M!999999\\- enable the sandbox mode */\n"),
+            None
+        );
+        assert_eq!(dump_flavor("SELECT 1;\n"), None);
+    }
+
+    #[test]
+    fn sandbox_line_is_accepted_only_once_and_only_before_the_header() {
+        let sandbox = "/*M!999999\\- enable the sandbox mode */\n";
+        let twice = format!("{sandbox}{sandbox}{DUMP}");
+        assert!(matches!(scan_text(&twice), Err(DumpError::NotMysqlDump)));
+        assert!(matches!(
+            scan_text(&format!("{sandbox}-- Dump completed\n")),
+            Err(DumpError::NotMysqlDump)
+        ));
     }
 
     #[test]

@@ -59,7 +59,7 @@ jobs:
           DBU_E2E_LOG_DIR: ${{ runner.temp }}/e2e-logs
         run: |
           pg_dump --version
-          cargo test --workspace --tests --locked -- --nocapture --skip mysql:: --skip mysql_tools:: --skip mysql_connection:: --skip mongo:: --skip mongo_tools:: --skip mongo_connection::
+          cargo test --workspace --tests --locked -- --nocapture --skip mysql:: --skip mysql_tools:: --skip mysql_connection:: --skip mongo:: --skip mongo_tools:: --skip mongo_connection:: --skip mariadb:: --skip mariadb_tools:: --skip mariadb_connection::
       - name: Logs de diagnóstico do E2E
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -99,6 +99,37 @@ jobs:
           mysql --version
           cargo test -p database-backup-adapters --test integration --locked -- --nocapture mysql_tools:: mysql_connection::
           cargo test -p database-backup-cli --test integration --locked -- --nocapture mysql::
+
+  mariadb-integration:
+    name: Rust / MariaDB Integration (${{ matrix.mariadb }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        mariadb: ['10.11', '11.4']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Toolchain do rust-toolchain.toml
+        run: rustup toolchain install && rustc --version && cargo --version
+      - name: Docker disponível
+        run: docker info
+      - name: Cliente MariaDB (modo native)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mariadb-client
+      - name: Testcontainers MariaDB ${{ matrix.mariadb }}
+        env:
+          DBU_REQUIRE_NATIVE_MARIADB: '1'
+          DBU_MARIADB_TAG: ${{ matrix.mariadb }}
+        run: |
+          mariadb-dump --version
+          mariadb --version
+          cargo test -p database-backup-adapters --test integration --locked -- --nocapture mariadb_tools:: mariadb_connection::
+          cargo test -p database-backup-cli --test integration --locked -- --nocapture mariadb::
 
   mongo-integration:
     name: Rust / MongoDB Integration (${{ matrix.mongo }})

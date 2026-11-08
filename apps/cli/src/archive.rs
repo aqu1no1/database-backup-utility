@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use database_backup_adapters::mongo::ARCHIVE_MAGIC as MONGO_ARCHIVE_MAGIC;
+use database_backup_adapters::mysql::{Flavor, dump_flavor};
 use database_backup_adapters::postgres::{ArchiveInfo, PgTools, PgVersion};
 use database_backup_adapters::sqlite::{SqliteError, check_database_file};
 use database_backup_core::DatabaseEngine;
@@ -10,7 +11,7 @@ use tokio::io::AsyncReadExt;
 
 use crate::describe;
 
-const MYSQL_DUMP_HEADER: &[u8] = b"-- MySQL dump ";
+const SQL_DUMP_HEAD_BYTES: usize = 512;
 const POSTGRES_ARCHIVE_MAGIC: &[u8] = b"PGDMP";
 
 pub struct VerifiedSource {
@@ -42,15 +43,33 @@ pub async fn detect_engine(file: &Path) -> Result<Option<DatabaseEngine>, String
         Err(SqliteError::NotSqlite(_)) if starts_with(file, POSTGRES_ARCHIVE_MAGIC).await? => {
             Ok(Some(DatabaseEngine::Postgres))
         }
-        Err(SqliteError::NotSqlite(_)) if starts_with(file, MYSQL_DUMP_HEADER).await? => {
-            Ok(Some(DatabaseEngine::Mysql))
-        }
         Err(SqliteError::NotSqlite(_)) if starts_with(file, &MONGO_ARCHIVE_MAGIC).await? => {
             Ok(Some(DatabaseEngine::Mongodb))
         }
-        Err(SqliteError::NotSqlite(_)) => Ok(None),
+        Err(SqliteError::NotSqlite(_)) => {
+            let head = read_head(file, SQL_DUMP_HEAD_BYTES).await?;
+            Ok(
+                dump_flavor(&String::from_utf8_lossy(&head)).map(|flavor| match flavor {
+                    Flavor::Mysql => DatabaseEngine::Mysql,
+                    Flavor::Mariadb => DatabaseEngine::Mariadb,
+                }),
+            )
+        }
         Err(error) => Err(describe(&error)),
     }
+}
+
+async fn read_head(file: &Path, limit: usize) -> Result<Vec<u8>, String> {
+    let opened = tokio::fs::File::open(file)
+        .await
+        .map_err(|error| format!("não foi possível ler {}: {error}", file.display()))?;
+    let mut head = Vec::with_capacity(limit);
+    opened
+        .take(limit as u64)
+        .read_to_end(&mut head)
+        .await
+        .map_err(|error| format!("não foi possível ler {}: {error}", file.display()))?;
+    Ok(head)
 }
 
 async fn starts_with(file: &Path, prefix: &[u8]) -> Result<bool, String> {

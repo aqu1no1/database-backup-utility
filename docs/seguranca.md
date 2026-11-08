@@ -108,7 +108,21 @@ Todos os testes citados rodam na CI (`cargo test --workspace --tests`, job
 | Backup que o MySQL não restauraria não é publicado | trigger ou evento com o corpo terminado em `;` (criado por cliente que envia vários comandos de uma vez) é detectado na leitura do dump; `backup run` falha com código 8 e `verify` com 10, citando o objeto; testes `trigger_or_event_body_ending_in_semicolon_is_unrestorable`, `long_trigger_body_is_judged_by_its_end`, `trigger_saved_with_trailing_semicolon_is_flagged_as_unrestorable` (confirma que o próprio `mysql` falha nesse dump), `risky_mysql_objects_…` (mutação manual: sem a detecção, os testes falham) | ok (DB-20) |
 | `DEFINER` sem privilégio detectado antes de restaurar dados | o dump informa os `DEFINER` por tipo de objeto; logo depois de criar o banco, o restore cria e apaga um objeto de cada tipo com cada `DEFINER` (sonda real, que cobre roles, binlog e `SYSTEM_USER`, o que uma consulta a `USER_PRIVILEGES` não cobriria); se falhar, apaga o banco e sai com código 2; testes `definer_probe_refuses_a_user_that_cannot_recreate_the_objects` (também confere que a sonda não deixa objetos), `probe_quotes_definer_and_names_from_the_dump`, `risky_mysql_objects_…` (mutação manual: sem a sonda, o teste falha) | ok (DB-20) |
 | Tabelas fora do InnoDB visíveis para scripts | lista `non_transactional_tables` no JSON do `backup run` e no manifesto (vazia quando todas são InnoDB), além do aviso no log; `risky_mysql_objects_…`, `backup_verify_and_restore_round_trip_preserves_data` | ok (DB-20) |
-| MariaDB não é tratado como MySQL | `MysqlVersion::parse` recusa versões MariaDB (servidor e cliente); `parses_client_and_server_versions`; suporte planejado no DB-37 | ok (DB-20) |
+| MariaDB não é tratado como MySQL, e o contrário também não | `Flavor::of` separa os dois pelo `VERSION()` do servidor, pelo `--version` das ferramentas e pelo cabeçalho do dump. `--engine mysql` contra um servidor MariaDB (e o contrário) sai com código 2 antes de qualquer dump; ferramenta do outro SGBD é `Incompatible`; dump de um restaurado com o engine do outro sai com 10 antes de conectar; a imagem Docker sempre é a do SGBD pedido. Testes `parses_client_and_server_versions`, `parses_mariadb_versions_and_never_takes_the_client_protocol_number`, `mysql_and_mariadb_tools_are_never_mixed`, `mysql_and_mariadb_are_never_confused`, `mariadb_dump_without_manifest_is_refused_by_a_mysql_restore` | ok (DB-37) |
+
+## MariaDB (DB-37)
+
+O MariaDB reaproveita o adaptador e os controles do MySQL (seção acima): arquivo de opções `0600`,
+`--binary-mode` e `--local-infile=0` no restore, leitura do dump com memória limitada, restore só em
+banco novo, sonda de `DEFINER` e limpeza do banco criado em falha. O que muda:
+
+| Controle | Evidência | Status |
+| --- | --- | --- |
+| Ferramentas e imagem do próprio MariaDB | `mariadb-dump`/`mariadb` nativos ou `mariadb:<major.minor>`; prefixo de container `dbu-mdb-`; testes `dump_and_restore_preserve_schema_data_and_objects_on_every_runner` (MariaDB, nos dois runners) e `missing_native_client_is_reported` | ok (DB-37) |
+| Senha fora de argumentos e do ambiente do container | mesmo arquivo de opções do MySQL; `mariadb_tools::password_never_reaches_container_arguments_environment_or_errors` | ok (DB-37) |
+| Dump não executa comandos no cliente | `mariadb --binary-mode --local-infile=0`; a linha de *sandbox* do `mariadb-dump` é aceita só uma vez, antes do cabeçalho; testes `mariadb_tools::restore_refuses_client_commands_embedded_in_the_dump`, `sandbox_line_is_accepted_only_once_and_only_before_the_header` | ok (DB-37) |
+| TLS validado com as opções do cliente MariaDB | `--ssl --ssl-verify-server-cert --ssl-ca=<pacote do sistema>`, ou `--skip-ssl` no modo local; sem `--ssl-mode`/`--get-server-public-key`, que o cliente MariaDB não aceita; `mariadb_tls_uses_its_own_client_options` | ok (DB-37) |
+| Histórico migrado sem perder linhas | a migration 0006 recria `connections`, `restore_executions` e `profiles` para aceitar `mariadb`. As migrations rodam com `foreign_keys` desligado e `foreign_key_check` no fim, para o `DROP TABLE connections` não apagar jobs, execuções e artefatos em cascata; `mariadb_migration_keeps_every_row_and_its_links` | ok (DB-37) |
 
 ## MongoDB (DB-21)
 

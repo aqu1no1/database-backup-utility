@@ -3,6 +3,8 @@
 #[path = "../support/mod.rs"]
 mod support;
 
+mod mariadb_connection;
+mod mariadb_tools;
 mod mongo_connection;
 mod mongo_tools;
 mod mysql_connection;

@@ -115,7 +115,7 @@ pub fn profile_tls(profile: &ConnectionProfile) -> Result<TlsArg, ExitCode> {
 fn validate(engine: EngineArg, connection: &ConnectionArgs) -> Result<(), ExitCode> {
     let result = match engine {
         EngineArg::Postgres => return connection.config().map(|_| ()),
-        EngineArg::Mysql => MysqlConnectionConfig::new(
+        EngineArg::Mysql | EngineArg::Mariadb => MysqlConnectionConfig::new(
             &connection.host,
             connection.port.unwrap_or(crate::MYSQL_PORT),
             &connection.database,
@@ -254,6 +254,7 @@ pub async fn add(args: AddArgs) -> ExitCode {
         engine: match engine {
             EngineArg::Postgres => "postgres",
             EngineArg::Mysql => "mysql",
+            EngineArg::Mariadb => "mariadb",
             EngineArg::Mongodb => "mongodb",
             EngineArg::Sqlite => "sqlite",
         }
@@ -261,7 +262,7 @@ pub async fn add(args: AddArgs) -> ExitCode {
         host: connection.host.clone(),
         port: connection.port.unwrap_or(match engine {
             EngineArg::Postgres => crate::POSTGRES_PORT,
-            EngineArg::Mysql => crate::MYSQL_PORT,
+            EngineArg::Mysql | EngineArg::Mariadb => crate::MYSQL_PORT,
             EngineArg::Mongodb => crate::MONGO_PORT,
             EngineArg::Sqlite => 0,
         }),

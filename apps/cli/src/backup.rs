@@ -3,6 +3,7 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use clap::Args;
+use database_backup_adapters::mysql::Flavor;
 use database_backup_adapters::postgres::{
     PgTools, PgVersion, Timeouts, ToolError, test_connection,
 };
@@ -133,9 +134,10 @@ pub async fn run(args: BackupArgs) -> ExitCode {
             exit::INVALID_INPUT,
             "--source (ou o arquivo como ALVO) é obrigatório com --engine sqlite",
         ),
-        (EngineArg::Postgres | EngineArg::Mysql | EngineArg::Mongodb, Some(_)) => {
-            fail(exit::INVALID_INPUT, "--source só vale com --engine sqlite")
-        }
+        (
+            EngineArg::Postgres | EngineArg::Mysql | EngineArg::Mariadb | EngineArg::Mongodb,
+            Some(_),
+        ) => fail(exit::INVALID_INPUT, "--source só vale com --engine sqlite"),
         (engine, None) => {
             let connection = match server.resolve(Some(engine), profile.as_ref()) {
                 Ok((_, connection)) => connection,
@@ -146,9 +148,16 @@ pub async fn run(args: BackupArgs) -> ExitCode {
                     crate::mongo::backup(connection, output_dir, runner, timeout).await
                 }
                 EngineArg::Mysql => {
-                    crate::mysql::backup(connection, output_dir, runner, timeout).await
+                    crate::mysql::backup(Flavor::Mysql, connection, output_dir, runner, timeout)
+                        .await
                 }
-                _ => run_postgres(connection, output_dir, runner, timeout).await,
+                EngineArg::Mariadb => {
+                    crate::mysql::backup(Flavor::Mariadb, connection, output_dir, runner, timeout)
+                        .await
+                }
+                EngineArg::Postgres | EngineArg::Sqlite => {
+                    run_postgres(connection, output_dir, runner, timeout).await
+                }
             }
         }
     }

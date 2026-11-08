@@ -45,12 +45,12 @@ cargo run -p database-backup-cli -- connection remove dev -y
 Perfis (`connection add/list/remove`) guardam a conexão sem a senha, só o caminho do
 `--password-file`. Veja [`configuracao.md`](configuracao.md#perfis-de-conexão).
 
-`--engine` vale `postgres` (padrão), `mysql`, `mongodb` ou `sqlite`. Com `sqlite` não há servidor nem senha: `--source`
+`--engine` vale `postgres` (padrão), `mysql`, `mariadb`, `mongodb` ou `sqlite`. Com `sqlite` não há servidor nem senha: `--source`
 (backup) e `--target` (restore) indicam os arquivos, e as opções de conexão do PostgreSQL são recusadas.
 No `restore`, o SGBD vem do manifesto ou do cabeçalho do arquivo, e `--engine` é opcional: um `--engine`
 (ou perfil) de outro SGBD é recusado com código 10, antes de qualquer conexão. No `backup`, um caminho
 de arquivo como argumento (`dbu backup ./app.db`) é um backup SQLite; um nome é um perfil.
-Com `mysql`, a porta padrão é 3306 e o restore só cria bancos novos (`--overwrite` é recusado).
+Com `mysql` ou `mariadb`, a porta padrão é 3306 e o restore só cria bancos novos (`--overwrite` é recusado).
 Com `mongodb`, a porta padrão é 27017; `--auth-database` (padrão `admin`; só vale com este SGBD)
 indica o banco onde o usuário foi criado; o restore só cria bancos novos (`--overwrite` é recusado);
 só são aceitos um standalone ou o primário de um replica set; e o backup é de um banco, sem
@@ -72,7 +72,7 @@ mais de 10 minutos, e registra isso no log. Um `<destino>.partial` órfão de um
 Opções globais: `--json` (resultado em JSON no stdout) e `--log-level error|warn|info|debug|trace`
 (logs no stderr; padrão `warn` ou `RUST_LOG`).
 
-A senha vem de `--password-file`, `DBU_PG_PASSWORD_FILE` ou `DBU_PG_PASSWORD` (MySQL: `DBU_MYSQL_PASSWORD_FILE` ou `DBU_MYSQL_PASSWORD`; MongoDB: `DBU_MONGO_PASSWORD_FILE` ou `DBU_MONGO_PASSWORD`), só uma; sem nenhuma, é pedida sem eco. Exit codes: 0 ok, 2 parâmetro inválido,
+A senha vem de `--password-file`, `DBU_PG_PASSWORD_FILE` ou `DBU_PG_PASSWORD` (MySQL: `DBU_MYSQL_PASSWORD_FILE` ou `DBU_MYSQL_PASSWORD`; MariaDB: `DBU_MARIADB_PASSWORD_FILE` ou `DBU_MARIADB_PASSWORD`; MongoDB: `DBU_MONGO_PASSWORD_FILE` ou `DBU_MONGO_PASSWORD`), só uma; sem nenhuma, é pedida sem eco. Exit codes: 0 ok, 2 parâmetro inválido,
 3 autenticação, 4 banco inexistente, 5 inacessível/timeout, 6 TLS, 7 ferramentas ausentes,
 8 backup falhou, 9 cancelado, 10 arquivo inválido, 11 restore falhou,
 12 confirmação necessária. `restore run` e `backup verify` recusam (código 10) symlinks e
@@ -89,7 +89,8 @@ docker compose --env-file .env -f infra/docker/compose.yml down
 
 > `down -v` apaga o volume com os dados locais. Use só quando quiser zerar o banco.
 
-Por padrão só o PostgreSQL sobe. MySQL e MongoDB ficam nos perfis opcionais `mysql` e `mongodb`
+Por padrão só o PostgreSQL sobe. MySQL, MariaDB (porta 3307) e MongoDB ficam nos perfis opcionais
+`mysql`, `mariadb` e `mongodb`
 (ver [`configuracao.md`](configuracao.md)). O uso da CLI está em [`uso.md`](uso.md).
 
 ## Testes
@@ -111,7 +112,7 @@ cargo test -p database-backup-cli --test integration mongo::                    
 cargo test -p database-backup-cli --test e2e -- hostile                          # um cenário pelo nome
 ```
 
-Os testes de integração criam PostgreSQL, MySQL e MongoDB temporários e não usam os bancos do Compose.
+Os testes de integração criam PostgreSQL, MySQL, MariaDB e MongoDB temporários e não usam os bancos do Compose.
 
 ## Qualidade
 
