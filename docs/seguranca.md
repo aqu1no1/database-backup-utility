@@ -22,6 +22,7 @@ Todos os testes citados rodam na CI (`cargo test --workspace --tests`, job
 | Fontes de senha explícitas, sem ambiguidade | `SecretProvider` (`crates/core/src/secret.rs`); mais de uma fonte → exit 2; teste `password_sources_are_validated_without_leaking_contents` | ok (DB-18) |
 | Arquivo de senha com permissão estrita | `read_password_file`; testes `rejects_files_readable_or_writable_by_others`, `rejects_symlinks_directories_and_bad_content` | ok (DB-18) |
 | Prompt sem eco | `rpassword` em `apps/cli/src/credentials.rs` | ok |
+| Modo guiado não pede nem mostra senha, e não abre fora de um terminal | `apps/cli/src/guided.rs` só preenche os mesmos `BackupArgs` (alvo, SGBD, host, porta, banco, usuário, pasta); a senha segue no `rpassword`. O comando equivalente é montado só desses campos, com aspas de shell (`shell-words`). O modo só abre com stdin e stderr num terminal, sem `--json`/`--no-input`; prompts vão para o stderr. Testes `prompts_only_with_both_terminals_and_without_json_or_no_input`, `renders_the_short_command_with_quoting`, `backup_without_a_terminal_never_prompts_and_keeps_exit_code_2` | ok (DB-42) |
 
 ## Conexões remotas (TLS)
 

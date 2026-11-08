@@ -22,6 +22,7 @@ O workflow manual rejeita releases sem seção publicada e sem mudanças reais. 
 - Perfis de conexão: `dbu connection add <NOME>` salva host, porta, banco, usuário, TLS e SGBD (testa a conexão antes; `--no-test` pula o teste), `dbu connection list [--json]` lista e `dbu connection remove <NOME>` remove com confirmação (ou `-y`). `dbu backup <PERFIL>`, `dbu test <PERFIL>` e `--profile` em backup, test e restore usam o perfil; flags explícitas têm prioridade. Perfil inexistente sai com código 2.
 - `restore` descobre o SGBD pelo manifesto ou pelo cabeçalho do arquivo; `--engine` passa a ser opcional no restore de MySQL, MongoDB e SQLite.
 - `dbu backup ./app.db` faz o backup de um arquivo SQLite sem `-e sqlite --source`. Um nome que é ao mesmo tempo arquivo e perfil sai com código 2.
+- Modo guiado: `dbu backup` sem os argumentos necessários, num terminal, pergunta o que falta (perfil, nova conexão ou arquivo SQLite; SGBD, host, porta, banco, usuário e pasta de saída) e mostra o comando curto equivalente antes de começar. Sem terminal, com `--json` ou com a nova opção global `--no-input`, nada muda: argumento faltando sai com código 2. Esc cancela com código 9.
 
 - MariaDB (`--engine mariadb`): teste de conexão, backup com `mariadb-dump`, verificação e restore em banco novo com o cliente `mariadb`, nativos ou pela imagem `mariadb:<major.minor>`. A senha vem de `--password-file`, `DBU_MARIADB_PASSWORD_FILE` ou `DBU_MARIADB_PASSWORD`. O `restore` reconhece o dump pelo cabeçalho `-- MariaDB dump`, e perfis de conexão aceitam `mariadb`.
 

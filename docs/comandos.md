@@ -69,8 +69,11 @@ segura um lock no próprio `.partial`, e o sistema solta esse lock quando o proc
 mais de 10 minutos, e registra isso no log. Um `<destino>.partial` órfão de um restore SQLite também
 é removido no próximo restore.
 
-Opções globais: `--json` (resultado em JSON no stdout) e `--log-level error|warn|info|debug|trace`
-(logs no stderr; padrão `warn` ou `RUST_LOG`).
+Opções globais: `--json` (resultado em JSON no stdout), `--no-input` (nunca abre o modo guiado) e
+`--log-level error|warn|info|debug|trace` (logs no stderr; padrão `warn` ou `RUST_LOG`).
+
+`dbu backup` sem os argumentos necessários, num terminal, abre o modo guiado: pergunta o que falta e
+mostra o comando curto equivalente ([`uso.md`](uso.md#modo-guiado)).
 
 A senha vem de `--password-file`, `DBU_PG_PASSWORD_FILE` ou `DBU_PG_PASSWORD` (MySQL: `DBU_MYSQL_PASSWORD_FILE` ou `DBU_MYSQL_PASSWORD`; MariaDB: `DBU_MARIADB_PASSWORD_FILE` ou `DBU_MARIADB_PASSWORD`; MongoDB: `DBU_MONGO_PASSWORD_FILE` ou `DBU_MONGO_PASSWORD`), só uma; sem nenhuma, é pedida sem eco. Exit codes: 0 ok, 2 parâmetro inválido,
 3 autenticação, 4 banco inexistente, 5 inacessível/timeout, 6 TLS, 7 ferramentas ausentes,

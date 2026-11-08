@@ -33,6 +33,24 @@ e SGBD, sem a senha. `backup` e `test` aceitam o perfil como argumento ou com `-
 só com `--profile` e sempre com `--to`. Flags explícitas têm prioridade. Detalhes em
 [`configuracao.md`](configuracao.md#perfis-de-conexão).
 
+### Modo guiado
+
+`dbu backup` sem o que precisa, num terminal, pergunta o que falta em vez de sair com erro:
+
+- sem nada: o que copiar (um perfil salvo, uma nova conexão ou um arquivo SQLite) e, numa conexão
+  nova, SGBD, host, porta, banco, usuário e pasta de saída;
+- com parte das flags (por exemplo `dbu backup -d app`): só o que falta (`--user`);
+- com `-e sqlite` sem arquivo: o arquivo.
+
+Antes de começar, mostra o comando curto equivalente (por exemplo
+`Comando equivalente: dbu backup -e mysql -d app -u backup`), para repetir sem perguntas ou usar em
+um script. A senha continua vindo de `--password-file`, das variáveis ou do prompt sem eco, nunca do
+modo guiado nem do comando mostrado. Esc cancela (código 9).
+
+O modo guiado só abre com stdin e stderr num terminal, sem `--json` e sem `--no-input`. Fora disso
+(scripts, cron, CI, pipes), o comportamento é o de sempre: argumento faltando sai com código 2, sem
+nenhuma pergunta.
+
 Flags curtas: `-e/--engine`, `-H/--host`, `-p/--port`, `-d/--database`, `-u/--user`, `-f/--file`,
 `-o/--output-dir`. Os comandos e flags longos continuam valendo, e `database-backup` (o nome
 anterior do binário) vem no tarball como link para `dbu`. Os exemplos abaixo usam a forma longa,
@@ -176,6 +194,9 @@ Comandos: `connection test`, `connection add`, `connection list`, `connection re
 - `--json` (em qualquer comando) imprime o resultado em uma linha JSON no stdout:
   `{"status":"ok",...}` no sucesso e `{"status":"error","code":N,"error":"..."}` na falha.
   A mensagem de erro continua indo também para o stderr.
+- `--no-input` (em qualquer comando) nunca abre o modo guiado do `backup`: argumento faltando sai
+  com código 2, como sem terminal. Não muda o prompt de senha nem as confirmações do restore e do
+  `connection remove`, que já não aparecem sem terminal.
 - Os logs (`tracing`) vão para o stderr, com horário, operação, IDs, status e duração, e nunca
   incluem senhas ou conteúdo do dump. O padrão é `warn`; use `--log-level info` ou `RUST_LOG`.
 
@@ -378,14 +399,14 @@ DBU_MONGO_PASSWORD='...' cargo run -p database-backup-cli -- restore run --engin
 | --- | --- |
 | 0 | Sucesso |
 | 1 | Erro não classificado (ex.: histórico ou pasta de destino inacessível) |
-| 2 | Parâmetro inválido ou senha ausente |
+| 2 | Parâmetro inválido ou senha ausente (sem terminal, ou com `--json`/`--no-input`, inclui argumento faltando no `backup`) |
 | 3 | Autenticação recusada |
 | 4 | Banco inexistente (ou arquivo SQLite de origem inexistente) |
 | 5 | Servidor inacessível ou tempo esgotado |
 | 6 | Falha de TLS |
 | 7 | `pg_dump`/`pg_restore`/`mysqldump`/`mysql`/`mongodump`/`mongorestore` ausente ou incompatível (e Docker indisponível); não se aplica ao SQLite |
 | 8 | O backup falhou |
-| 9 | Backup ou restore cancelado (Ctrl+C) |
+| 9 | Backup ou restore cancelado (Ctrl+C), ou modo guiado cancelado (Esc) |
 | 10 | Arquivo de backup ausente, corrompido, sem checksum conhecido ou incompatível |
 | 11 | O restore falhou (o destino não foi alterado) |
 | 12 | Destino com dados sem `--overwrite`, ou confirmação ausente/divergente |

@@ -166,6 +166,12 @@ fn history() -> Result<History, ExitCode> {
         .map_err(|error| fail(exit::FAILURE, &describe(&error)))
 }
 
+pub fn list_all() -> Result<Vec<ConnectionProfile>, ExitCode> {
+    history()?
+        .list_profiles()
+        .map_err(|error| fail(exit::FAILURE, &describe(&error)))
+}
+
 pub fn exists(name: &str) -> Result<bool, ExitCode> {
     if !is_valid_name(name) {
         return Ok(false);
