@@ -2,6 +2,7 @@ mod archive;
 mod backup;
 mod credentials;
 mod engines;
+mod guided;
 mod listing;
 mod mongo;
 mod mysql;
@@ -72,6 +73,12 @@ struct Cli {
     #[arg(
         long,
         global = true,
+        help = "Nunca abre o modo guiado: argumento faltando sai com código 2, como sem terminal"
+    )]
+    no_input: bool,
+    #[arg(
+        long,
+        global = true,
         value_enum,
         help = "Nível dos logs no stderr (padrão: warn, ou RUST_LOG)"
     )]
@@ -136,7 +143,10 @@ const BACKUP_HELP: &str = concat!(
     "  dbu backup -e mysql -d app -u backup\n",
     "  dbu backup -e mongodb -d app -u backup --auth-database admin\n",
     "  dbu backup ./app.db\n",
-    "  dbu backup list\n\n",
+    "  dbu backup list\n",
+    "  dbu backup            (num terminal: modo guiado, pergunta o que falta)\n\n",
+    "Sem os argumentos necessários, num terminal, o backup pergunta o que falta e mostra o comando equivalente.\n",
+    "Sem terminal, com --json ou com --no-input, argumento faltando sai com código 2.\n\n",
     "Com --engine sqlite não há servidor, usuário nem senha: o arquivo de origem é aberto só para leitura.\n",
     "No MongoDB o backup é de um banco, sem snapshot de um único instante: escritas durante o backup podem deixar\n",
     "coleções inconsistentes entre si. Só standalone e o primário de um replica set são aceitos.\n",
@@ -408,8 +418,8 @@ async fn main() -> ExitCode {
     output::init(cli.json, cli.log_level);
     match cli.command {
         Commands::Backup(group) => match group.command {
-            None => backup::run(group.run).await,
-            Some(BackupCommand::Run(args)) => backup::run(args).await,
+            None => run_backup(group.run, cli.json, cli.no_input).await,
+            Some(BackupCommand::Run(args)) => run_backup(args, cli.json, cli.no_input).await,
             Some(BackupCommand::List(args)) => listing::backups(&args),
             Some(BackupCommand::Verify(args)) => verify::run(args).await,
         },
@@ -431,6 +441,14 @@ async fn main() -> ExitCode {
         Commands::Connection(ConnectionCommand::List) => profiles::list(),
         Commands::Connection(ConnectionCommand::Remove(args)) => profiles::remove(args),
         Commands::Engines => engines::run(),
+    }
+}
+
+async fn run_backup(args: backup::BackupArgs, json: bool, no_input: bool) -> ExitCode {
+    match tokio::task::spawn_blocking(move || guided::fill(args, json, no_input)).await {
+        Ok(Ok(args)) => backup::run(args).await,
+        Ok(Err(code)) => code,
+        Err(error) => fail(exit::FAILURE, &error.to_string()),
     }
 }
 

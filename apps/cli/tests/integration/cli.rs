@@ -77,6 +77,35 @@ fn invalid_arguments_exit_with_code_2() {
 }
 
 #[test]
+fn backup_without_a_terminal_never_prompts_and_keeps_exit_code_2() {
+    let dir = TempDir::new().expect("dir");
+    let cases: [&[&str]; 5] = [
+        &["backup"],
+        &["backup", "run"],
+        &["--json", "backup"],
+        &["--no-input", "backup"],
+        &["backup", "-d", "app", "--no-input"],
+    ];
+
+    for args in cases {
+        let output = Command::new(env!("CARGO_BIN_EXE_dbu"))
+            .args(args)
+            .env("DBU_DATA_DIR", dir.path())
+            .env_remove("RUST_LOG")
+            .stdin(std::process::Stdio::null())
+            .output()
+            .expect("o binário da CLI deve executar");
+
+        let text = stderr(&output);
+        assert_eq!(output.status.code(), Some(2), "{args:?}: {text}");
+        assert!(text.contains("é obrigatório"), "{args:?}: {text}");
+        for prompt in ["O que você quer copiar", "Comando equivalente", "SGBD"] {
+            assert!(!text.contains(prompt), "{args:?}: {text}");
+        }
+    }
+}
+
+#[test]
 fn every_subcommand_help_has_examples() {
     let dir = TempDir::new().expect("dir");
     let commands: [&[&str]; 8] = [

@@ -25,46 +25,46 @@ use crate::{
 
 const FORMAT: &str = "pg_dump-custom";
 
-#[derive(Debug, Args)]
+#[derive(Debug, Default, Args)]
 pub struct BackupArgs {
     #[arg(short, long, value_enum, help = "SGBD de origem")]
-    engine: Option<EngineArg>,
+    pub(crate) engine: Option<EngineArg>,
     #[arg(
         value_name = "ALVO",
         conflicts_with_all = ["profile", "source"],
         help = "Arquivo SQLite de origem ou perfil de conexão salvo"
     )]
-    name: Option<String>,
+    pub(crate) name: Option<String>,
     #[arg(
         long,
         value_name = "NOME",
         conflicts_with = "source",
         help = "Perfil de conexão salvo"
     )]
-    profile: Option<String>,
+    pub(crate) profile: Option<String>,
     #[arg(
         long,
         value_name = "ARQUIVO",
         conflicts_with_all = ["host", "port", "database", "user", "tls", "auth_database", "password_file", "runner"],
         help = "Arquivo do banco SQLite de origem (o mesmo que o ALVO de um arquivo)"
     )]
-    source: Option<PathBuf>,
+    pub(crate) source: Option<PathBuf>,
     #[command(flatten)]
-    server: crate::profiles::ConnectionOptions,
+    pub(crate) server: crate::profiles::ConnectionOptions,
     #[arg(
         short,
         long,
         help = "Diretório de destino (padrão: backups/ na pasta de dados do aplicativo)"
     )]
-    output_dir: Option<PathBuf>,
+    pub(crate) output_dir: Option<PathBuf>,
     #[arg(
         long,
         value_enum,
         help = "auto (padrão): pg_dump/mysqldump/mongodump nativo se compatível, senão Docker"
     )]
-    runner: Option<RunnerArg>,
+    pub(crate) runner: Option<RunnerArg>,
     #[arg(long, value_parser = clap::value_parser!(u64).range(1..), help = "Tempo máximo do backup em segundos (padrão: sem limite)")]
-    timeout: Option<u64>,
+    pub(crate) timeout: Option<u64>,
 }
 
 #[derive(Serialize)]

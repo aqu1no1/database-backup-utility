@@ -616,7 +616,7 @@ Para o desktop Angular, após a criação da aplicação, usar os scripts **efet
 
 - [ ] Inferir o SGBD do arquivo no restore e da origem no backup (DB-40).
 - [ ] Perfis de conexão sem senha (`dbu connection add/list/remove`, DB-41).
-- [ ] Modo guiado quando faltam argumentos no terminal (DB-42).
+- [x] Modo guiado quando faltam argumentos no terminal (DB-42).
 
 ### v0.3.0 — Desktop Tauri + Angular
 
