@@ -1,14 +1,8 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-
-mod common;
-#[path = "../../../crates/database-adapters/tests/support/mod.rs"]
-mod support;
-
 use std::path::PathBuf;
 use std::process::Stdio;
 
-use common::{Workspace, sha256_hex, text};
-use support::{PostgresTestDb, TestResult};
+use crate::common::{Workspace, sha256_hex, text};
+use crate::support::{PostgresTestDb, TestResult};
 
 #[tokio::test]
 async fn backup_produces_verified_artifact_and_history() -> TestResult {

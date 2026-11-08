@@ -1,11 +1,6 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-
-#[path = "../../../crates/database-adapters/tests/support/mod.rs"]
-mod support;
-
 use std::process::{Command, Output};
 
-use support::{PostgresTestDb, TestResult};
+use crate::support::{PostgresTestDb, TestResult};
 
 fn run_cli(args: &[&str], password: Option<&str>) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_dbu"));

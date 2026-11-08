@@ -8,9 +8,9 @@ As regras sobre **quais** testes escrever (relevância, nível, isolamento, temp
 | Unitários Rust | `cargo test --workspace --lib --bins` | Não |
 | Integração PostgreSQL | Testcontainers + tokio-postgres | Sim |
 | E2E backup/restore | CLI real, dois servidores PostgreSQL temporários | Sim |
-| Integração e E2E MySQL | Testcontainers (`mysql:8.4`) + mysql_async (`crates/database-adapters/tests/mysql_*.rs`, `apps/cli/tests/mysql.rs`) | Sim |
-| Integração e E2E MongoDB | Testcontainers (`mongo:7.0`, standalone e replica set) + driver `mongodb` (`crates/database-adapters/tests/mongo_*.rs`, `apps/cli/tests/mongo.rs`) | Sim |
-| Integração e E2E SQLite | `rusqlite` + arquivos em `tempfile` (`crates/database-adapters/tests/sqlite_backup.rs`, `apps/cli/tests/sqlite.rs`) | Não |
+| Integração e E2E MySQL | Testcontainers (`mysql:8.4`) + mysql_async (`crates/database-adapters/tests/integration/mysql_*.rs`, `apps/cli/tests/integration/mysql.rs`) | Sim |
+| Integração e E2E MongoDB | Testcontainers (`mongo:7.0`, standalone e replica set) + driver `mongodb` (`crates/database-adapters/tests/integration/mongo_*.rs`, `apps/cli/tests/integration/mongo.rs`) | Sim |
+| Integração e E2E SQLite | `rusqlite` + arquivos em `tempfile` (`crates/database-adapters/tests/integration/sqlite_backup.rs`, `apps/cli/tests/integration/sqlite.rs`) | Não |
 | Angular unit/component (futuro) | Vitest + Angular TestBed | Não |
 | Desktop completo (futuro) | Ferramenta Tauri compatível | Conforme cenário |
 
@@ -82,7 +82,7 @@ FK, view, trigger, UTF-8 e `VARBINARY`).
 - `mysql_tools.rs`: dump e restore preservam dados, view e trigger nos dois runners; a senha não
   aparece em argumentos, ambiente do container nem erros; `\!`/`system` dentro do dump não executam
   nada; cliente ausente; dump truncado.
-- `apps/cli/tests/mysql.rs`: ciclo `connection test` → `backup run` → `backup verify` →
+- `apps/cli/tests/integration/mysql.rs`: ciclo `connection test` → `backup run` → `backup verify` →
   `restore run` pela CLI, recusa de banco existente e de `--overwrite`, dump adulterado ou truncado
   (código 10), restore que falha no meio (código 11, banco criado apagado), e
   `risky_mysql_objects_are_caught_before_they_cost_a_backup_or_a_restore`: tabela MyISAM listada no
@@ -110,7 +110,7 @@ UTF-8, uma coleção com validador e um documento legado que o viola, uma coleç
   aparece em argumentos, ambiente do container nem erros (com usuário contendo `;touch …` e
   `$(touch …)`, sem efeito); ferramentas ausentes; ferramentas nativas antigas ou legadas (`r4.x`)
   recusadas (scripts falsos, só Unix).
-- `apps/cli/tests/mongo.rs`: ciclo `connection test` → `backup run` → `backup verify` →
+- `apps/cli/tests/integration/mongo.rs`: ciclo `connection test` → `backup run` → `backup verify` →
   `restore run` pela CLI no standalone e no replica set, conferindo manifesto, histórico, ausência da
   senha nas saídas e `TMPDIR` vazio; recusa de banco existente, de `--overwrite` e de banco
   reservado; archive adulterado ou truncado (código 10); restore que falha no meio por `_id`

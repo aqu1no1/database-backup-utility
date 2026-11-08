@@ -1,12 +1,7 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-
-#[path = "../../../crates/database-adapters/tests/support/mod.rs"]
-mod support;
-
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
-use support::{PostgresTestDb, TestResult};
+use crate::support::{PostgresTestDb, TestResult};
 use tempfile::TempDir;
 
 fn cli(dir: &TempDir) -> Command {

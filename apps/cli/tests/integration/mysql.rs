@@ -1,13 +1,8 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-
-#[path = "../../../crates/database-adapters/tests/support/mod.rs"]
-mod support;
-
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
+use crate::support::{MysqlTestDb, TestResult};
 use database_backup_adapters::mysql::{MysqlTools, MysqlVersion, RunnerChoice};
-use support::{MysqlTestDb, TestResult};
 use tempfile::TempDir;
 
 const SNAPSHOT: [&str; 4] = [
@@ -515,13 +510,13 @@ async fn risky_mysql_objects_are_caught_before_they_cost_a_backup_or_a_restore()
          CREATE TABLE depois (i INT)",
     )
     .await?;
-    let before = sql_files(&env.out);
-    let broken = env.backup(&db, "docker");
+    let fresh = Env::new();
+    let broken = fresh.backup(&db, "docker");
     assert_code(&broken, 8);
     assert!(text(&broken).contains("legacy_touch"), "{}", text(&broken));
     assert_eq!(
-        sql_files(&env.out),
-        before,
+        sql_files(&fresh.out),
+        0,
         "um backup que não restaura foi publicado"
     );
     Ok(())

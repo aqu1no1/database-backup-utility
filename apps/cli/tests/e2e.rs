@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::Duration;
 
-use common::{Workspace, sha256_hex, text};
-use support::{E2E_SQL, PostgresTestDb, TestResult};
+use crate::common::{Workspace, sha256_hex, text};
+use crate::support::{E2E_SQL, PostgresTestDb, TestResult};
 use tokio::sync::Mutex;
 use tokio_postgres::{Client, NoTls};
 
