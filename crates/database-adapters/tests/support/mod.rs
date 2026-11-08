@@ -46,7 +46,8 @@ pub const MONGO_SEED_JS: &str = include_str!(concat!(
 ));
 
 const MYSQL_IMAGE: &str = "mysql";
-const MYSQL_TAG: &str = "8.4";
+const MYSQL_DEFAULT_TAG: &str = "8.4";
+const MYSQL_TAG_VARIABLE: &str = "DBU_MYSQL_TAG";
 const MYSQL_USER: &str = "root";
 const MYSQL_DATABASE: &str = "backup_test";
 const MYSQL_READY: &str = "port: 3306  MySQL Community Server";
@@ -206,13 +207,15 @@ pub struct MysqlTestDb {
     host: String,
     port: u16,
     password: String,
+    tag: String,
     _container: ContainerAsync<GenericImage>,
 }
 
 impl MysqlTestDb {
     pub async fn start() -> TestResult<Self> {
+        let tag = mysql_tag();
         let password = random_password();
-        let container = GenericImage::new(MYSQL_IMAGE, MYSQL_TAG)
+        let container = GenericImage::new(MYSQL_IMAGE, tag.as_str())
             .with_exposed_port(3306.tcp())
             .with_wait_for(WaitFor::message_on_stderr(MYSQL_READY))
             .with_env_var("MYSQL_ROOT_PASSWORD", &password)
@@ -220,7 +223,7 @@ impl MysqlTestDb {
             .start()
             .await
             .map_err(|error| {
-                format!("falha ao iniciar o container {MYSQL_IMAGE}:{MYSQL_TAG}: {error}")
+                format!("falha ao iniciar o container {MYSQL_IMAGE}:{tag}: {error}")
             })?;
         let host = container.get_host().await?.to_string();
         let port = container.get_host_port_ipv4(3306.tcp()).await?;
@@ -228,6 +231,7 @@ impl MysqlTestDb {
             host,
             port,
             password,
+            tag,
             _container: container,
         };
         db.conn(MYSQL_DATABASE).await?.disconnect().await?;
@@ -267,6 +271,10 @@ impl MysqlTestDb {
             self.host, self.port
         )
         .into())
+    }
+
+    pub fn tag(&self) -> &str {
+        &self.tag
     }
 
     pub async fn execute(&self, database: &str, sql: &str) -> TestResult {
@@ -563,6 +571,13 @@ impl MongoTestDb {
     pub fn tag(&self) -> &str {
         &self.tag
     }
+}
+
+fn mysql_tag() -> String {
+    std::env::var(MYSQL_TAG_VARIABLE)
+        .ok()
+        .filter(|tag| !tag.is_empty())
+        .unwrap_or_else(|| MYSQL_DEFAULT_TAG.to_owned())
 }
 
 fn mongo_tag() -> String {

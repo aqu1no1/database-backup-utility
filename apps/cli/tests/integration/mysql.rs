@@ -211,7 +211,7 @@ async fn backup_verify_and_restore_round_trip_preserves_data() -> TestResult {
         );
         assert_code(&test, 0);
         assert!(
-            text(&test).contains("Conexão OK: MySQL 8.4"),
+            text(&test).contains(&format!("Conexão OK: MySQL {}", db.tag())),
             "{}",
             text(&test)
         );

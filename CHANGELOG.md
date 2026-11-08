@@ -23,6 +23,9 @@ O workflow manual rejeita releases sem seção publicada e sem mudanças reais. 
 - `restore` descobre o SGBD pelo manifesto ou pelo cabeçalho do arquivo; `--engine` passa a ser opcional no restore de MySQL, MongoDB e SQLite.
 - `dbu backup ./app.db` faz o backup de um arquivo SQLite sem `-e sqlite --source`. Um nome que é ao mesmo tempo arquivo e perfil sai com código 2.
 
+### Changed
+- CI: a integração passa a ter um job por SGBD. MySQL (8.0 e 8.4) e MongoDB (7.0 e 8.0) agora exigem o runner nativo, além do Docker, e uma falha aparece no job do próprio SGBD. A imagem MySQL dos testes pode ser trocada com `DBU_MYSQL_TAG`.
+
 ### Security
 - `--engine` ou perfil de outro SGBD que não o do arquivo recusa o restore (código 10) antes de qualquer conexão, inclusive em arquivos sem manifesto.
 - O perfil nunca guarda a senha, só o caminho absoluto do `--password-file`, que segue as regras de permissão a cada uso. Restore com perfil exige `--to`, para nunca restaurar no banco de origem do perfil.
