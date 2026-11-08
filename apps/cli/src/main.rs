@@ -6,6 +6,7 @@ mod listing;
 mod mongo;
 mod mysql;
 mod output;
+mod profiles;
 mod restore;
 mod sqlite;
 mod verify;
@@ -43,10 +44,10 @@ macro_rules! password_note {
     after_help = "Exemplos:
   dbu backup -d app -u postgres
   dbu backup -e mysql -d app -u backup
-  dbu backup -e sqlite --source ./app.db
+  dbu backup ./app.db
   dbu verify app-20261021T120000Z.dump
   dbu restore app-20261021T120000Z.dump --to app_copia -u postgres
-  dbu restore -e sqlite app-20261021T120000Z.sqlite3 --to ./app_copia.db
+  dbu restore app-20261021T120000Z.sqlite3 --to ./app_copia.db
   dbu list
   dbu list restores
   dbu test -e mysql -d app -u backup
@@ -133,7 +134,7 @@ const BACKUP_HELP: &str = concat!(
     "  dbu backup -d app -u postgres -o /srv/backups --runner docker\n",
     "  dbu backup -e mysql -d app -u backup\n",
     "  dbu backup -e mongodb -d app -u backup --auth-database admin\n",
-    "  dbu backup -e sqlite --source ./app.db\n",
+    "  dbu backup ./app.db\n",
     "  dbu backup list\n\n",
     "Com --engine sqlite não há servidor, usuário nem senha: o arquivo de origem é aberto só para leitura.\n",
     "No MongoDB o backup é de um banco, sem snapshot de um único instante: escritas durante o backup podem deixar\n",
@@ -152,13 +153,14 @@ const RESTORE_HELP: &str = concat!(
     "Por padrão só cria um banco novo. Sobrescrever um banco com dados exige --overwrite e confirmação;\n",
     "o anterior é mantido como <destino>__previous_<data> (PostgreSQL) ou <arquivo>.previous-<data> (SQLite).\n",
     "No MySQL e no MongoDB só é possível restaurar em um banco que ainda não existe (--overwrite não é suportado).\n",
-    "--to é o banco de destino (ou o arquivo de destino, com --engine sqlite).\n\n",
+    "O SGBD vem do manifesto ou do cabeçalho do arquivo; um --engine (ou perfil) de outro SGBD é recusado (código 10).\n",
+    "--to é o banco de destino (ou o arquivo de destino, num backup SQLite).\n\n",
     "Exemplos:\n",
     "  dbu restore app-20261021T120000Z.dump --to app_copia -u postgres\n",
     "  dbu restore app-20261021T120000Z.dump --to app -u postgres --overwrite --confirm app\n",
-    "  dbu restore -e mysql app-20261021T120000Z.sql --to app_copia -u backup\n",
-    "  dbu restore -e mongodb app-20261021T120000Z.archive --to app_copia -u backup\n",
-    "  dbu restore -e sqlite app-20261021T120000Z.sqlite3 --to ./app_copia.db\n",
+    "  dbu restore app-20261021T120000Z.sql --to app_copia -u backup\n",
+    "  dbu restore app-20261021T120000Z.archive --to app_copia -u backup\n",
+    "  dbu restore app-20261021T120000Z.sqlite3 --to ./app_copia.db\n",
     "  dbu restore list\n\n",
     password_note!()
 );
@@ -207,6 +209,21 @@ enum ListCommand {
 #[derive(Debug, Subcommand)]
 enum ConnectionCommand {
     #[command(
+        about = "Salva um perfil sem armazenar a senha.",
+        after_help = "Exemplos:\n  dbu connection add dev -d app -u backup\n  dbu connection add dev -e mysql -d app -u backup --no-test"
+    )]
+    Add(profiles::AddArgs),
+    #[command(
+        about = "Lista os perfis de conexão.",
+        after_help = "Exemplos:\n  dbu connection list --json"
+    )]
+    List,
+    #[command(
+        about = "Remove um perfil, sem apagar backups ou credenciais.",
+        after_help = "Exemplos:\n  dbu connection remove dev -y"
+    )]
+    Remove(profiles::RemoveArgs),
+    #[command(
         about = "Valida a configuração e testa a conexão com um PostgreSQL, MySQL ou MongoDB.",
         after_help = TEST_HELP
     )]
@@ -250,39 +267,14 @@ enum RestoreCommand {
     List(listing::RestoreListArgs),
 }
 
-#[derive(Debug, Args)]
+#[derive(Debug)]
 struct ConnectionArgs {
-    #[arg(
-        short = 'H',
-        long,
-        default_value = "localhost",
-        help = "Host do servidor"
-    )]
     host: String,
-    #[arg(short, long, help = PORT_HELP)]
     port: Option<u16>,
-    #[arg(short, long, help = "Nome do banco")]
     database: String,
-    #[arg(short, long, help = "Usuário")]
     user: String,
-    #[arg(
-        long,
-        value_enum,
-        default_value_t = TlsArg::Auto,
-        help = "auto: sem TLS só em localhost; verify-full: TLS com certificado validado"
-    )]
     tls: TlsArg,
-    #[arg(
-        long,
-        value_name = "NOME",
-        help = "Banco de autenticação do MongoDB (padrão: admin)"
-    )]
     auth_database: Option<String>,
-    #[arg(
-        long,
-        value_name = "ARQUIVO",
-        help = "Arquivo com a senha (permissão 600 ou 400)"
-    )]
     password_file: Option<PathBuf>,
 }
 
@@ -312,12 +304,19 @@ struct TestConnectionArgs {
         short,
         long,
         value_enum,
-        default_value_t = EngineArg::Postgres,
         help = "SGBD do servidor (postgres, mysql ou mongodb)"
     )]
-    engine: EngineArg,
+    engine: Option<EngineArg>,
+    #[arg(
+        value_name = "PERFIL",
+        conflicts_with = "profile",
+        help = "Perfil de conexão salvo"
+    )]
+    name: Option<String>,
+    #[arg(long, value_name = "NOME", help = "Perfil de conexão salvo")]
+    profile: Option<String>,
     #[command(flatten)]
-    connection: ConnectionArgs,
+    connection: profiles::ConnectionOptions,
     #[arg(long, default_value_t = 10, value_parser = clap::value_parser!(u64).range(1..=300), help = "Timeout em segundos para conexão e consulta")]
     timeout: u64,
 }
@@ -328,6 +327,17 @@ enum EngineArg {
     Mysql,
     Mongodb,
     Sqlite,
+}
+
+impl From<DatabaseEngine> for EngineArg {
+    fn from(engine: DatabaseEngine) -> Self {
+        match engine {
+            DatabaseEngine::Postgres => Self::Postgres,
+            DatabaseEngine::Mysql => Self::Mysql,
+            DatabaseEngine::Mongodb => Self::Mongodb,
+            DatabaseEngine::Sqlite => Self::Sqlite,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -414,42 +424,63 @@ async fn main() -> ExitCode {
         Commands::Test(args) | Commands::Connection(ConnectionCommand::Test(args)) => {
             run_test_connection(args).await
         }
+        Commands::Connection(ConnectionCommand::Add(args)) => profiles::add(args).await,
+        Commands::Connection(ConnectionCommand::List) => profiles::list(),
+        Commands::Connection(ConnectionCommand::Remove(args)) => profiles::remove(args),
         Commands::Engines => engines::run(),
     }
 }
 
 async fn run_test_connection(args: TestConnectionArgs) -> ExitCode {
-    if args.engine != EngineArg::Mongodb && args.connection.auth_database.is_some() {
-        return fail(exit::INVALID_INPUT, AUTH_DATABASE_ONLY_MONGODB);
+    let profile = match profiles::load(args.profile.as_deref().or(args.name.as_deref())) {
+        Ok(profile) => profile,
+        Err(code) => return code,
+    };
+    if args.engine == Some(EngineArg::Sqlite) {
+        return unsupported(DatabaseEngine::Sqlite, Operation::ConnectionTest, "");
     }
-    match args.engine {
+    let (engine, connection) = match args.connection.resolve(args.engine, profile.as_ref()) {
+        Ok(value) => value,
+        Err(code) => return code,
+    };
+    test_resolved(engine, connection, args.timeout, true).await
+}
+
+async fn test_resolved(
+    engine: EngineArg,
+    connection: ConnectionArgs,
+    timeout: u64,
+    report: bool,
+) -> ExitCode {
+    match engine {
         EngineArg::Postgres => {}
-        EngineArg::Mysql => return mysql::test(&args.connection, args.timeout).await,
-        EngineArg::Mongodb => return mongo::test(&args.connection, args.timeout).await,
+        EngineArg::Mysql => return mysql::test(&connection, timeout, report).await,
+        EngineArg::Mongodb => return mongo::test(&connection, timeout, report).await,
         EngineArg::Sqlite => {
             return unsupported(DatabaseEngine::Sqlite, Operation::ConnectionTest, "");
         }
     }
-    let config = match args.connection.config() {
+    let config = match connection.config() {
         Ok(config) => config,
         Err(code) => return code,
     };
     let password = match read_password(
         DatabaseEngine::Postgres,
         &config,
-        args.connection.password_file.clone(),
+        connection.password_file.clone(),
     ) {
         Ok((password, _)) => password,
         Err(message) => return fail(exit::INVALID_INPUT, &message),
     };
 
-    let timeout = Duration::from_secs(args.timeout);
+    let timeout = Duration::from_secs(timeout);
     let timeouts = Timeouts {
         connect: timeout,
         query: timeout,
     };
 
     match test_connection(&config, &password, timeouts).await {
+        Ok(_) if !report => ExitCode::SUCCESS,
         Ok(info) => {
             info!(
                 operation = "connection.test",

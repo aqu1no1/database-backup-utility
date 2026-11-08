@@ -18,32 +18,38 @@ use tracing::{info, warn};
 
 use crate::output::{fail, success};
 use crate::{
-    AUTH_DATABASE_ONLY_MONGODB, ConnectionArgs, EngineArg, PORT_HELP, RunnerArg, TlsArg, describe,
-    exit, exit_code_for, read_password,
+    AUTH_DATABASE_ONLY_MONGODB, ConnectionArgs, EngineArg, RunnerArg, describe, exit,
+    exit_code_for, read_password,
 };
 
 const FORMAT: &str = "pg_dump-custom";
 
 #[derive(Debug, Args)]
 pub struct BackupArgs {
+    #[arg(short, long, value_enum, help = "SGBD de origem")]
+    engine: Option<EngineArg>,
     #[arg(
-        short,
-        long,
-        value_enum,
-        default_value_t = EngineArg::Postgres,
-        help = "SGBD de origem"
+        value_name = "ALVO",
+        conflicts_with_all = ["profile", "source"],
+        help = "Arquivo SQLite de origem ou perfil de conexão salvo"
     )]
-    engine: EngineArg,
+    name: Option<String>,
+    #[arg(
+        long,
+        value_name = "NOME",
+        conflicts_with = "source",
+        help = "Perfil de conexão salvo"
+    )]
+    profile: Option<String>,
     #[arg(
         long,
         value_name = "ARQUIVO",
-        required_if_eq("engine", "sqlite"),
         conflicts_with_all = ["host", "port", "database", "user", "tls", "auth_database", "password_file", "runner"],
-        help = "Arquivo do banco SQLite de origem (com --engine sqlite)"
+        help = "Arquivo do banco SQLite de origem (o mesmo que o ALVO de um arquivo)"
     )]
     source: Option<PathBuf>,
     #[command(flatten)]
-    server: ServerArgs,
+    server: crate::profiles::ConnectionOptions,
     #[arg(
         short,
         long,
@@ -53,67 +59,11 @@ pub struct BackupArgs {
     #[arg(
         long,
         value_enum,
-        default_value_t = RunnerArg::Auto,
-        help = "auto: pg_dump/mysqldump/mongodump nativo se compatível, senão Docker"
+        help = "auto (padrão): pg_dump/mysqldump/mongodump nativo se compatível, senão Docker"
     )]
-    runner: RunnerArg,
+    runner: Option<RunnerArg>,
     #[arg(long, value_parser = clap::value_parser!(u64).range(1..), help = "Tempo máximo do backup em segundos (padrão: sem limite)")]
     timeout: Option<u64>,
-}
-
-#[derive(Debug, Args)]
-struct ServerArgs {
-    #[arg(
-        short = 'H',
-        long,
-        default_value = "localhost",
-        help = "Host do servidor"
-    )]
-    host: String,
-    #[arg(short, long, help = PORT_HELP)]
-    port: Option<u16>,
-    #[arg(
-        short,
-        long,
-        required_unless_present = "source",
-        help = "Nome do banco"
-    )]
-    database: Option<String>,
-    #[arg(short, long, required_unless_present = "source", help = "Usuário")]
-    user: Option<String>,
-    #[arg(
-        long,
-        value_enum,
-        default_value_t = TlsArg::Auto,
-        help = "auto: sem TLS só em localhost; verify-full: TLS com certificado validado"
-    )]
-    tls: TlsArg,
-    #[arg(
-        long,
-        value_name = "NOME",
-        help = "Banco de autenticação do MongoDB (padrão: admin)"
-    )]
-    auth_database: Option<String>,
-    #[arg(
-        long,
-        value_name = "ARQUIVO",
-        help = "Arquivo com a senha (permissão 600 ou 400)"
-    )]
-    password_file: Option<PathBuf>,
-}
-
-impl ServerArgs {
-    fn into_connection(self) -> Option<ConnectionArgs> {
-        Some(ConnectionArgs {
-            host: self.host,
-            port: self.port,
-            database: self.database?,
-            user: self.user?,
-            tls: self.tls,
-            auth_database: self.auth_database,
-            password_file: self.password_file,
-        })
-    }
 }
 
 #[derive(Serialize)]
@@ -142,48 +92,114 @@ struct Completed {
 pub async fn run(args: BackupArgs) -> ExitCode {
     let BackupArgs {
         engine,
+        name,
+        profile,
         source,
         server,
         output_dir,
         runner,
         timeout,
     } = args;
-    if engine != EngineArg::Mongodb && server.auth_database.is_some() {
-        return fail(exit::INVALID_INPUT, AUTH_DATABASE_ONLY_MONGODB);
-    }
+    let (engine, source, profile) = match name {
+        Some(target) => match resolve_target(target, engine, &server, runner) {
+            Ok(Target::File(path)) => (Some(EngineArg::Sqlite), Some(path), None),
+            Ok(Target::Profile(name)) => (engine, None, Some(name)),
+            Err(code) => return code,
+        },
+        None => (engine, source, profile),
+    };
+    let runner = runner.unwrap_or(RunnerArg::Auto);
+    let profile = match crate::profiles::load(profile.as_deref()) {
+        Ok(profile) => profile,
+        Err(code) => return code,
+    };
+    let profile_engine = match profile
+        .as_ref()
+        .map(crate::profiles::profile_engine)
+        .transpose()
+    {
+        Ok(engine) => engine,
+        Err(code) => return code,
+    };
+    let engine = engine.or(profile_engine).unwrap_or(EngineArg::Postgres);
     match (engine, source) {
+        (EngineArg::Sqlite, _) if server.auth_database.is_some() => {
+            fail(exit::INVALID_INPUT, AUTH_DATABASE_ONLY_MONGODB)
+        }
         (EngineArg::Sqlite, Some(source)) => {
             crate::sqlite::backup(&source, output_dir, timeout).await
         }
         (EngineArg::Sqlite, None) => fail(
             exit::INVALID_INPUT,
-            "--source é obrigatório com --engine sqlite",
+            "--source (ou o arquivo como ALVO) é obrigatório com --engine sqlite",
         ),
         (EngineArg::Postgres | EngineArg::Mysql | EngineArg::Mongodb, Some(_)) => {
             fail(exit::INVALID_INPUT, "--source só vale com --engine sqlite")
         }
-        (EngineArg::Mongodb, None) => match server.into_connection() {
-            Some(connection) => crate::mongo::backup(connection, output_dir, runner, timeout).await,
-            None => fail(
-                exit::INVALID_INPUT,
-                "--database e --user são obrigatórios com --engine mongodb",
-            ),
-        },
-        (EngineArg::Mysql, None) => match server.into_connection() {
-            Some(connection) => crate::mysql::backup(connection, output_dir, runner, timeout).await,
-            None => fail(
-                exit::INVALID_INPUT,
-                "--database e --user são obrigatórios com --engine mysql",
-            ),
-        },
-        (EngineArg::Postgres, None) => match server.into_connection() {
-            Some(connection) => run_postgres(connection, output_dir, runner, timeout).await,
-            None => fail(
-                exit::INVALID_INPUT,
-                "--database e --user são obrigatórios com --engine postgres",
-            ),
-        },
+        (engine, None) => {
+            let connection = match server.resolve(Some(engine), profile.as_ref()) {
+                Ok((_, connection)) => connection,
+                Err(code) => return code,
+            };
+            match engine {
+                EngineArg::Mongodb => {
+                    crate::mongo::backup(connection, output_dir, runner, timeout).await
+                }
+                EngineArg::Mysql => {
+                    crate::mysql::backup(connection, output_dir, runner, timeout).await
+                }
+                _ => run_postgres(connection, output_dir, runner, timeout).await,
+            }
+        }
     }
+}
+
+enum Target {
+    File(PathBuf),
+    Profile(String),
+}
+
+fn resolve_target(
+    target: String,
+    engine: Option<EngineArg>,
+    server: &crate::profiles::ConnectionOptions,
+    runner: Option<RunnerArg>,
+) -> Result<Target, ExitCode> {
+    let path = PathBuf::from(&target);
+    let looks_like_path = path.components().count() > 1 || path.is_absolute();
+    let is_file = std::fs::symlink_metadata(&path).is_ok_and(|metadata| !metadata.is_dir());
+    let is_source_file = match engine {
+        Some(EngineArg::Sqlite) => true,
+        Some(_) if looks_like_path => {
+            return Err(fail(
+                exit::INVALID_INPUT,
+                &format!(
+                    "{target} é um caminho de arquivo; só backups SQLite usam um arquivo de origem"
+                ),
+            ));
+        }
+        Some(_) => false,
+        None if looks_like_path => true,
+        None if is_file && crate::profiles::exists(&target)? => {
+            return Err(fail(
+                exit::INVALID_INPUT,
+                &format!(
+                    "{target} é um arquivo e também um perfil salvo; use --source {target} ou --profile {target}"
+                ),
+            ));
+        }
+        None => is_file,
+    };
+    if !is_source_file {
+        return Ok(Target::Profile(target));
+    }
+    if !server.is_empty() || runner.is_some() {
+        return Err(fail(
+            exit::INVALID_INPUT,
+            "opções de conexão e --runner não valem no backup de um arquivo SQLite",
+        ));
+    }
+    Ok(Target::File(path))
 }
 
 async fn run_postgres(

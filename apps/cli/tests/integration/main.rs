@@ -9,6 +9,7 @@ mod backup;
 mod cli;
 mod mongo;
 mod mysql;
+mod profiles;
 mod restore;
 mod sqlite;
 mod test_connection;

@@ -107,6 +107,44 @@ O tipo `Password` do core já esconde o valor no `Debug` (`Password(***)`) e zer
 A crate `secrecy` traria o mesmo resultado com uma dependência a mais. Reavaliar se surgirem outros
 tipos de segredo, como tokens de nuvem.
 
+## Perfis de conexão
+
+Um perfil guarda host, porta, banco, usuário, TLS, SGBD e, no MongoDB, o banco de autenticação, para
+usar `dbu backup prod` em vez de repetir as flags. Fica na tabela `profiles` do histórico local
+(migration `0005_profiles.sql`).
+
+```bash
+dbu connection add prod -e postgres -H db.example.org -d app -u backup --password-file ~/.config/dbu/prod.pass
+dbu connection list --json
+dbu backup prod                                   # ou: dbu backup --profile prod
+dbu test prod
+dbu restore app-2026-11-05.dump --profile prod --to app_copia
+dbu connection remove prod                        # pede o nome de novo; -y confirma sem perguntar
+```
+
+- **A senha nunca é salva.** O perfil guarda só o **caminho** do `--password-file`, convertido em
+  absoluto. Sem caminho no perfil, a senha vem das fontes de sempre (variáveis ou prompt).
+- O arquivo de senha do perfil é mais uma fonte e segue as mesmas regras de `read_password_file`
+  (permissão `600`/`400`, sem symlink, até 4 KiB). Ele é conferido no `add` e de novo a cada uso.
+  Definir também `DBU_*_PASSWORD` ou `DBU_*_PASSWORD_FILE` é conflito (exit 2), como com a flag.
+- `connection add` valida os parâmetros e **testa a conexão antes de salvar**. Se o teste falhar, sai
+  com o código do erro (3 autenticação, 5 inacessível etc.) e nada é gravado. `--no-test` pula só o
+  teste de rede; a validação local (TLS para host remoto, nome do banco, `--auth-database` só no
+  MongoDB) continua.
+- Nomes de perfil: até 64 caracteres, começando com letra ou número, só com letras ASCII, números,
+  `-`, `_` e `.`. Um nome repetido é recusado (exit 2) e o perfil existente não muda.
+- **Flags explícitas têm prioridade sobre o perfil.** Se `-e` trocar o SGBD do perfil, a porta e o
+  `--auth-database` do perfil são descartados (valem o padrão do novo SGBD ou as flags); host, banco,
+  usuário, TLS e arquivo de senha continuam vindo do perfil. A configuração final é validada de novo.
+- Perfil inexistente sai com código 2.
+- No `restore`, o perfil dá só o servidor de destino: `--to` continua obrigatório, para o restore
+  nunca cair no banco de origem do perfil. Um perfil de outro SGBD que não o do arquivo é recusado
+  (código 10).
+- Perfis não valem para SQLite, que não tem servidor (use `dbu backup ./app.db` ou `--source`). Um nome
+  que é ao mesmo tempo arquivo na pasta atual e perfil sai com código 2.
+- `connection remove` apaga só o perfil. Backups, histórico e o arquivo de senha ficam onde estão.
+  Sem terminal e sem `-y`, sai com código 12.
+
 ## TLS no teste de conexão
 
 | `--tls` | `localhost` / `127.0.0.1` / `::1` | Outros hosts |

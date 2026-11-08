@@ -56,9 +56,23 @@ Todos os testes citados rodam na CI (`cargo test --workspace --tests`, job
 | --- | --- | --- |
 | Integridade antes de restaurar | checksum + manifesto + `pg_restore --list`; `unverified_archive_requires_explicit_flag_and_is_recorded`, E2E `corrupted_and_partial_archives_are_rejected` e `verify_and_restore_without_history` | ok |
 | Origem segura | sem symlink e sem permissão aberta no dump ou no manifesto; `rejects_unsafe_source_files`, `restore_source_rejects_symlink_and_directory` | ok |
+| SGBD divergente nunca restaura (DB-40) | o SGBD vem do manifesto ou do cabeçalho, depois da checagem de origem e antes de qualquer conexão; `--engine` ou perfil de outro SGBD → código 10, com e sem manifesto; `restore_never_runs_when_the_engine_diverges_from_the_file` (mutação manual: sem a checagem, o teste falha e o restore roda) | ok (DB-40) |
 | Destino explícito e confirmação para operação destrutiva | `--target-database` obrigatório; `--overwrite` + nome; E2E `destructive_restore_requires_confirmation` | ok |
 | Falha não deixa dados parciais | `--single-transaction`; `failed_restore_leaves_target_without_partial_data` | ok |
 | Erros sanitizados | mensagens via `describe` sem senha; E2E `Session` em todos os passos | ok |
+
+## Perfis de conexão (DB-41)
+
+| Controle | Evidência | Status |
+| --- | --- | --- |
+| Perfil nunca guarda a senha, só o caminho do arquivo | migration `0005_profiles.sql` sem coluna de senha; `schema_has_no_password_columns` (só `profiles.password_file` é permitida); `profile_password_path_is_not_a_secret_and_conflicting_sources_are_refused` e `tested_profile_drives_backup_test_and_restore_…` varrem `DBU_DATA_DIR` e as saídas atrás da senha | ok (DB-41) |
+| Arquivo de senha do perfil segue as regras de `read_password_file` | conferido no `add` e a cada uso; arquivo removido → exit 2; conflito com `DBU_PG_PASSWORD` → exit 2 (mesmo teste acima) | ok (DB-41) |
+| Perfil não afrouxa TLS nem validação | a configuração final (perfil + flags) é validada de novo; `--tls disable` para host remoto é recusado no `add`; `effective_configuration_is_revalidated_after_overrides`, `invalid_profiles_and_unknown_names_fail_without_network_access` | ok (DB-41) |
+| Troca de SGBD não herda porta nem `--auth-database` do perfil | `switching_engine_drops_profile_settings_specific_to_the_profile_engine` | ok (DB-41) |
+| Nome do perfil não é caminho nem string livre | nome ASCII com até 64 caracteres; `../bad` recusado; `CHECK` na migration | ok (DB-41) |
+| Nome duplicado não sobrescreve perfil | `ON CONFLICT DO NOTHING` + exit 2; `profiles_upgrade_without_changing_history_and_duplicate_names_never_replace_data` | ok (DB-41) |
+| Restore com perfil exige destino explícito | `--to` obrigatório com `--profile`; `tested_profile_drives_backup_test_and_restore_without_using_its_database_as_target` | ok (DB-41) |
+| Remoção exige confirmação | nome repetido no terminal ou `-y`; sem terminal → exit 12; não apaga backups nem o arquivo de senha; `profiles_are_persistent_unique_and_removal_requires_confirmation` | ok (DB-41) |
 
 ## SQLite (DB-22)
 
@@ -177,6 +191,13 @@ Nenhum advisory RustSec ignorado.
 - **`DBU_PG_PASSWORD` é visível** em `/proc/<pid>/environ` para o próprio usuário e o root.
   Prefira `--password-file`.
 - **Dono do arquivo de senha não é conferido.** Só as permissões são.
+- **Sem manifesto, arquivo desconhecido segue o `--engine` ou o perfil.** O restore e o verify reconhecem
+  PostgreSQL, SQLite, MySQL e MongoDB pelo cabeçalho; um arquivo que não bate com nenhum deles segue o
+  `--engine` (ou o perfil) e, sem eles, o caminho do PostgreSQL. Quem recusa o arquivo é a checagem do
+  adaptador (`pg_restore --list`, cabeçalho do `mysqldump`, número mágico do archive), com código 10.
+- **Perfil aponta para um caminho, não para um arquivo fixo.** Quem consegue trocar o arquivo nesse
+  caminho troca a senha usada pelo perfil. As regras de permissão e de symlink valem a cada uso, e a
+  proteção da pasta onde o arquivo fica é responsabilidade do usuário.
 - **v0.1.0 sem avisos de terceiros.** O tarball publicado em 2026-10-21 não traz as notas de licença
   das dependências embutidas. Corrigido no workflow (DB-35); a v0.1.1 já inclui o arquivo. Use a v0.1.1 em vez da v0.1.0.
 - **SQLite: `-wal`/`-shm` ao lado da origem.** Em modo WAL, o próprio SQLite cria esses arquivos

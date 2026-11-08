@@ -313,6 +313,28 @@ async fn round_trip(db: &MongoTestDb, topology: &str, runners: Vec<&str>) -> Tes
         assert_eq!(db.snapshot(&target).await?, expected, "{label}");
         assert_eq!(db.snapshot(db.database()).await?, expected, "{label}");
 
+        let inferred_target = format!("inferido_{runner}");
+        let inferred = env.run(
+            db,
+            &[
+                "--json",
+                "restore",
+                file.to_str().unwrap(),
+                "--to",
+                &inferred_target,
+                "--runner",
+                "docker",
+                "-H",
+                db.host(),
+                "-p",
+                &db.port().to_string(),
+                "-u",
+                db.user(),
+            ],
+        );
+        assert_code(&inferred, 0);
+        assert_eq!(db.snapshot(&inferred_target).await?, expected, "{label}");
+
         let history = rusqlite::Connection::open(env.data.join("history.sqlite3"))?;
         let engines: (String, String) = history.query_row(
             "SELECT (SELECT engine FROM connections), (SELECT engine FROM restore_executions)",

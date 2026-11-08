@@ -498,9 +498,13 @@ fn password_sources_are_validated_without_leaking_contents() {
     assert!(!stderr(&from_env_file).contains(FILE_SECRET));
 }
 
+#[cfg(unix)]
 #[test]
 fn auth_database_is_only_accepted_with_mongodb() {
     let dir = TempDir::new().expect("dir");
+    let dump = dir.path().join("x.sql");
+    private_file(&dump, b"-- MySQL dump 10.13\n");
+    let dump = dump.to_str().expect("utf-8");
     let cases: [&[&str]; 4] = [
         &[
             "connection",
@@ -540,7 +544,7 @@ fn auth_database_is_only_accepted_with_mongodb() {
             "--engine",
             "mysql",
             "--file",
-            "x.sql",
+            dump,
             "--target-database",
             "db",
             "--user",

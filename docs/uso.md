@@ -16,6 +16,22 @@ Os exemplos usam `cargo run -p database-backup-cli --`. Com o binário da releas
 | `dbu restore <ARQUIVO> --to <DESTINO>` | `dbu restore run --file <ARQUIVO> --target-database <DESTINO>` (ou `--target`, no SQLite) |
 | `dbu list` / `dbu list restores` | `dbu backup list` / `dbu restore list` |
 | `dbu test …` | `dbu connection test …` |
+| `dbu backup <PERFIL>` / `dbu test <PERFIL>` | `dbu backup run --profile <PERFIL>` / `dbu connection test --profile <PERFIL>` |
+| `dbu backup ./app.db` | `dbu backup run --engine sqlite --source ./app.db` |
+
+O `restore` descobre o SGBD pelo manifesto ou, sem manifesto, pelo cabeçalho do arquivo, como o
+`verify`; `--engine` é opcional. Se `--engine` ou o perfil indicarem outro SGBD, o restore é recusado
+com código 10, antes de qualquer conexão ou criação de banco.
+
+No `backup`, o argumento é um **arquivo SQLite** quando é um caminho (`./app.db`, `/dados/app.db`) ou
+um arquivo existente na pasta atual, ou qualquer nome com `-e sqlite`; senão, é um **perfil**. Se um nome for ao mesmo tempo arquivo e
+perfil (`app.db`), a CLI sai com código 2 e pede `--source` ou `--profile`. Com um arquivo, opções de
+conexão, `--runner` e `-e` de outro SGBD são recusados (código 2).
+
+Perfis de conexão (`dbu connection add`, `list` e `remove`) guardam host, porta, banco, usuário, TLS
+e SGBD, sem a senha. `backup` e `test` aceitam o perfil como argumento ou com `--profile`; `restore`,
+só com `--profile` e sempre com `--to`. Flags explícitas têm prioridade. Detalhes em
+[`configuracao.md`](configuracao.md#perfis-de-conexão).
 
 Flags curtas: `-e/--engine`, `-H/--host`, `-p/--port`, `-d/--database`, `-u/--user`, `-f/--file`,
 `-o/--output-dir`. Os comandos e flags longos continuam valendo, e `database-backup` (o nome
@@ -91,7 +107,7 @@ dc exec mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -u "$MYSQL_USER" "$MYSQL_
 dbu backup -e mysql -d "$MYSQL_DATABASE" -u "$MYSQL_USER" -o ./backups
 BACKUP=$(ls -t backups/*.sql | head -1)
 dbu verify "$BACKUP"
-DBU_MYSQL_PASSWORD_FILE=~/.config/dbu/mysql-root.pass dbu restore -e mysql "$BACKUP" --to pedidos_copia -u root
+DBU_MYSQL_PASSWORD_FILE=~/.config/dbu/mysql-root.pass dbu restore "$BACKUP" --to pedidos_copia -u root
 dc exec mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -u root -N -e "SELECT count(*) FROM pedidos_copia.pedidos"'   # 2
 ```
 
@@ -109,7 +125,7 @@ dbu test -e mongodb -d pedidos -u "$MONGO_USER"
 dbu backup -e mongodb -d pedidos -u "$MONGO_USER" -o ./backups
 BACKUP=$(ls -t backups/*.archive | head -1)
 dbu verify "$BACKUP"
-dbu restore -e mongodb "$BACKUP" --to pedidos_copia -u "$MONGO_USER"
+dbu restore "$BACKUP" --to pedidos_copia -u "$MONGO_USER"
 dc exec mongodb sh -c 'mongosh --quiet -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" pedidos_copia \
   --authenticationDatabase admin --eval "db.pedidos.countDocuments()"'   # 2
 ```
@@ -124,10 +140,10 @@ Sem servidor, usuário nem senha. O `sqlite3` só cria o banco de exemplo.
 ```bash
 sqlite3 app.db "CREATE TABLE pedidos (id INTEGER PRIMARY KEY, total REAL); INSERT INTO pedidos VALUES (1, 10.5), (2, 20);"
 
-dbu backup -e sqlite --source ./app.db -o ./backups
+dbu backup ./app.db -o ./backups
 BACKUP=$(ls -t backups/*.sqlite3 | head -1)
 dbu verify "$BACKUP"
-dbu restore -e sqlite "$BACKUP" --to ./app_copia.db
+dbu restore "$BACKUP" --to ./app_copia.db
 sqlite3 app_copia.db "SELECT count(*) FROM pedidos"   # 2
 ```
 
@@ -150,7 +166,7 @@ cargo run -p database-backup-cli -- --help
 cargo run -p database-backup-cli -- backup --help
 ```
 
-Comandos: `connection test`, `backup run`, `backup list`, `backup verify`, `restore run`,
+Comandos: `connection test`, `connection add`, `connection list`, `connection remove`, `backup run`, `backup list`, `backup verify`, `restore run`,
 `restore list` e `engines` (matriz de capacidades). Cada `--help` traz exemplos.
 
 - `--json` (em qualquer comando) imprime o resultado em uma linha JSON no stdout:

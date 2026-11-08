@@ -56,6 +56,7 @@ apps/cli/tests/                      # contrato da CLI executando o binário rea
   integration/sqlite.rs              # backup/verify/restore SQLite pela CLI (sem Docker)
   integration/mysql.rs               # backup/verify/restore MySQL pela CLI (Testcontainers)
   integration/mongo.rs               # backup/verify/restore MongoDB pela CLI (Testcontainers)
+  integration/profiles.rs            # perfis de conexão: add/list/remove e uso no backup, test e restore
   e2e.rs                             # binário próprio: ciclos completos, confere containers do runner que sobraram
   common/mod.rs                      # Workspace (DBU_DATA_DIR, TMPDIR e saída isolados)
 tests/fixtures/postgres/, mysql/, mongodb/ # dados de teste compartilhados, sem dados reais
