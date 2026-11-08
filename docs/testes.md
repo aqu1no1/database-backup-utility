@@ -92,8 +92,8 @@ FK, view, trigger, UTF-8 e `VARBINARY`).
 A imagem pode ser trocada com `DBU_MYSQL_TAG` (por exemplo `DBU_MYSQL_TAG=8.0`); o padrão é o 8.4.
 O runner nativo só roda quando o `mysqldump`/`mysql` instalado é compatível com o servidor. Para
 exigi-lo, defina `DBU_REQUIRE_NATIVE_MYSQL=1` (o `DBU_REQUIRE_NATIVE` vale só para o PostgreSQL). Na
-CI, o job MySQL instala o cliente 8.4 LTS do repositório oficial e exige o nativo contra o 8.0 e o
-8.4 (ver [CI](#ci)).
+CI, o job MySQL instala o `mysql-client` do Ubuntu (8.4 no `ubuntu-latest`, 26.04) e exige o
+nativo contra o 8.0 e o 8.4 (ver [CI](#ci)).
 
 ## Integração MongoDB
 
@@ -123,7 +123,8 @@ porque o MongoDB 8.0 se recusa a iniciar em kernels Linux 6.19 ou mais novos
 ([SERVER-121912](https://jira.mongodb.org/browse/SERVER-121912)), e os testes falham na subida do
 container nessas máquinas. O runner nativo só roda quando o Database Tools instalado atende à versão
 do servidor; para exigi-lo, defina `DBU_REQUIRE_NATIVE_MONGO=1`. Na CI, o job MongoDB instala o
-Database Tools do repositório oficial e exige o nativo contra o 7.0 e o 8.0 (ver [CI](#ci)).
+Database Tools do repositório oficial e exige o nativo contra o 7.0 (ver [CI](#ci)). O 8.0 fica de
+fora da matriz enquanto o kernel do `ubuntu-latest` for 6.19 ou mais novo (SERVER-121912).
 
 ## E2E de backup e restauração
 
@@ -168,8 +169,8 @@ SGBD apareça com o nome dele e cada job exija o runner nativo do seu cliente:
 | Job | Versões do servidor | Cliente nativo | Testes |
 | --- | --- | --- | --- |
 | `Rust / PostgreSQL & CLI Integration` | 17 | `postgresql-client-17` (PGDG), `DBU_REQUIRE_NATIVE=1` | todos os `--tests`, exceto os módulos MySQL e MongoDB |
-| `Rust / MySQL Integration` | 8.0, 8.4 (`DBU_MYSQL_TAG`) | `mysql-client` 8.4 LTS (`repo.mysql.com`), `DBU_REQUIRE_NATIVE_MYSQL=1` | `mysql_tools::`, `mysql_connection::` e `mysql::` |
-| `Rust / MongoDB Integration` | 7.0, 8.0 (`DBU_MONGO_TAG`) | `mongodb-database-tools` (`repo.mongodb.org`), `DBU_REQUIRE_NATIVE_MONGO=1` | `mongo_tools::`, `mongo_connection::` e `mongo::` |
+| `Rust / MySQL Integration` | 8.0, 8.4 (`DBU_MYSQL_TAG`) | `mysql-client` 8.4 do Ubuntu, `DBU_REQUIRE_NATIVE_MYSQL=1` | `mysql_tools::`, `mysql_connection::` e `mysql::` |
+| `Rust / MongoDB Integration` | 7.0 (`DBU_MONGO_TAG`) | `mongodb-database-tools` (`repo.mongodb.org`), `DBU_REQUIRE_NATIVE_MONGO=1` | `mongo_tools::`, `mongo_connection::` e `mongo::` |
 
 Os filtros usam o caminho do módulo (`mysql::`, não `mysql`), para que testes sem container com
 "mysql" ou "mongo" no nome, como os de `cli.rs`, continuem no job de PostgreSQL & CLI. Um módulo

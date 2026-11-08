@@ -86,11 +86,8 @@ jobs:
         run: rustup toolchain install && rustc --version && cargo --version
       - name: Docker disponível
         run: docker info
-      - name: Cliente MySQL 8.4 LTS (modo native)
+      - name: Cliente MySQL 8.4 (modo native)
         run: |
-          sudo apt-get remove -y --purge 'mysql-client*' 'mysql-server*' 'mysql-common' || true
-          curl -fsSL https://repo.mysql.com/RPM-GPG-KEY-mysql-2023 | sudo gpg --dearmor -o /usr/share/keyrings/mysql.gpg
-          echo "deb [signed-by=/usr/share/keyrings/mysql.gpg] http://repo.mysql.com/apt/ubuntu $(lsb_release -cs) mysql-8.4-lts" | sudo tee /etc/apt/sources.list.d/mysql.list
           sudo apt-get update
           sudo apt-get install -y mysql-client
       - name: Testcontainers MySQL ${{ matrix.mysql }}
@@ -110,7 +107,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mongo: ['7.0', '8.0']
+        mongo: ['7.0']
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
