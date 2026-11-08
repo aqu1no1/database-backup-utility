@@ -27,7 +27,7 @@ async fn connection_outcomes_are_classified_without_leaking_secrets() -> TestRes
     )
     .await?;
     assert!(
-        info.server_version.starts_with("8.4."),
+        info.server_version.starts_with(&format!("{}.", db.tag())),
         "{}",
         info.server_version
     );

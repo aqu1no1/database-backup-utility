@@ -89,10 +89,11 @@ FK, view, trigger, UTF-8 e `VARBINARY`).
   JSON e no manifesto, usuário sem privilégio de `DEFINER` recusado antes de restaurar dados e
   trigger com `;` final recusado no backup (código 8, nenhum `.sql` publicado).
 
-O runner nativo só roda quando o `mysqldump`/`mysql` instalado é compatível com o servidor 8.4. O
-`ubuntu-latest` da CI traz o cliente 8.0, então lá os testes MySQL usam só o Docker. Para exigir o
-nativo localmente, defina `DBU_REQUIRE_NATIVE_MYSQL=1` (o `DBU_REQUIRE_NATIVE` da CI vale só para o
-PostgreSQL).
+A imagem pode ser trocada com `DBU_MYSQL_TAG` (por exemplo `DBU_MYSQL_TAG=8.0`); o padrão é o 8.4.
+O runner nativo só roda quando o `mysqldump`/`mysql` instalado é compatível com o servidor. Para
+exigi-lo, defina `DBU_REQUIRE_NATIVE_MYSQL=1` (o `DBU_REQUIRE_NATIVE` vale só para o PostgreSQL). Na
+CI, o job MySQL instala o `mysql-client` do Ubuntu (8.4 no `ubuntu-latest`, 26.04) e exige o
+nativo contra o 8.0 e o 8.4 (ver [CI](#ci)).
 
 ## Integração MongoDB
 
@@ -121,8 +122,9 @@ A imagem pode ser trocada com `DBU_MONGO_TAG` (por exemplo `DBU_MONGO_TAG=8.0`).
 porque o MongoDB 8.0 se recusa a iniciar em kernels Linux 6.19 ou mais novos
 ([SERVER-121912](https://jira.mongodb.org/browse/SERVER-121912)), e os testes falham na subida do
 container nessas máquinas. O runner nativo só roda quando o Database Tools instalado atende à versão
-do servidor; para exigi-lo, defina `DBU_REQUIRE_NATIVE_MONGO=1`. O `ubuntu-latest` da CI não traz o
-Database Tools, então lá os testes MongoDB usam só o Docker.
+do servidor; para exigi-lo, defina `DBU_REQUIRE_NATIVE_MONGO=1`. Na CI, o job MongoDB instala o
+Database Tools do repositório oficial e exige o nativo contra o 7.0 (ver [CI](#ci)). O 8.0 fica de
+fora da matriz enquanto o kernel do `ubuntu-latest` for 6.19 ou mais novo (SERVER-121912).
 
 ## E2E de backup e restauração
 
@@ -158,6 +160,27 @@ Como funciona:
 - **Diagnóstico:** se um cenário falhar, stdout/stderr de cada passo vão para
   `target/e2e-logs/<cenário>/` ou para `DBU_E2E_LOG_DIR`.
 - **Timeout:** cada cenário tem limite de 300s.
+
+## CI
+
+O workflow `.github/workflows/ci.yml` separa a integração em um job por SGBD, para que a falha de um
+SGBD apareça com o nome dele e cada job exija o runner nativo do seu cliente:
+
+| Job | Versões do servidor | Cliente nativo | Testes |
+| --- | --- | --- | --- |
+| `Rust / PostgreSQL & CLI Integration` | 17 | `postgresql-client-17` (PGDG), `DBU_REQUIRE_NATIVE=1` | todos os `--tests`, exceto os módulos MySQL e MongoDB |
+| `Rust / MySQL Integration` | 8.0, 8.4 (`DBU_MYSQL_TAG`) | `mysql-client` 8.4 do Ubuntu, `DBU_REQUIRE_NATIVE_MYSQL=1` | `mysql_tools::`, `mysql_connection::` e `mysql::` |
+| `Rust / MongoDB Integration` | 7.0 (`DBU_MONGO_TAG`) | `mongodb-database-tools` (`repo.mongodb.org`), `DBU_REQUIRE_NATIVE_MONGO=1` | `mongo_tools::`, `mongo_connection::` e `mongo::` |
+
+Os filtros usam o caminho do módulo (`mysql::`, não `mysql`), para que testes sem container com
+"mysql" ou "mongo" no nome, como os de `cli.rs`, continuem no job de PostgreSQL & CLI. Um módulo
+de integração novo de um SGBD precisa entrar no filtro do seu job e no `--skip` do job de
+PostgreSQL & CLI. Para reproduzir um job localmente, use o mesmo comando, por exemplo:
+
+```bash
+DBU_MYSQL_TAG=8.0 DBU_REQUIRE_NATIVE_MYSQL=1 \
+  cargo test -p database-backup-adapters --test integration -- mysql_tools:: mysql_connection::
+```
 
 ## Revisão de testes (política de relevância)
 
