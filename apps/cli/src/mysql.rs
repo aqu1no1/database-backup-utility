@@ -3,7 +3,7 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use database_backup_adapters::mysql::{
-    Admin, AdminError, ConnectionInfo, DatabaseState, DumpInfo, MysqlTools, MysqlVersion,
+    Admin, AdminError, ConnectionInfo, DatabaseState, DumpInfo, Flavor, MysqlTools, MysqlVersion,
     RestoreProcess, Timeouts, ToolError, inspect_dump, test_connection,
 };
 use database_backup_core::{DatabaseEngine, MysqlConnectionConfig, Operation, Password};
@@ -27,12 +27,11 @@ use crate::{
     read_password, unsupported,
 };
 
-const ENGINE: DatabaseEngine = DatabaseEngine::Mysql;
-const FORMAT: &str = "mysqldump-sql";
 const EXTENSION: &str = "sql";
 const CATALOG_DATABASE: &str = "information_schema";
 
 pub struct RestoreRequest<'a> {
+    pub flavor: Flavor,
     pub file: &'a Path,
     pub host: &'a str,
     pub port: Option<u16>,
@@ -67,12 +66,32 @@ struct Server {
     version: MysqlVersion,
 }
 
-pub async fn test(connection: &ConnectionArgs, timeout: u64, report: bool) -> ExitCode {
+pub const fn engine(flavor: Flavor) -> DatabaseEngine {
+    match flavor {
+        Flavor::Mysql => DatabaseEngine::Mysql,
+        Flavor::Mariadb => DatabaseEngine::Mariadb,
+    }
+}
+
+const fn format(flavor: Flavor) -> &'static str {
+    match flavor {
+        Flavor::Mysql => "mysqldump-sql",
+        Flavor::Mariadb => "mariadb-dump-sql",
+    }
+}
+
+pub async fn test(
+    flavor: Flavor,
+    connection: &ConnectionArgs,
+    timeout: u64,
+    report: bool,
+) -> ExitCode {
+    let engine = engine(flavor);
     let config = match config_from(connection) {
         Ok(config) => config,
         Err(code) => return code,
     };
-    let password = match read_password(ENGINE, &config, connection.password_file.clone()) {
+    let password = match read_password(engine, &config, connection.password_file.clone()) {
         Ok((password, _)) => password,
         Err(message) => return fail(exit::INVALID_INPUT, &message),
     };
@@ -82,11 +101,15 @@ pub async fn test(connection: &ConnectionArgs, timeout: u64, report: bool) -> Ex
         query: timeout,
     };
     match test_connection(&config, &password, timeouts).await {
+        Ok(info) if Flavor::of(&info.server_version) != flavor => fail(
+            exit::INVALID_INPUT,
+            &wrong_engine(flavor, &info.server_version),
+        ),
         Ok(_) if !report => ExitCode::SUCCESS,
         Ok(info) => {
             info!(
                 operation = "connection.test",
-                engine = ENGINE.as_str(),
+                engine = engine.as_str(),
                 connection = %config,
                 status = "succeeded",
                 "conexão testada"
@@ -97,40 +120,42 @@ pub async fn test(connection: &ConnectionArgs, timeout: u64, report: bool) -> Ex
                     connection: config.to_string(),
                     topology: None,
                 },
-                &format!("Conexão OK: MySQL {} em {}", info.server_version, config),
+                &format!("Conexão OK: {flavor} {} em {}", info.server_version, config),
             )
         }
         Err(error) => {
-            info!(operation = "connection.test", engine = ENGINE.as_str(), connection = %config, status = "failed", "falha ao testar conexão");
+            info!(operation = "connection.test", engine = engine.as_str(), connection = %config, status = "failed", "falha ao testar conexão");
             fail(exit_code_for(&error), &error.to_string())
         }
     }
 }
 
 pub async fn backup(
+    flavor: Flavor,
     connection: ConnectionArgs,
     output_dir: Option<PathBuf>,
     runner: RunnerArg,
     timeout: Option<u64>,
 ) -> ExitCode {
+    let engine = engine(flavor);
     let config = match config_from(&connection) {
         Ok(config) => config,
         Err(code) => return code,
     };
-    let (password, source) = match read_password(ENGINE, &config, connection.password_file.clone())
+    let (password, source) = match read_password(engine, &config, connection.password_file.clone())
     {
         Ok(value) => value,
         Err(message) => return fail(exit::INVALID_INPUT, &message),
     };
-    let server = match connect_server(&config, &password).await {
+    let server = match connect_server(flavor, &config, &password).await {
         Ok(server) => server,
         Err(code) => return code,
     };
-    let tools = match MysqlTools::detect(runner.into(), server.version).await {
+    let tools = match MysqlTools::detect_flavor(flavor, runner.into(), server.version).await {
         Ok(tools) => tools,
         Err(error) => return fail(exit::TOOLS, &error.to_string()),
     };
-    let non_transactional = check_non_transactional(&config, &password).await;
+    let non_transactional = check_non_transactional(engine, &config, &password).await;
 
     let history_path = match History::default_path() {
         Ok(path) => path,
@@ -144,14 +169,14 @@ pub async fn backup(
         Ok(target) => target,
         Err(code) => return code,
     };
-    let execution_id = match start_execution(&history, &config, &source.secret_ref()) {
+    let execution_id = match start_execution(&history, engine, &config, &source.secret_ref()) {
         Ok(id) => id,
         Err(error) => return fail(exit::FAILURE, &describe(&error)),
     };
 
     info!(
         operation = "backup.run",
-        engine = ENGINE.as_str(),
+        engine = engine.as_str(),
         execution_id = %execution_id,
         source = %config,
         runner = tools.kind().as_str(),
@@ -188,7 +213,7 @@ pub async fn backup(
             let elapsed = started.elapsed();
             info!(
                 operation = "backup.run",
-                engine = ENGINE.as_str(),
+                engine = engine.as_str(),
                 execution_id = %execution_id,
                 status = "succeeded",
                 duration_ms = elapsed.as_millis() as u64,
@@ -227,13 +252,13 @@ pub async fn backup(
             let message = "backup cancelado pelo usuário";
             let _ =
                 history.finish_execution(&execution_id, ExecutionStatus::Canceled, Some(message));
-            info!(operation = "backup.run", engine = ENGINE.as_str(), execution_id = %execution_id, status = "canceled", "backup cancelado");
+            info!(operation = "backup.run", engine = engine.as_str(), execution_id = %execution_id, status = "canceled", "backup cancelado");
             fail(exit::CANCELED, message)
         }
         Err(Failure::Error(message)) => {
             let _ =
                 history.finish_execution(&execution_id, ExecutionStatus::Failed, Some(&message));
-            info!(operation = "backup.run", engine = ENGINE.as_str(), execution_id = %execution_id, status = "failed", "backup falhou");
+            info!(operation = "backup.run", engine = engine.as_str(), execution_id = %execution_id, status = "failed", "backup falhou");
             fail(exit::BACKUP_FAILED, &message)
         }
     }
@@ -251,9 +276,12 @@ async fn execute_backup(
     let file_name = backup_file_name(config.database(), OffsetDateTime::now_utc(), EXTENSION);
     let mut pending = target.begin(&file_name).await.map_err(storage_failure)?;
     let mut process = tools.dump(config, password).map_err(tool_failure)?;
-    let mut stdout = process
-        .take_stdout()
-        .ok_or_else(|| Failure::Error("mysqldump não forneceu a saída".to_owned()))?;
+    let mut stdout = process.take_stdout().ok_or_else(|| {
+        Failure::Error(format!(
+            "{} não forneceu a saída",
+            tools.flavor().dump_tool()
+        ))
+    })?;
 
     enum Copy {
         Done(Result<u64, StorageError>),
@@ -303,8 +331,8 @@ async fn execute_backup(
     let metadata = ArtifactMetadata {
         tool_name: crate::TOOL_NAME,
         tool_version: env!("CARGO_PKG_VERSION"),
-        engine: ENGINE.as_str(),
-        format: FORMAT,
+        engine: engine(tools.flavor()).as_str(),
+        format: format(tools.flavor()),
         sha256: &artifact.sha256,
         size_bytes: artifact.size_bytes,
         database: config.database(),
@@ -328,9 +356,11 @@ async fn execute_backup(
 }
 
 pub async fn restore(request: &RestoreRequest<'_>) -> ExitCode {
+    let flavor = request.flavor;
+    let engine = engine(flavor);
     if request.overwrite {
         return unsupported(
-            ENGINE,
+            engine,
             Operation::RestoreOverwrite,
             "restaure em um banco que não existe (--target-database)",
         );
@@ -361,14 +391,14 @@ pub async fn restore(request: &RestoreRequest<'_>) -> ExitCode {
         Ok(history) => history,
         Err(error) => return fail(exit::FAILURE, &describe(&error)),
     };
-    let verified = match verify_checksum(&file, &history, request.allow_unverified, ENGINE).await {
+    let verified = match verify_checksum(&file, &history, request.allow_unverified, engine).await {
         Ok(verified) => verified,
         Err(message) => return fail(exit::INVALID_ARCHIVE, &message),
     };
     if !verified.matched_reference {
         warn!(
             operation = "restore.run",
-            engine = ENGINE.as_str(),
+            engine = engine.as_str(),
             "checksum não verificado (--allow-unverified); a integridade do arquivo não foi confirmada e o SQL do arquivo será executado com as permissões do usuário"
         );
     }
@@ -376,12 +406,22 @@ pub async fn restore(request: &RestoreRequest<'_>) -> ExitCode {
         Ok(dump) => dump,
         Err(message) => return fail(exit::INVALID_ARCHIVE, &message),
     };
+    if dump.flavor != flavor {
+        return fail(
+            exit::INVALID_ARCHIVE,
+            &format!(
+                "o arquivo é um dump do {}, não do {flavor}; restaure com --engine {}",
+                dump.flavor,
+                self::engine(dump.flavor).as_str()
+            ),
+        );
+    }
 
-    let (password, _) = match read_password(ENGINE, &target, request.password_file.clone()) {
+    let (password, _) = match read_password(engine, &target, request.password_file.clone()) {
         Ok(value) => value,
         Err(message) => return fail(exit::INVALID_INPUT, &message),
     };
-    let connected = match connect_server(&server, &password).await {
+    let connected = match connect_server(flavor, &server, &password).await {
         Ok(server) => server,
         Err(code) => return code,
     };
@@ -391,15 +431,16 @@ pub async fn restore(request: &RestoreRequest<'_>) -> ExitCode {
         return fail(
             exit::INVALID_ARCHIVE,
             &format!(
-                "o backup veio do MySQL {from}, mais novo que o servidor de destino {}",
+                "o backup veio do {flavor} {from}, mais novo que o servidor de destino {}",
                 connected.version
             ),
         );
     }
-    let tools = match MysqlTools::detect(request.runner.into(), connected.version).await {
-        Ok(tools) => tools,
-        Err(error) => return fail(exit::TOOLS, &error.to_string()),
-    };
+    let tools =
+        match MysqlTools::detect_flavor(flavor, request.runner.into(), connected.version).await {
+            Ok(tools) => tools,
+            Err(error) => return fail(exit::TOOLS, &error.to_string()),
+        };
 
     let admin = Admin::new(&server, &password, Timeouts::default());
     match admin.database_state(target.database()).await {
@@ -408,7 +449,7 @@ pub async fn restore(request: &RestoreRequest<'_>) -> ExitCode {
             return fail(
                 exit::INVALID_INPUT,
                 &format!(
-                    "o banco {} já existe ({tables} tabela(s)); no MySQL o restore só cria bancos novos, escolha outro --target-database",
+                    "o banco {} já existe ({tables} tabela(s)); no {flavor} o restore só cria bancos novos, escolha outro --target-database",
                     target.database()
                 ),
             );
@@ -452,7 +493,7 @@ pub async fn restore(request: &RestoreRequest<'_>) -> ExitCode {
         source_location: &file_location,
         source_sha256: Some(&verified.sha256),
         checksum_verified: verified.matched_reference,
-        engine: ENGINE.as_str(),
+        engine: engine.as_str(),
         target_host: Some(target.host()),
         target_port: Some(target.port()),
         target_database: target.database(),
@@ -464,7 +505,7 @@ pub async fn restore(request: &RestoreRequest<'_>) -> ExitCode {
 
     info!(
         operation = "restore.run",
-        engine = ENGINE.as_str(),
+        engine = engine.as_str(),
         restore_id = %restore_id,
         target = %target,
         mode = RestoreMode::Create.as_str(),
@@ -489,7 +530,7 @@ pub async fn restore(request: &RestoreRequest<'_>) -> ExitCode {
             let elapsed = started.elapsed();
             info!(
                 operation = "restore.run",
-                engine = ENGINE.as_str(),
+                engine = engine.as_str(),
                 restore_id = %restore_id,
                 status = "succeeded",
                 duration_ms = elapsed.as_millis() as u64,
@@ -518,13 +559,13 @@ pub async fn restore(request: &RestoreRequest<'_>) -> ExitCode {
             let message = "restore cancelado; o banco criado para o restore foi apagado";
             let _ =
                 history.finish_restore(&restore_id, ExecutionStatus::Canceled, None, Some(message));
-            info!(operation = "restore.run", engine = ENGINE.as_str(), restore_id = %restore_id, status = "canceled", "restore cancelado");
+            info!(operation = "restore.run", engine = engine.as_str(), restore_id = %restore_id, status = "canceled", "restore cancelado");
             fail(exit::CANCELED, message)
         }
         Outcome::Failed(message) => {
             let _ =
                 history.finish_restore(&restore_id, ExecutionStatus::Failed, None, Some(&message));
-            info!(operation = "restore.run", engine = ENGINE.as_str(), restore_id = %restore_id, status = "failed", "restore falhou");
+            info!(operation = "restore.run", engine = engine.as_str(), restore_id = %restore_id, status = "failed", "restore falhou");
             fail(exit::RESTORE_FAILED, &message)
         }
     }
@@ -621,17 +662,24 @@ fn config_from(connection: &ConnectionArgs) -> Result<MysqlConnectionConfig, Exi
 }
 
 async fn connect_server(
+    flavor: Flavor,
     config: &MysqlConnectionConfig,
     password: &Password,
 ) -> Result<Server, ExitCode> {
     let info = test_connection(config, password, Timeouts::default())
         .await
         .map_err(|error| fail(exit_code_for(&error), &error.to_string()))?;
-    let Some(version) = MysqlVersion::parse(&info.server_version) else {
+    if Flavor::of(&info.server_version) != flavor {
+        return Err(fail(
+            exit::INVALID_INPUT,
+            &wrong_engine(flavor, &info.server_version),
+        ));
+    }
+    let Some(version) = MysqlVersion::parse_as(flavor, &info.server_version) else {
         return Err(fail(
             exit::FAILURE,
             &format!(
-                "versão do servidor não reconhecida ou não suportada (MariaDB não é suportado): {}",
+                "versão do servidor {flavor} não reconhecida: {}",
                 info.server_version
             ),
         ));
@@ -639,7 +687,16 @@ async fn connect_server(
     Ok(Server { info, version })
 }
 
+fn wrong_engine(flavor: Flavor, server_version: &str) -> String {
+    let found = Flavor::of(server_version);
+    format!(
+        "o servidor é {found} ({server_version}), não {flavor}; use --engine {}",
+        engine(found).as_str()
+    )
+}
+
 async fn check_non_transactional(
+    engine: DatabaseEngine,
     config: &MysqlConnectionConfig,
     password: &Password,
 ) -> Option<Vec<String>> {
@@ -649,7 +706,7 @@ async fn check_non_transactional(
             if !tables.is_empty() {
                 warn!(
                     operation = "backup.run",
-                    engine = ENGINE.as_str(),
+                    engine = engine.as_str(),
                     count = tables.len(),
                     tables = %tables.join(", "),
                     "tabelas fora do InnoDB não entram no snapshot consistente do --single-transaction; escritas durante o backup podem deixá-las inconsistentes"
@@ -660,7 +717,7 @@ async fn check_non_transactional(
         Err(error) => {
             warn!(
                 operation = "backup.run",
-                engine = ENGINE.as_str(),
+                engine = engine.as_str(),
                 error = %describe(&error),
                 "não foi possível verificar o motor de armazenamento das tabelas"
             );
@@ -671,13 +728,14 @@ async fn check_non_transactional(
 
 fn start_execution(
     history: &History,
+    engine: DatabaseEngine,
     config: &MysqlConnectionConfig,
     secret_ref: &str,
 ) -> Result<String, HistoryError> {
     let display_name = config.to_string();
     let connection_id = history.upsert_connection(&NewConnection {
         display_name: &display_name,
-        engine: ENGINE.as_str(),
+        engine: engine.as_str(),
         host: Some(config.host()),
         port: Some(config.port()),
         database_name: config.database(),
@@ -695,12 +753,17 @@ fn record_success(
     tools: &MysqlTools,
 ) -> Result<(), HistoryError> {
     let location = artifact.path.display().to_string();
-    let tool_version = format!("mysqldump {} ({})", tools.version(), tools.kind().as_str());
+    let tool_version = format!(
+        "{} {} ({})",
+        tools.flavor().dump_tool(),
+        tools.version(),
+        tools.kind().as_str()
+    );
     history.add_artifact(
         execution_id,
         &NewArtifact {
             location: &location,
-            format: FORMAT,
+            format: format(tools.flavor()),
             size_bytes: artifact.size_bytes,
             checksum_sha256: Some(&artifact.sha256),
             tool_version: Some(&tool_version),

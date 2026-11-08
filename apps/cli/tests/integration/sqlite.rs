@@ -611,10 +611,10 @@ fn restore_of_an_unrecognized_file_follows_the_requested_engine() {
     use std::os::unix::fs::PermissionsExt;
 
     let env = Env::new();
-    let dump = env.path("mariadb.sql");
+    let dump = env.path("outro.sql");
     std::fs::write(
         &dump,
-        b"-- MariaDB dump 10.19  Distrib 10.11.6-MariaDB\nCREATE TABLE t (id int);\n",
+        b"-- Dump gerado por outra ferramenta\nCREATE TABLE t (id int);\n",
     )
     .unwrap();
     std::fs::set_permissions(&dump, std::fs::Permissions::from_mode(0o600)).unwrap();

@@ -23,10 +23,14 @@ O workflow manual rejeita releases sem seção publicada e sem mudanças reais. 
 - `restore` descobre o SGBD pelo manifesto ou pelo cabeçalho do arquivo; `--engine` passa a ser opcional no restore de MySQL, MongoDB e SQLite.
 - `dbu backup ./app.db` faz o backup de um arquivo SQLite sem `-e sqlite --source`. Um nome que é ao mesmo tempo arquivo e perfil sai com código 2.
 
+- MariaDB (`--engine mariadb`): teste de conexão, backup com `mariadb-dump`, verificação e restore em banco novo com o cliente `mariadb`, nativos ou pela imagem `mariadb:<major.minor>`. A senha vem de `--password-file`, `DBU_MARIADB_PASSWORD_FILE` ou `DBU_MARIADB_PASSWORD`. O `restore` reconhece o dump pelo cabeçalho `-- MariaDB dump`, e perfis de conexão aceitam `mariadb`.
+
 ### Changed
 - CI: a integração passa a ter um job por SGBD. MySQL (8.0 e 8.4) e MongoDB (7.0) agora exigem o runner nativo, além do Docker, e uma falha aparece no job do próprio SGBD. A imagem MySQL dos testes pode ser trocada com `DBU_MYSQL_TAG`.
 
 ### Security
+- MySQL e MariaDB nunca se confundem: `--engine mysql` contra um servidor MariaDB (e o contrário) sai com código 2 antes do dump, e o restore de um dump de um com o engine do outro sai com código 10 antes de conectar.
+- A migration do histórico que passa a aceitar `mariadb` roda com as chaves estrangeiras desligadas e verificadas no fim, para não apagar jobs, execuções e artefatos em cascata.
 - `--engine` ou perfil de outro SGBD que não o do arquivo recusa o restore (código 10) antes de qualquer conexão, inclusive em arquivos sem manifesto.
 - O perfil nunca guarda a senha, só o caminho absoluto do `--password-file`, que segue as regras de permissão a cada uso. Restore com perfil exige `--to`, para nunca restaurar no banco de origem do perfil.
 

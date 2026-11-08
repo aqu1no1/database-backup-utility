@@ -7,6 +7,7 @@ use thiserror::Error;
 pub enum DatabaseEngine {
     Postgres,
     Mysql,
+    Mariadb,
     Sqlite,
     Mongodb,
 }
@@ -16,13 +17,20 @@ pub enum DatabaseEngine {
 pub struct UnknownEngine(pub String);
 
 impl DatabaseEngine {
-    pub const ALL: [Self; 4] = [Self::Postgres, Self::Mysql, Self::Mongodb, Self::Sqlite];
+    pub const ALL: [Self; 5] = [
+        Self::Postgres,
+        Self::Mysql,
+        Self::Mariadb,
+        Self::Mongodb,
+        Self::Sqlite,
+    ];
 
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Postgres => "postgres",
             Self::Mysql => "mysql",
+            Self::Mariadb => "mariadb",
             Self::Sqlite => "sqlite",
             Self::Mongodb => "mongodb",
         }
@@ -33,6 +41,7 @@ impl DatabaseEngine {
         match self {
             Self::Postgres => "PostgreSQL",
             Self::Mysql => "MySQL",
+            Self::Mariadb => "MariaDB",
             Self::Sqlite => "SQLite",
             Self::Mongodb => "MongoDB",
         }
@@ -52,6 +61,7 @@ impl FromStr for DatabaseEngine {
         match value {
             "postgres" | "postgresql" => Ok(Self::Postgres),
             "mysql" => Ok(Self::Mysql),
+            "mariadb" => Ok(Self::Mariadb),
             "sqlite" => Ok(Self::Sqlite),
             "mongodb" => Ok(Self::Mongodb),
             other => Err(UnknownEngine(other.to_owned())),
@@ -68,6 +78,7 @@ mod tests {
         assert_eq!("postgres".parse(), Ok(DatabaseEngine::Postgres));
         assert_eq!("postgresql".parse(), Ok(DatabaseEngine::Postgres));
         assert_eq!("mysql".parse(), Ok(DatabaseEngine::Mysql));
+        assert_eq!("mariadb".parse(), Ok(DatabaseEngine::Mariadb));
         assert_eq!("sqlite".parse(), Ok(DatabaseEngine::Sqlite));
         assert_eq!("mongodb".parse(), Ok(DatabaseEngine::Mongodb));
         assert_eq!(

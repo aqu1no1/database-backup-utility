@@ -9,5 +9,5 @@ pub use crate::process::{
 };
 pub use admin::{Admin, AdminError, DatabaseState, quote_ident};
 pub use connection::test_connection;
-pub use dump::{Definer, DumpError, DumpInfo, ObjectKind, inspect_dump};
-pub use tools::{MysqlTools, MysqlVersion, ToolPaths};
+pub use dump::{Definer, DumpError, DumpInfo, ObjectKind, dump_flavor, inspect_dump};
+pub use tools::{Flavor, MysqlTools, MysqlVersion, ToolPaths};

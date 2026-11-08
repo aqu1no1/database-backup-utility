@@ -18,6 +18,7 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use database_backup_adapters::mysql::Flavor;
 use database_backup_adapters::postgres::{
     ConnectionError, RunnerChoice, Timeouts, test_connection,
 };
@@ -32,7 +33,7 @@ use output::{LogLevel, fail, success};
 
 macro_rules! password_note {
     () => {
-        "A senha vem de --password-file, DBU_PG_PASSWORD_FILE ou DBU_PG_PASSWORD (MySQL: DBU_MYSQL_PASSWORD_FILE ou\nDBU_MYSQL_PASSWORD; MongoDB: DBU_MONGO_PASSWORD_FILE ou DBU_MONGO_PASSWORD), só uma delas (mais de uma é erro),\nou, sem nenhuma, de um prompt sem eco. O arquivo de senha precisa ter permissão 600 ou 400."
+        "A senha vem de --password-file, DBU_PG_PASSWORD_FILE ou DBU_PG_PASSWORD (MySQL: DBU_MYSQL_PASSWORD_FILE ou\nDBU_MYSQL_PASSWORD; MariaDB: DBU_MARIADB_PASSWORD_FILE ou DBU_MARIADB_PASSWORD; MongoDB: DBU_MONGO_PASSWORD_FILE ou DBU_MONGO_PASSWORD), só uma delas (mais de uma é erro),\nou, sem nenhuma, de um prompt sem eco. O arquivo de senha precisa ter permissão 600 ou 400."
     };
 }
 
@@ -295,7 +296,7 @@ const POSTGRES_PORT: u16 = 5432;
 const MYSQL_PORT: u16 = 3306;
 const MONGO_PORT: u16 = 27017;
 const PORT_HELP: &str =
-    "Porta do servidor (padrão: 5432 no PostgreSQL, 3306 no MySQL, 27017 no MongoDB)";
+    "Porta do servidor (padrão: 5432 no PostgreSQL, 3306 no MySQL e no MariaDB, 27017 no MongoDB)";
 const AUTH_DATABASE_ONLY_MONGODB: &str = "--auth-database só vale com --engine mongodb";
 
 #[derive(Debug, Args)]
@@ -304,7 +305,7 @@ struct TestConnectionArgs {
         short,
         long,
         value_enum,
-        help = "SGBD do servidor (postgres, mysql ou mongodb)"
+        help = "SGBD do servidor (postgres, mysql, mariadb ou mongodb)"
     )]
     engine: Option<EngineArg>,
     #[arg(
@@ -325,6 +326,7 @@ struct TestConnectionArgs {
 enum EngineArg {
     Postgres,
     Mysql,
+    Mariadb,
     Mongodb,
     Sqlite,
 }
@@ -334,6 +336,7 @@ impl From<DatabaseEngine> for EngineArg {
         match engine {
             DatabaseEngine::Postgres => Self::Postgres,
             DatabaseEngine::Mysql => Self::Mysql,
+            DatabaseEngine::Mariadb => Self::Mariadb,
             DatabaseEngine::Mongodb => Self::Mongodb,
             DatabaseEngine::Sqlite => Self::Sqlite,
         }
@@ -454,7 +457,10 @@ async fn test_resolved(
 ) -> ExitCode {
     match engine {
         EngineArg::Postgres => {}
-        EngineArg::Mysql => return mysql::test(&connection, timeout, report).await,
+        EngineArg::Mysql => return mysql::test(Flavor::Mysql, &connection, timeout, report).await,
+        EngineArg::Mariadb => {
+            return mysql::test(Flavor::Mariadb, &connection, timeout, report).await;
+        }
         EngineArg::Mongodb => return mongo::test(&connection, timeout, report).await,
         EngineArg::Sqlite => {
             return unsupported(DatabaseEngine::Sqlite, Operation::ConnectionTest, "");

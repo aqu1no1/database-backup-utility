@@ -48,7 +48,11 @@ senão, o Docker. Quem pode usar o Docker tem, na prática, acesso de root; veja
 - **PostgreSQL:** `pg_dump` e `pg_restore` com versão **maior ou igual** à do servidor, ou Docker
   (imagem `postgres:<versão do servidor>`).
 - **MySQL:** `mysqldump` e `mysql` com versão maior ou igual à do servidor (major.minor), ou Docker
-  (imagem `mysql:<major.minor>`). MariaDB ainda não é suportado (DB-37).
+  (imagem `mysql:<major.minor>`). Um servidor MariaDB é recusado com código 2 e a dica
+  `--engine mariadb`.
+- **MariaDB:** `mariadb-dump` e `mariadb` com versão maior ou igual à do servidor (major.minor, na
+  numeração do MariaDB: 10.11, 11.4…), ou Docker (imagem `mariadb:<major.minor>`). Um servidor
+  MySQL é recusado com código 2 e a dica `--engine mysql`.
 - **MongoDB:** MongoDB Database Tools `100.x` (`mongodump`/`mongorestore`) compatíveis com o
   servidor ([tabela em `stack.md`](stack.md#mongodb-database-tools)), ou Docker (imagem
   `mongo:<major.minor>`). Servidor 4.4 ou mais novo, standalone ou primário de replica set.
@@ -237,7 +241,25 @@ DBU_MYSQL_PASSWORD='...' cargo run -p database-backup-cli -- backup run --engine
   `-- Dump completed` e banco certo) e só então vira `<database>-<AAAAMMDDTHHMMSSZ>.sql`, com o
   manifesto `.sql.meta.json` ao lado.
 - `--runner auto` usa o `mysqldump` instalado se a versão for igual ou maior que a do servidor
-  (major.minor); senão, a imagem `mysql:<major.minor>` no Docker. MariaDB ainda não é suportado (DB-37).
+  (major.minor); senão, a imagem `mysql:<major.minor>` no Docker.
+
+Gerar um backup de um MariaDB (`mariadb-dump`, com as mesmas regras do MySQL acima):
+
+```bash
+DBU_MARIADB_PASSWORD='...' cargo run -p database-backup-cli -- backup run --engine mariadb \
+  --database my_database --user backup [--port 3306] [--output-dir DIR] [--runner auto|native|docker]
+```
+
+- A senha vem de `--password-file`, `DBU_MARIADB_PASSWORD_FILE` ou `DBU_MARIADB_PASSWORD`, com o
+  mesmo arquivo de opções temporário (`0600`) do MySQL.
+- O MariaDB não tem GTID no formato do MySQL, então o dump sai sem `--set-gtid-purged`. O resto
+  (`--single-transaction`, rotinas, triggers, eventos, views, aviso de tabelas fora do InnoDB) é igual.
+- O dump começa com a linha de *sandbox* do `mariadb-dump` (quando a versão a gera) e o cabeçalho
+  `-- MariaDB dump`; o `restore` reconhece o SGBD por esse cabeçalho, sem `--engine`.
+- `--runner auto` usa o `mariadb-dump` instalado se a versão for igual ou maior que a do servidor;
+  senão, a imagem `mariadb:<major.minor>` no Docker.
+- Um dump do MySQL não é restaurado num MariaDB, e o contrário também não: o restore recusa com
+  código 10 antes de conectar.
 
 Gerar um backup de um MongoDB (`mongodump --archive`, um banco por arquivo, sem compressão):
 

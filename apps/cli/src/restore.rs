@@ -4,6 +4,7 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use clap::Args;
+use database_backup_adapters::mysql::Flavor;
 use database_backup_adapters::postgres::{
     Admin, ArchiveInfo, DatabaseState, PgTools, PgVersion, Timeouts, derived_name, test_connection,
 };
@@ -221,9 +222,12 @@ pub async fn run(mut args: RestoreArgs) -> ExitCode {
             exit::INVALID_INPUT,
             "--to (ou --target) é obrigatório no restore de um backup SQLite",
         ),
-        (EngineArg::Postgres | EngineArg::Mysql | EngineArg::Mongodb, Some(_)) => fail(
+        (
+            EngineArg::Postgres | EngineArg::Mysql | EngineArg::Mariadb | EngineArg::Mongodb,
+            Some(_),
+        ) => fail(
             exit::INVALID_INPUT,
-            "--target só vale para backups SQLite; para PostgreSQL, MySQL e MongoDB use --to ou --target-database",
+            "--target só vale para backups SQLite; para PostgreSQL, MySQL, MariaDB e MongoDB use --to ou --target-database",
         ),
         (EngineArg::Mongodb, None) => match (&args.target_database, &args.user) {
             (Some(target_database), Some(user)) => {
@@ -248,28 +252,38 @@ pub async fn run(mut args: RestoreArgs) -> ExitCode {
                 "--to (ou --target-database) e --user são obrigatórios no restore de MongoDB",
             ),
         },
-        (EngineArg::Mysql, None) => match (&args.target_database, &args.user) {
-            (Some(target_database), Some(user)) => {
-                crate::mysql::restore(&crate::mysql::RestoreRequest {
-                    file: args.file(),
-                    host: args.host.as_deref().unwrap_or("localhost"),
-                    port: args.port,
-                    target_database,
-                    user,
-                    tls: args.tls.unwrap_or(TlsArg::Auto),
-                    runner: args.runner,
-                    overwrite: args.overwrite,
-                    allow_unverified: args.allow_unverified,
-                    timeout: args.timeout,
-                    password_file: args.password_file.clone(),
-                })
-                .await
+        (EngineArg::Mysql | EngineArg::Mariadb, None) => {
+            match (&args.target_database, &args.user) {
+                (Some(target_database), Some(user)) => {
+                    crate::mysql::restore(&crate::mysql::RestoreRequest {
+                        flavor: if engine == EngineArg::Mariadb {
+                            Flavor::Mariadb
+                        } else {
+                            Flavor::Mysql
+                        },
+                        file: args.file(),
+                        host: args.host.as_deref().unwrap_or("localhost"),
+                        port: args.port,
+                        target_database,
+                        user,
+                        tls: args.tls.unwrap_or(TlsArg::Auto),
+                        runner: args.runner,
+                        overwrite: args.overwrite,
+                        allow_unverified: args.allow_unverified,
+                        timeout: args.timeout,
+                        password_file: args.password_file.clone(),
+                    })
+                    .await
+                }
+                _ => fail(
+                    exit::INVALID_INPUT,
+                    &format!(
+                        "--to (ou --target-database) e --user são obrigatórios no restore de {}",
+                        engine_name(engine)
+                    ),
+                ),
             }
-            _ => fail(
-                exit::INVALID_INPUT,
-                "--to (ou --target-database) e --user são obrigatórios no restore de MySQL",
-            ),
-        },
+        }
         (EngineArg::Postgres, None) => match (&args.target_database, &args.user) {
             (Some(target_database), Some(user)) => run_postgres(&args, target_database, user).await,
             _ => fail(
@@ -338,6 +352,7 @@ fn engine_name(engine: EngineArg) -> &'static str {
     match engine {
         EngineArg::Postgres => DatabaseEngine::Postgres.display_name(),
         EngineArg::Mysql => DatabaseEngine::Mysql.display_name(),
+        EngineArg::Mariadb => DatabaseEngine::Mariadb.display_name(),
         EngineArg::Mongodb => DatabaseEngine::Mongodb.display_name(),
         EngineArg::Sqlite => DatabaseEngine::Sqlite.display_name(),
     }

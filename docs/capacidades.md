@@ -10,26 +10,26 @@ ser corrigida no mesmo PR.
 
 Legenda: **sim** (implementado e testado), **planejado** (com card), **não** (não suportado).
 
-| Operação | PostgreSQL | MySQL | MongoDB | SQLite |
-| --- | --- | --- | --- | --- |
-| Teste de conexão (`connection test`) | sim | sim | sim | não: arquivo local, sem servidor |
-| Backup completo (`backup run`) | sim | sim | sim | sim |
-| Verificação (`backup verify`) | sim | sim | sim | sim |
-| Restore em destino novo (`restore run`) | sim | sim | sim | sim |
-| Restore sobrescrevendo destino (`--overwrite`) | sim | não: sem `RENAME DATABASE` | não: sem `RENAME DATABASE` | sim |
-| Restore seletivo | não | não | não | não |
-| Backup incremental | não | não | não | não |
-| Backup diferencial | não | não | não | não |
-| Recuperação point-in-time | não | não | não | não |
-| Compressão | planejado (DB-31) | planejado (DB-31) | planejado (DB-31) | planejado (DB-31) |
-| Criptografia | planejado (DB-31) | planejado (DB-31) | planejado (DB-31) | planejado (DB-31) |
-| Ferramentas via Docker (`--runner docker`) | sim | sim | sim | não: não usa ferramenta externa |
+| Operação | PostgreSQL | MySQL | MariaDB | MongoDB | SQLite |
+| --- | --- | --- | --- | --- | --- |
+| Teste de conexão (`connection test`) | sim | sim | sim | sim | não: arquivo local, sem servidor |
+| Backup completo (`backup run`) | sim | sim | sim | sim | sim |
+| Verificação (`backup verify`) | sim | sim | sim | sim | sim |
+| Restore em destino novo (`restore run`) | sim | sim | sim | sim | sim |
+| Restore sobrescrevendo destino (`--overwrite`) | sim | não: sem `RENAME DATABASE` | não: sem `RENAME DATABASE` | não: sem `RENAME DATABASE` | sim |
+| Restore seletivo | não | não | não | não | não |
+| Backup incremental | não | não | não | não | não |
+| Backup diferencial | não | não | não | não | não |
+| Recuperação point-in-time | não | não | não | não | não |
+| Compressão | planejado (DB-31) | planejado (DB-31) | planejado (DB-31) | planejado (DB-31) | planejado (DB-31) |
+| Criptografia | planejado (DB-31) | planejado (DB-31) | planejado (DB-31) | planejado (DB-31) | planejado (DB-31) |
+| Ferramentas via Docker (`--runner docker`) | sim | sim | sim | sim | não: não usa ferramenta externa |
 
 Incremental, diferencial e point-in-time não dependem só da CLI. Cada um precisa de um mecanismo
 do próprio SGBD que um dump lógico de um banco não tem:
 
 - **PostgreSQL:** arquivamento contínuo de WAL e backup físico (`pg_basebackup`).
-- **MySQL:** binlog e um backup base físico.
+- **MySQL e MariaDB:** binlog e um backup base físico (no MariaDB, `mariadb-backup`).
 - **MongoDB:** oplog. O `mongodump --oplog` só existe para o servidor inteiro, e o backup aqui é de
   um banco.
 - **SQLite:** a Backup API copia o banco inteiro, e não existe histórico de transações para replay.
@@ -45,7 +45,8 @@ não expõe nem testa isso.
 | SGBD | Artefato | Backup | Restore | Verify sem servidor | Versões |
 | --- | --- | --- | --- | --- | --- |
 | PostgreSQL | `<banco>-<data>.dump` (`pg_dump` formato custom) | `pg_dump` nativo ou `postgres:<major>` | `pg_restore` | `pg_restore --list` (precisa de `pg_restore` compatível) | cliente ≥ servidor; a origem fica no manifesto |
-| MySQL | `<banco>-<data>.sql` | `mysqldump --single-transaction` nativo ou `mysql:<major.minor>` | cliente `mysql` com `--binary-mode` e `--local-infile=0` | leitura do SQL em Rust (`mysql/dump.rs`) | cliente ≥ servidor (major.minor); MariaDB ainda não (DB-37) |
+| MySQL | `<banco>-<data>.sql` | `mysqldump --single-transaction` nativo ou `mysql:<major.minor>` | cliente `mysql` com `--binary-mode` e `--local-infile=0` | leitura do SQL em Rust (`mysql/dump.rs`) | cliente ≥ servidor (major.minor); servidor MariaDB recusado |
+| MariaDB | `<banco>-<data>.sql` | `mariadb-dump --single-transaction` nativo ou `mariadb:<major.minor>` | cliente `mariadb` com `--binary-mode` e `--local-infile=0` | leitura do SQL em Rust (`mysql/dump.rs`, cabeçalho `-- MariaDB dump`) | cliente ≥ servidor (major.minor) na numeração do MariaDB; servidor MySQL recusado |
 | MongoDB | `<banco>-<data>.archive` (`--archive`, sem compressão) | `mongodump --db` nativo ou `mongo:<major.minor>` | `mongorestore` com `--nsFrom/--nsTo`, sem `--drop` | leitura do archive em Rust (`mongo/archive.rs`) | Database Tools 100.x; servidor ≥ 4.4 ([tabela em `stack.md`](stack.md#mongodb-database-tools)) |
 | SQLite | `<arquivo>-<data>.sqlite3` | Online Backup API (`rusqlite`) | Online Backup API em `.partial` + rename | `PRAGMA integrity_check` | SQLite embutido no binário |
 
@@ -55,7 +56,7 @@ Todo artefato tem um manifesto `.meta.json` com SHA-256, tamanho e versões, des
 ## Limites de consistência
 
 - **PostgreSQL:** o `pg_dump` lê um snapshot único do banco.
-- **MySQL:** com `--single-transaction`, só as tabelas InnoDB entram em um snapshot consistente.
+- **MySQL e MariaDB:** com `--single-transaction`, só as tabelas InnoDB entram em um snapshot consistente.
   Tabelas de outros engines são listadas no aviso do backup, no `--json` e no manifesto
   (`non_transactional_tables`).
 - **MongoDB:** não há snapshot de um único instante. Escritas durante o backup podem deixar coleções
@@ -83,6 +84,7 @@ Cada SGBD continua com o próprio teste de round-trip e decide o que é "dados i
 | --- | --- | --- |
 | PostgreSQL | `postgres_restore.rs` | contagem e soma das tabelas da fixture |
 | MySQL | `mysql_tools.rs` | linhas de tabelas e views, por runner |
+| MariaDB | `mariadb_tools.rs` | linhas de tabelas e views, por runner (mesma fixture do MySQL) |
 | MongoDB | `mongo_tools.rs` | documentos, índices, opções e views, por runner |
 | SQLite | `sqlite_backup.rs` | linhas da tabela de eventos |
 
@@ -92,7 +94,11 @@ ele só garante que nenhum SGBD passe sem cumprir o mínimo.
 
 ## Como adicionar um novo SGBD
 
-Use o MariaDB (DB-37) como referência do próximo caso.
+O MariaDB (DB-37) é o exemplo de um SGBD que reaproveita um adaptador existente: ele usa o módulo
+`mysql/` com `Flavor::Mariadb`, que troca as ferramentas (`mariadb-dump`/`mariadb`), a imagem
+Docker, os argumentos (sem `--set-gtid-purged`, TLS com `--ssl-verify-server-cert`) e o cabeçalho
+esperado do dump. Os passos abaixo valem igual; só o passo 3 vira um `Flavor` novo em vez de um
+módulo novo.
 
 1. **Core:**
    - variante nova em `DatabaseEngine` (`crates/core/src/engine.rs`), com `as_str`,

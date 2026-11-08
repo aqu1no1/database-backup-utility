@@ -31,6 +31,20 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
 
+  mariadb:
+    image: mariadb:11.4
+    profiles: ["mariadb"]
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-dev-change-me}
+      MARIADB_DATABASE: ${MARIADB_DATABASE:-my_database}
+      MARIADB_USER: ${MARIADB_USER:-backup_dev}
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD:-dev-change-me}
+    ports:
+      - "127.0.0.1:3307:3306"
+    volumes:
+      - mariadb_data:/var/lib/mysql
+
   mongodb:
     image: mongo:7.0
     profiles: ["mongodb"]
@@ -46,4 +60,5 @@ services:
 volumes:
   postgres_data:
   mysql_data:
+  mariadb_data:
   mongo_data:

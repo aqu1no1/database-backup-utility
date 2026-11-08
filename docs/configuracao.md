@@ -11,7 +11,7 @@ docker compose --env-file .env -f infra/docker/compose.yml up -d postgres
 
 ```bash
 docker compose --env-file .env -f infra/docker/compose.yml \
-  --profile mysql --profile mongodb up -d
+  --profile mysql --profile mariadb --profile mongodb up -d
 ```
 
 ## Variáveis
@@ -42,6 +42,8 @@ docker compose --env-file .env -f infra/docker/compose.yml \
 | `DBU_PG_PASSWORD_FILE` | Caminho de um arquivo com a senha (equivale a `--password-file`). Recomendado para agendadores. |
 | `DBU_MYSQL_PASSWORD` | O mesmo que `DBU_PG_PASSWORD`, para `--engine mysql`. |
 | `DBU_MYSQL_PASSWORD_FILE` | O mesmo que `DBU_PG_PASSWORD_FILE`, para `--engine mysql`. |
+| `DBU_MARIADB_PASSWORD` | O mesmo que `DBU_PG_PASSWORD`, para `--engine mariadb`. |
+| `DBU_MARIADB_PASSWORD_FILE` | O mesmo que `DBU_PG_PASSWORD_FILE`, para `--engine mariadb`. |
 | `DBU_MONGO_PASSWORD` | O mesmo que `DBU_PG_PASSWORD`, para `--engine mongodb`. |
 | `DBU_MONGO_PASSWORD_FILE` | O mesmo que `DBU_PG_PASSWORD_FILE`, para `--engine mongodb`. |
 | `DBU_DATA_DIR` | Diretório do histórico SQLite, no lugar do padrão do sistema. Útil para testes e uso portátil. |
@@ -84,7 +86,8 @@ printf '%s\n' 'a-senha' > ~/.config/dbu/pg.pass
 DBU_PG_PASSWORD_FILE=~/.config/dbu/pg.pass dbu backup -d app -u backup
 ```
 
-No MySQL, a senha lida por essas fontes vai para o `mysqldump`/`mysql` num arquivo de opções
+No MySQL e no MariaDB, a senha lida por essas fontes vai para o `mysqldump`/`mysql` (ou
+`mariadb-dump`/`mariadb`) num arquivo de opções
 temporário (`[client]`, `0600`, apagado ao fim do processo) passado com `--defaults-extra-file`.
 `MYSQL_PWD` é removida do ambiente do processo filho. No modo Docker, o arquivo é montado só leitura.
 

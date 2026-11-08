@@ -9,6 +9,7 @@ As regras sobre **quais** testes escrever (relevância, nível, isolamento, temp
 | Integração PostgreSQL | Testcontainers + tokio-postgres | Sim |
 | E2E backup/restore | CLI real, dois servidores PostgreSQL temporários | Sim |
 | Integração e E2E MySQL | Testcontainers (`mysql:8.4`) + mysql_async (`crates/database-adapters/tests/integration/mysql_*.rs`, `apps/cli/tests/integration/mysql.rs`) | Sim |
+| Integração e E2E MariaDB | Testcontainers (`mariadb:11.4`) + mysql_async (`crates/database-adapters/tests/integration/mariadb_*.rs`, `apps/cli/tests/integration/mariadb.rs`) | Sim |
 | Integração e E2E MongoDB | Testcontainers (`mongo:7.0`, standalone e replica set) + driver `mongodb` (`crates/database-adapters/tests/integration/mongo_*.rs`, `apps/cli/tests/integration/mongo.rs`) | Sim |
 | Integração e E2E SQLite | `rusqlite` + arquivos em `tempfile` (`crates/database-adapters/tests/integration/sqlite_backup.rs`, `apps/cli/tests/integration/sqlite.rs`) | Não |
 | Angular unit/component (futuro) | Vitest + Angular TestBed | Não |
@@ -95,6 +96,27 @@ exigi-lo, defina `DBU_REQUIRE_NATIVE_MYSQL=1` (o `DBU_REQUIRE_NATIVE` vale só p
 CI, o job MySQL instala o `mysql-client` do Ubuntu (8.4 no `ubuntu-latest`, 26.04) e exige o
 nativo contra o 8.0 e o 8.4 (ver [CI](#ci)).
 
+## Integração MariaDB
+
+O mesmo `MysqlTestDb` sobe um `mariadb:11.4` efêmero com `start_mariadb()` /
+`start_mariadb_seeded()`, aplicando a mesma fixture `tests/fixtures/mysql/seed.sql`. A imagem pode
+ser trocada com `DBU_MARIADB_TAG` (por exemplo `DBU_MARIADB_TAG=10.11`).
+
+- `mariadb_connection.rs`: versão do servidor com `-MariaDB`, senha errada e banco inexistente
+  classificados sem vazar a senha.
+- `mariadb_tools.rs`: dump e restore preservam dados, view e trigger nos dois runners, com a sonda de
+  `DEFINER`; a senha não aparece em argumentos, ambiente do container nem erros; `\!`/`system` no
+  dump não executam nada; a imagem MySQL nunca serve um servidor MariaDB; cliente ausente.
+- `apps/cli/tests/integration/mariadb.rs`: ciclo `connection test` → `backup run` → `backup verify`
+  → `restore` com o SGBD inferido do arquivo, conferindo manifesto (`engine` `mariadb`, `format`
+  `mariadb-dump-sql`), histórico e ausência da senha; `--engine mysql` contra o servidor MariaDB
+  (código 2) e restore de um dump MariaDB com `-e mysql`, com e sem manifesto (código 10, nenhum
+  banco criado); cabeçalho com linha de *sandbox* reconhecido sem manifesto.
+
+O runner nativo só roda quando o `mariadb-dump`/`mariadb` instalado atende ao servidor; para
+exigi-lo, defina `DBU_REQUIRE_NATIVE_MARIADB=1`. Na CI, o job MariaDB instala o `mariadb-client` do
+Ubuntu (11.8 no `ubuntu-latest`) e exige o nativo contra o 10.11 e o 11.4.
+
 ## Integração MongoDB
 
 O harness `MongoTestDb` (mesmo `support/mod.rs`) sobe um `mongo:7.0` efêmero com senha de root
@@ -168,8 +190,9 @@ SGBD apareça com o nome dele e cada job exija o runner nativo do seu cliente:
 
 | Job | Versões do servidor | Cliente nativo | Testes |
 | --- | --- | --- | --- |
-| `Rust / PostgreSQL & CLI Integration` | 17 | `postgresql-client-17` (PGDG), `DBU_REQUIRE_NATIVE=1` | todos os `--tests`, exceto os módulos MySQL e MongoDB |
+| `Rust / PostgreSQL & CLI Integration` | 17 | `postgresql-client-17` (PGDG), `DBU_REQUIRE_NATIVE=1` | todos os `--tests`, exceto os módulos MySQL, MariaDB e MongoDB |
 | `Rust / MySQL Integration` | 8.0, 8.4 (`DBU_MYSQL_TAG`) | `mysql-client` 8.4 do Ubuntu, `DBU_REQUIRE_NATIVE_MYSQL=1` | `mysql_tools::`, `mysql_connection::` e `mysql::` |
+| `Rust / MariaDB Integration` | 10.11, 11.4 (`DBU_MARIADB_TAG`) | `mariadb-client` 11.8 do Ubuntu, `DBU_REQUIRE_NATIVE_MARIADB=1` | `mariadb_tools::`, `mariadb_connection::` e `mariadb::` |
 | `Rust / MongoDB Integration` | 7.0 (`DBU_MONGO_TAG`) | `mongodb-database-tools` (`repo.mongodb.org`), `DBU_REQUIRE_NATIVE_MONGO=1` | `mongo_tools::`, `mongo_connection::` e `mongo::` |
 
 Os filtros usam o caminho do módulo (`mysql::`, não `mysql`), para que testes sem container com
