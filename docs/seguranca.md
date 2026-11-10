@@ -51,6 +51,22 @@ Todos os testes citados rodam na CI (`cargo test --workspace --tests`, job
 | Arquivo parcial nunca vira backup | `.partial` + `fsync` + `rename`; `dropping_without_commit_removes_partial_file`; E2E de interrupção | ok |
 | SHA-256 e manifesto versionado | [`manifesto.md`](manifesto.md); `metadata_and_checksum_round_trip`, `manifest_without_or_with_unknown_version_is_rejected` | ok (DB-19) |
 
+## Compressão e criptografia (DB-31)
+
+Detalhes e procedimento de chaves em [`criptografia.md`](criptografia.md).
+
+| Controle | Evidência | Status |
+| --- | --- | --- |
+| Formato estabelecido, sem criptografia própria | crates `age` 0.11 (X25519 nativo, sem plugins nem SSH) e `zstd`; o arquivo abre com `age -d` e `zstd -d` | ok (DB-31) |
+| Backup criptografado só abre com uma das chaves privadas | `compressed_and_encrypted_backup_opens_only_with_the_key`, `encrypted_backup_is_refused_without_or_with_another_key`; CLI `encrypted_backup_restores_only_with_a_recipient_key_and_never_leaks_it` (sem chave → 2, chave errada → 10), restore real em PostgreSQL (`postgres_backup_is_encrypted_without_a_second_compression_and_restores`) e MySQL (`mysql::compressed_and_encrypted_dump_restores_the_same_rows_with_the_key`) | ok (DB-31) |
+| Chave privada nunca em log, saída, histórico ou manifesto | `dbu key generate` só imprime a pública; o teste da CLI varre stdout/stderr com `--log-level trace`, manifesto e `history.sqlite3` atrás de `AGE-SECRET-KEY-`; o manifesto não guarda nem os destinatários; `Identities`/`Recipients` não mostram chaves no `Debug` | ok (DB-31) |
+| Arquivo de chave privada protegido | `key generate` cria com `0600` e `create_new` (nunca sobrescreve); `--identity` recusa symlink e permissão de grupo/outros (exit 2); `identity_file_is_private_and_never_overwritten`, `invalid_recipient_or_shared_identity_is_refused_before_any_work` | ok (DB-31) |
+| Checksum do arquivo armazenado antes de decriptar | manifesto v3 com `sha256` do artefato e `content.sha256` do dump; `tampered_ciphertext_is_refused_before_and_after_the_checksum` (checksum → `ChecksumMismatch`; checksum forjado → o age recusa) e `tampered_or_manifestless_encrypted_backup_is_refused_before_decrypting` | ok (DB-31) |
+| Abertura não enche o disco | saída limitada ao `content.size_bytes`; `compressed_content_larger_than_the_manifest_is_cut_off` | ok (DB-31) |
+| Manifesto não escolhe o caminho do arquivo aberto | `content.file_name` precisa ser nome simples; `encoded_manifest_must_describe_a_bare_content_file` | ok (DB-31) |
+| Conteúdo aberto não fica para trás | diretório `<dados>/work/open-*` `0700` com lock, apagado no fim (sucesso, erro ou Ctrl+C) e, se o processo morreu, pelo próximo `verify`/`restore`; arquivo aberto apagado se a abertura falha; `work_dir_left_by_a_dead_process_is_removed_and_a_live_one_is_kept`; os testes da CLI conferem `work/` vazio | ok (DB-31) |
+| Sem dupla compressão | `--compress` não aplica zstd ao formato custom do `pg_dump`; `postgres_backup_is_encrypted_without_a_second_compression_and_restores` | ok (DB-31) |
+
 ## Restore
 
 | Controle | Evidência | Status |
@@ -186,6 +202,11 @@ Toda exceção na política de dependências fica aqui, com motivo e condição 
 
 Nenhum advisory RustSec ignorado.
 
+A `age` está fixada na 0.11: a 0.12 traz os destinatários pós-quânticos/`tag`, que puxam
+`p256` → `elliptic-curve` → `crypto-bigint` 0.5.5 (RUSTSEC-2026-0387, sem correção na 0.5). O formato
+age v1 e as chaves X25519 são os mesmos nas duas versões. Subir para a 0.12 quando o `elliptic-curve`
+deixar de depender do `crypto-bigint` afetado.
+
 ## Docker
 
 | Controle | Evidência | Status |
@@ -196,8 +217,15 @@ Nenhum advisory RustSec ignorado.
 
 ## Riscos aceitos e limites
 
-- **Checksum não autentica.** Quem altera o dump e o manifesto juntos gera um par válido. A
-  mitigação é a criptografia/assinatura do DB-31 (v0.4.0). Ver [`manifesto.md`](manifesto.md#limites).
+- **Checksum não autentica.** Quem altera o dump e o manifesto juntos gera um par válido. Com
+  `--recipient` (DB-31), o conteúdo é protegido pelo age, mas o age não assina: quem tem a chave
+  pública gera outro backup válido. Ver [`manifesto.md`](manifesto.md#limites).
+- **Texto aberto em disco no backup e no restore criptografados (DB-31).** O dump é verificado em
+  claro num `.partial` `0600` antes de ser criptografado, e o restore abre o conteúdo num diretório
+  `0700` na pasta de dados enquanto roda. Quem lê como o mesmo usuário ou root vê esse arquivo nesse
+  intervalo. Ver [`criptografia.md`](criptografia.md#limites).
+- **Sem a chave privada, não há recuperação (DB-31).** Não existe chave mestra. O procedimento de chave
+  de recuperação offline está em [`criptografia.md`](criptografia.md#recuperação).
 - **TOCTOU no restore.** O checksum é calculado e depois o `pg_restore` relê o arquivo pelo caminho.
   As permissões exigidas da origem reduzem a janela, mas não a eliminam.
 - **Runner Docker exige o socket do Docker.** Quem pode usar o Docker tem, na prática, privilégio de

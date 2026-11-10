@@ -7,6 +7,7 @@ mod support;
 
 mod backup;
 mod cli;
+mod encryption;
 mod mariadb;
 mod mongo;
 mod mysql;

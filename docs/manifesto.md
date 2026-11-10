@@ -114,6 +114,44 @@ SQLite (sem campos de servidor):
 | `topology` | Só MongoDB: `standalone`, `replica_set` ou `sharded` (a CLI só aceita as duas primeiras). O backup de um banco MongoDB não é um snapshot de um único instante em nenhuma delas; ver [`arquitetura.md`](arquitetura.md#mongodb-topologia-e-consistência). |
 | `created_at`, `execution_id` | Momento do backup e ID da execução no histórico de origem. |
 
+## Versão 3: backup comprimido ou criptografado
+
+Um backup com `--compress` (quando o formato não é comprimido) ou `--recipient` grava o manifesto na
+versão 3. Os campos da versão 2 continuam com o mesmo significado, com uma diferença: `file_name`,
+`sha256` e `size_bytes` descrevem o **arquivo armazenado** (comprimido e/ou criptografado), e o dump
+aberto fica descrito em `content`. Assim, o checksum é conferido antes de decriptar.
+
+```json
+{
+  "manifest_version": 3,
+  "tool": { "name": "database-backup", "version": "…" },
+  "engine": "mysql",
+  "format": "mysqldump-sql",
+  "file_name": "app-20261110T120000Z.sql.zst.age",
+  "sha256": "…SHA-256 do arquivo .sql.zst.age…",
+  "size_bytes": 2310,
+  "database": "app",
+  "…": "demais campos do SGBD, como na versão 2",
+  "compression": "zstd",
+  "encryption": "age",
+  "content": {
+    "file_name": "app-20261110T120000Z.sql",
+    "sha256": "…SHA-256 do dump aberto…",
+    "size_bytes": 8120
+  }
+}
+```
+
+| Campo | Significado |
+| --- | --- |
+| `compression` | `zstd`, ou ausente. O `format` continua sendo o do SGBD (o que fica depois de descomprimir). |
+| `encryption` | `age`, ou ausente. O manifesto nunca traz chave privada nem os destinatários. |
+| `content.file_name` | Nome do dump aberto. Precisa ser um nome simples, sem diretório; senão o manifesto é recusado. |
+| `content.sha256`, `content.size_bytes` | Checksum e tamanho do dump aberto. A abertura para ao passar desse tamanho. |
+
+Um backup sem compressão e sem criptografia continua gravando a versão 2, e uma versão anterior do
+utilitário continua lendo esses backups. Ver [`criptografia.md`](criptografia.md).
+
 ## Versões
 
 - `manifest_version` só muda quando o formato muda de forma incompatível (campo removido,
@@ -131,6 +169,12 @@ SQLite (sem campos de servidor):
   A versão continua 2. Uma versão anterior a esta lê o manifesto, mas recusa o `engine` `mongodb`
   (código 10).
 
+- **v3 (DB-31):** `compression`, `encryption` e `content`; `file_name`/`sha256`/`size_bytes` passam a
+  descrever o arquivo armazenado. Como um leitor antigo trataria o arquivo criptografado como dump, a
+  versão muda e a v0.2.x recusa o manifesto com código 10. Só backups comprimidos ou criptografados
+  usam a v3; os outros continuam na v2. Um manifesto v1/v2 com esses campos, ou um v3 sem `content`, é
+  recusado.
+
 ## O que `backup verify` e `restore run` conferem
 
 1. O dump e o manifesto não são links simbólicos nem graváveis por grupo ou outros.
@@ -145,6 +189,10 @@ SQLite (sem campos de servidor):
    prelúdio, `EOF` de toda coleção e view, um único banco e sem coleções time series; o CRC é
    conferido pelo `mongorestore`, não pelo `verify`) ou `PRAGMA integrity_check` (SQLite).
 
+Em um backup v3, os passos 1 a 6 valem para o arquivo armazenado, antes de abri-lo. Depois o
+conteúdo é aberto num diretório temporário privado, conferido com `content.sha256` e passa pelo passo
+7 (ver [`criptografia.md`](criptografia.md#o-que-o-verify-e-o-restore-conferem)).
+
 Sem manifesto, a referência do checksum vem do histórico SQLite. Sem nenhum dos dois, só com
 `--allow-unverified`, e o restore fica registrado como não verificado.
 
@@ -153,6 +201,7 @@ Sem manifesto, a referência do checksum vem do histórico SQLite. Sem nenhum do
 O SHA-256 detecta corrupção e alterações acidentais ou parciais, mas **não autentica** o backup.
 Quem consegue alterar o dump e o manifesto ao mesmo tempo produz um par consistente, que passa na
 verificação. Proteger contra isso exige guardar o checksum em outro lugar confiável ou assinar ou
-criptografar o artefato. A criptografia com `age` está planejada no DB-31 (v0.4.0). Até lá, proteja o
-diretório de backups com as permissões do sistema e, para cópias externas, guarde o `sha256` em
-um local separado.
+criptografar o artefato. Com `--recipient` (DB-31), o backup é criptografado com `age`: sem a chave
+privada ninguém lê nem altera o conteúdo sem que a abertura falhe. O age não assina, então quem tem a
+chave pública ainda consegue gerar outro backup válido; para cópias externas, guarde o `sha256` em um
+local separado. Ver [`criptografia.md`](criptografia.md).

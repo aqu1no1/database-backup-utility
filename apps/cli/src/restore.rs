@@ -125,11 +125,24 @@ pub struct RestoreArgs {
         help = "Arquivo com a senha (permissão 600 ou 400)"
     )]
     password_file: Option<PathBuf>,
+    #[arg(
+        short,
+        long,
+        value_name = "ARQUIVO",
+        help = "Chave privada age (dbu key generate) de um backup criptografado"
+    )]
+    identity: Option<PathBuf>,
+    #[arg(skip)]
+    source: Option<PathBuf>,
 }
 
 impl RestoreArgs {
     fn file(&self) -> &Path {
         self.file.as_deref().unwrap_or(Path::new(""))
+    }
+
+    fn source(&self) -> &Path {
+        self.source.as_deref().unwrap_or_else(|| self.file())
     }
 }
 
@@ -169,6 +182,17 @@ pub async fn run(mut args: RestoreArgs) -> ExitCode {
         Ok(engine) => engine,
         Err(code) => return code,
     };
+    let original = match std::path::absolute(args.file()) {
+        Ok(path) => path,
+        Err(error) => return fail(exit::INVALID_ARCHIVE, &error.to_string()),
+    };
+    let opened =
+        match crate::sealing::open(&original, args.identity.as_deref(), "restore.run").await {
+            Ok(opened) => opened,
+            Err(code) => return code,
+        };
+    args.file = Some(opened.path().to_owned());
+    args.source = Some(original);
     if let Some(to) = args.to.take() {
         if engine == EngineArg::Sqlite {
             args.target = Some(PathBuf::from(to));
@@ -210,6 +234,7 @@ pub async fn run(mut args: RestoreArgs) -> ExitCode {
         (EngineArg::Sqlite, Some(target)) => {
             crate::sqlite::restore(&crate::sqlite::RestoreRequest {
                 file: args.file(),
+                source: args.source(),
                 target,
                 overwrite: args.overwrite,
                 confirm: args.confirm.as_deref(),
@@ -233,6 +258,7 @@ pub async fn run(mut args: RestoreArgs) -> ExitCode {
             (Some(target_database), Some(user)) => {
                 crate::mongo::restore(&crate::mongo::RestoreRequest {
                     file: args.file(),
+                    source: args.source(),
                     host: args.host.as_deref().unwrap_or("localhost"),
                     port: args.port,
                     target_database,
@@ -262,6 +288,7 @@ pub async fn run(mut args: RestoreArgs) -> ExitCode {
                             Flavor::Mysql
                         },
                         file: args.file(),
+                        source: args.source(),
                         host: args.host.as_deref().unwrap_or("localhost"),
                         port: args.port,
                         target_database,
@@ -388,6 +415,7 @@ async fn run_postgres(args: &RestoreArgs, target_database: &str, user: &str) -> 
     };
     let verified = match verify_checksum(
         &file,
+        args.source(),
         &history,
         args.allow_unverified,
         DatabaseEngine::Postgres,
@@ -444,7 +472,7 @@ async fn run_postgres(args: &RestoreArgs, target_database: &str, user: &str) -> 
         Err(code) => return code,
     };
 
-    let file_location = file.display().to_string();
+    let file_location = args.source().display().to_string();
     let restore_id = match history.start_restore(&NewRestore {
         artifact_id: verified.artifact_id.as_deref(),
         source_location: &file_location,

@@ -189,7 +189,12 @@ cargo run -p database-backup-cli -- backup --help
 ```
 
 Comandos: `connection test`, `connection add`, `connection list`, `connection remove`, `backup run`, `backup list`, `backup verify`, `restore run`,
-`restore list` e `engines` (matriz de capacidades). Cada `--help` traz exemplos.
+`restore list`, `engines` (matriz de capacidades) e `key generate`/`key public` (chaves age). Cada `--help` traz exemplos.
+
+- `backup --compress` comprime com zstd o que ainda não é comprimido (MySQL, MariaDB, MongoDB e
+  SQLite; o formato custom do `pg_dump` já é). `backup --recipient age1...` (repetível) ou
+  `--recipients-file` criptografa com age; `verify` e `restore` abrem com `--identity <chave>`.
+  Chaves, recuperação e limites em [`criptografia.md`](criptografia.md).
 
 - `--json` (em qualquer comando) imprime o resultado em uma linha JSON no stdout:
   `{"status":"ok",...}` no sucesso e `{"status":"error","code":N,"error":"..."}` na falha.

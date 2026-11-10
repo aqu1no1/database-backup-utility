@@ -10,7 +10,8 @@ use database_backup_adapters::postgres::{
 use database_backup_core::{DatabaseEngine, Password, PostgresConnectionConfig};
 use database_backup_history::{ExecutionStatus, History, NewArtifact, NewConnection};
 use database_backup_storage::{
-    ArtifactMetadata, LocalTarget, ORPHAN_MIN_AGE, StoredArtifact, backup_file_name, write_metadata,
+    ArtifactMetadata, Encoding, LocalTarget, ORPHAN_MIN_AGE, StoredArtifact, backup_file_name,
+    write_artifact_metadata,
 };
 use serde::Serialize;
 use time::OffsetDateTime;
@@ -65,6 +66,8 @@ pub struct BackupArgs {
     pub(crate) runner: Option<RunnerArg>,
     #[arg(long, value_parser = clap::value_parser!(u64).range(1..), help = "Tempo máximo do backup em segundos (padrão: sem limite)")]
     pub(crate) timeout: Option<u64>,
+    #[command(flatten)]
+    pub(crate) encoding: crate::sealing::EncodingArgs,
 }
 
 #[derive(Serialize)]
@@ -79,6 +82,10 @@ pub struct BackupResult<'a> {
     pub non_transactional_tables: Option<&'a [String]>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub topology: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compression: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encryption: Option<&'static str>,
 }
 
 enum Failure {
@@ -88,6 +95,11 @@ enum Failure {
 
 struct Completed {
     artifact: StoredArtifact,
+}
+
+pub struct Destination<'a> {
+    pub target: &'a LocalTarget,
+    pub encoding: &'a Encoding,
 }
 
 pub async fn run(args: BackupArgs) -> ExitCode {
@@ -100,6 +112,7 @@ pub async fn run(args: BackupArgs) -> ExitCode {
         output_dir,
         runner,
         timeout,
+        encoding,
     } = args;
     let (engine, source, profile) = match name {
         Some(target) => match resolve_target(target, engine, &server, runner) {
@@ -123,12 +136,16 @@ pub async fn run(args: BackupArgs) -> ExitCode {
         Err(code) => return code,
     };
     let engine = engine.or(profile_engine).unwrap_or(EngineArg::Postgres);
+    let encoding = match encoding.resolve(DatabaseEngine::from(engine)) {
+        Ok(encoding) => encoding,
+        Err(code) => return code,
+    };
     match (engine, source) {
         (EngineArg::Sqlite, _) if server.auth_database.is_some() => {
             fail(exit::INVALID_INPUT, AUTH_DATABASE_ONLY_MONGODB)
         }
         (EngineArg::Sqlite, Some(source)) => {
-            crate::sqlite::backup(&source, output_dir, timeout).await
+            crate::sqlite::backup(&source, output_dir, timeout, &encoding).await
         }
         (EngineArg::Sqlite, None) => fail(
             exit::INVALID_INPUT,
@@ -145,18 +162,32 @@ pub async fn run(args: BackupArgs) -> ExitCode {
             };
             match engine {
                 EngineArg::Mongodb => {
-                    crate::mongo::backup(connection, output_dir, runner, timeout).await
+                    crate::mongo::backup(connection, output_dir, runner, timeout, &encoding).await
                 }
                 EngineArg::Mysql => {
-                    crate::mysql::backup(Flavor::Mysql, connection, output_dir, runner, timeout)
-                        .await
+                    crate::mysql::backup(
+                        Flavor::Mysql,
+                        connection,
+                        output_dir,
+                        runner,
+                        timeout,
+                        &encoding,
+                    )
+                    .await
                 }
                 EngineArg::Mariadb => {
-                    crate::mysql::backup(Flavor::Mariadb, connection, output_dir, runner, timeout)
-                        .await
+                    crate::mysql::backup(
+                        Flavor::Mariadb,
+                        connection,
+                        output_dir,
+                        runner,
+                        timeout,
+                        &encoding,
+                    )
+                    .await
                 }
                 EngineArg::Postgres | EngineArg::Sqlite => {
-                    run_postgres(connection, output_dir, runner, timeout).await
+                    run_postgres(connection, output_dir, runner, timeout, &encoding).await
                 }
             }
         }
@@ -216,6 +247,7 @@ async fn run_postgres(
     output_dir: Option<PathBuf>,
     runner: RunnerArg,
     timeout: Option<u64>,
+    encoding: &Encoding,
 ) -> ExitCode {
     let config = match connection.config() {
         Ok(config) => config,
@@ -280,7 +312,10 @@ async fn run_postgres(
         &config,
         &password,
         &tools,
-        &target,
+        &Destination {
+            target: &target,
+            encoding,
+        },
         &execution_id,
         &info.server_version,
         timeout,
@@ -309,13 +344,16 @@ async fn run_postgres(
                 size_bytes = artifact.size_bytes,
                 "backup concluído"
             );
-            let text = format!(
+            let mut text = format!(
                 "Backup concluído: {} ({}, sha256 {}…) em {:.1}s",
                 artifact.path.display(),
                 human_size(artifact.size_bytes),
                 &artifact.sha256[..12],
                 elapsed.as_secs_f64()
             );
+            if let Some(summary) = crate::sealing::summary(&artifact) {
+                text.push_str(&format!("\n{summary}"));
+            }
             success(
                 &BackupResult {
                     execution_id: &execution_id,
@@ -326,6 +364,8 @@ async fn run_postgres(
                     duration_ms: elapsed.as_millis(),
                     non_transactional_tables: None,
                     topology: None,
+                    compression: crate::sealing::compression_name(&artifact),
+                    encryption: crate::sealing::encryption_name(&artifact),
                 },
                 &text,
             )
@@ -350,11 +390,12 @@ async fn execute(
     config: &PostgresConnectionConfig,
     password: &Password,
     tools: &PgTools,
-    target: &LocalTarget,
+    destination: &Destination<'_>,
     execution_id: &str,
     server_version: &str,
     timeout: Option<Duration>,
 ) -> Result<Completed, Failure> {
+    let Destination { target, encoding } = *destination;
     let file_name = backup_file_name(config.database(), OffsetDateTime::now_utc(), "dump");
     let mut pending = target.begin(&file_name).await.map_err(storage_failure)?;
     let mut process = tools.dump(config, password).map_err(tool_failure)?;
@@ -408,7 +449,9 @@ async fn execute(
         .map_err(|error| {
             Failure::Error(format!("o arquivo gerado não é um archive válido: {error}"))
         })?;
-    let artifact = pending.commit().await.map_err(storage_failure)?;
+    let artifact = crate::sealing::commit(pending, encoding)
+        .await
+        .map_err(storage_failure)?;
 
     let created_at = OffsetDateTime::now_utc()
         .format(&Rfc3339)
@@ -434,7 +477,7 @@ async fn execute(
         created_at: &created_at,
         execution_id,
     };
-    if let Err(error) = write_metadata(&artifact.path, &metadata).await {
+    if let Err(error) = write_artifact_metadata(&artifact, &metadata).await {
         let _ = std::fs::remove_file(&artifact.path);
         return Err(storage_failure(error));
     }
@@ -533,7 +576,10 @@ fn tool_failure(error: ToolError) -> Failure {
 }
 
 fn storage_failure(error: database_backup_storage::StorageError) -> Failure {
-    Failure::Error(describe(&error))
+    match error {
+        database_backup_storage::StorageError::Canceled => Failure::Canceled,
+        error => Failure::Error(describe(&error)),
+    }
 }
 
 pub fn human_size(bytes: u64) -> String {

@@ -5,7 +5,7 @@ use clap::Args;
 use database_backup_adapters::postgres::PgTools;
 use database_backup_core::{DatabaseEngine, Operation};
 use database_backup_history::History;
-use database_backup_storage::check_restore_source;
+use database_backup_storage::{Compression, check_restore_source};
 use serde::Serialize;
 use tracing::{info, warn};
 
@@ -40,6 +40,13 @@ pub struct VerifyArgs {
         help = "Aceita arquivos sem checksum conhecido (.meta.json ou histórico)"
     )]
     allow_unverified: bool,
+    #[arg(
+        short,
+        long,
+        value_name = "ARQUIVO",
+        help = "Chave privada age (dbu key generate) de um backup criptografado"
+    )]
+    identity: Option<PathBuf>,
 }
 
 #[derive(Serialize)]
@@ -56,6 +63,10 @@ struct VerifyResult {
     engine: Option<String>,
     created_at: Option<String>,
     tool_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    compression: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    encryption: Option<&'static str>,
 }
 
 struct Structure {
@@ -75,7 +86,13 @@ pub async fn run(args: VerifyArgs) -> ExitCode {
     if let Err(error) = check_restore_source(&file).await {
         return fail(exit::INVALID_ARCHIVE, &describe(&error));
     }
-    let engine = match detect_engine(&file).await {
+    let opened = match crate::sealing::open(&file, args.identity.as_deref(), "backup.verify").await
+    {
+        Ok(opened) => opened,
+        Err(code) => return code,
+    };
+    let readable = opened.path();
+    let engine = match detect_engine(readable).await {
         Ok(engine) => engine.unwrap_or(DatabaseEngine::Postgres),
         Err(message) => return fail(exit::INVALID_ARCHIVE, &message),
     };
@@ -93,10 +110,11 @@ pub async fn run(args: VerifyArgs) -> ExitCode {
         Ok(history) => history,
         Err(error) => return fail(exit::FAILURE, &describe(&error)),
     };
-    let verified = match verify_checksum(&file, &history, args.allow_unverified, engine).await {
-        Ok(verified) => verified,
-        Err(message) => return fail(exit::INVALID_ARCHIVE, &message),
-    };
+    let verified =
+        match verify_checksum(readable, &file, &history, args.allow_unverified, engine).await {
+            Ok(verified) => verified,
+            Err(message) => return fail(exit::INVALID_ARCHIVE, &message),
+        };
     if !verified.matched_reference {
         warn!(
             operation = "backup.verify",
@@ -104,11 +122,11 @@ pub async fn run(args: VerifyArgs) -> ExitCode {
         );
     }
     let structure = match engine {
-        DatabaseEngine::Sqlite => sqlite_structure(&file).await,
-        DatabaseEngine::Mysql | DatabaseEngine::Mariadb => mysql_structure(&file, engine).await,
-        DatabaseEngine::Mongodb => mongo_structure(&file).await,
+        DatabaseEngine::Sqlite => sqlite_structure(readable).await,
+        DatabaseEngine::Mysql | DatabaseEngine::Mariadb => mysql_structure(readable, engine).await,
+        DatabaseEngine::Mongodb => mongo_structure(readable).await,
         DatabaseEngine::Postgres => {
-            postgres_structure(&file, &verified, args.runner.unwrap_or(RunnerArg::Auto)).await
+            postgres_structure(readable, &verified, args.runner.unwrap_or(RunnerArg::Auto)).await
         }
     };
     let structure = match structure {
@@ -133,15 +151,29 @@ pub async fn run(args: VerifyArgs) -> ExitCode {
         DatabaseEngine::Mongodb => "coleções",
         _ => "tabelas",
     };
+    let encoded = opened.encoded_manifest();
+    let sha256 = encoded.map_or_else(|| verified.sha256.clone(), |m| m.sha256.clone());
+    let compression = encoded.and_then(|m| m.compression).map(Compression::as_str);
+    let encryption = encoded
+        .and_then(|m| m.encryption)
+        .map(|encryption| encryption.as_str());
     let mut text = format!(
         "Backup {} válido: {} ({} objetos, {} {unit}; {checksum}; sha256 {}…)",
         engine.display_name(),
         file.display(),
         structure.objects,
         structure.tables,
-        &verified.sha256[..12]
+        &sha256[..12]
     );
-    if let Some(manifest) = &verified.manifest {
+    if encoded.is_some() {
+        let layers: Vec<&str> = [compression, encryption].into_iter().flatten().collect();
+        text.push_str(&format!(
+            "\nConteúdo aberto ({}) e conferido com o checksum do manifesto",
+            layers.join(" + ")
+        ));
+    }
+    let manifest = encoded.or(verified.manifest.as_ref());
+    if let Some(manifest) = manifest {
         text.push_str(&format!(
             "\nManifesto v{}: {} {}, criado em {} por {} {}",
             manifest.manifest_version,
@@ -152,11 +184,10 @@ pub async fn run(args: VerifyArgs) -> ExitCode {
             manifest.tool.version
         ));
     }
-    let manifest = verified.manifest.as_ref();
     success(
         &VerifyResult {
             file: file.display().to_string(),
-            sha256: verified.sha256.clone(),
+            sha256,
             checksum_verified: verified.matched_reference,
             database: structure
                 .database
@@ -169,6 +200,8 @@ pub async fn run(args: VerifyArgs) -> ExitCode {
             engine: Some(engine.as_str().to_owned()),
             created_at: manifest.map(|m| m.created_at.clone()),
             tool_version: manifest.map(|m| m.tool.version.clone()),
+            compression,
+            encryption,
         },
         &text,
     )

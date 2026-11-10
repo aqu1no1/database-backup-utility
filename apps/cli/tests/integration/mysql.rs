@@ -521,3 +521,74 @@ async fn risky_mysql_objects_are_caught_before_they_cost_a_backup_or_a_restore()
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn compressed_and_encrypted_dump_restores_the_same_rows_with_the_key() -> TestResult {
+    let db = MysqlTestDb::start_seeded().await?;
+    let env = Env::new();
+    let key = env.dir.path().join("backup.key");
+    let generated = env.run(
+        &db,
+        &["--json", "key", "generate", "-o", key.to_str().unwrap()],
+    );
+    assert_eq!(generated.status.code(), Some(0), "{}", text(&generated));
+    let public = json(&generated)["public_keys"][0]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let port = db.port().to_string();
+
+    let backup = env.run(
+        &db,
+        &[
+            "--json",
+            "backup",
+            "-e",
+            "mysql",
+            "--runner",
+            "docker",
+            "-H",
+            db.host(),
+            "-p",
+            &port,
+            "-d",
+            db.database(),
+            "-u",
+            db.user(),
+            "-o",
+            env.out.to_str().unwrap(),
+            "--compress",
+            "--recipient",
+            &public,
+        ],
+    );
+    assert_eq!(backup.status.code(), Some(0), "{}", text(&backup));
+    let result = json(&backup);
+    assert_eq!(result["compression"], "zstd");
+    assert_eq!(result["encryption"], "age");
+    let file = PathBuf::from(result["file"].as_str().unwrap());
+    assert!(
+        file.to_string_lossy().ends_with(".sql.zst.age"),
+        "{}",
+        file.display()
+    );
+
+    let without_key = env.restore(&db, &file, "sem_chave", &[]);
+    let restore = env.restore(
+        &db,
+        &file,
+        "cifrado",
+        &["--identity", key.to_str().unwrap()],
+    );
+
+    assert_eq!(without_key.status.code(), Some(2), "{}", text(&without_key));
+    assert!(!database_exists(&db, "sem_chave").await?);
+    assert_eq!(restore.status.code(), Some(0), "{}", text(&restore));
+    assert_eq!(
+        snapshot(&db, "cifrado").await?,
+        snapshot(&db, db.database()).await?
+    );
+    let work = std::fs::read_dir(env.data.join("work"))?.count();
+    assert_eq!(work, 0);
+    Ok(())
+}

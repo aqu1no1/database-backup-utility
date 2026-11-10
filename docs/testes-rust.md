@@ -39,7 +39,7 @@ de cada nível estão em [`testes.md`](testes.md).
 
 ```text
 crates/core/src/*.rs                 # unitários em #[cfg(test)] mod tests (config, Password, segredos)
-crates/storage/src/lib.rs            # unitários: .partial, permissões, manifesto, checksum
+crates/storage/src/lib.rs            # unitários: .partial, permissões, manifesto, checksum, zstd/age e chaves
 crates/history/src/lib.rs            # unitários com SQLite em diretório temporário (migrations, consultas)
 crates/database-adapters/src/        # unitários de parsing e escape (versões, .pgpass, dbname)
 crates/database-adapters/tests/      # integração com bancos reais (Testcontainers)
@@ -54,6 +54,7 @@ apps/cli/tests/                      # contrato da CLI executando o binário rea
   integration/cli.rs                 # sem Docker: argumentos, ajuda, JSON, fontes de senha
   integration/backup.rs, restore.rs, test_connection.rs
   integration/sqlite.rs              # backup/verify/restore SQLite pela CLI (sem Docker)
+  integration/encryption.rs          # --compress/--recipient/--identity e dbu key (SQLite sem Docker; um PostgreSQL)
   integration/mysql.rs               # backup/verify/restore MySQL pela CLI (Testcontainers)
   integration/mongo.rs               # backup/verify/restore MongoDB pela CLI (Testcontainers)
   integration/profiles.rs            # perfis de conexão: add/list/remove e uso no backup, test e restore
