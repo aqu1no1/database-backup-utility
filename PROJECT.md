@@ -307,7 +307,7 @@ Não criar uma crate, uma trait ou um padrão de repositório apenas por antecip
 
 ### 5.4 Organização interna do Angular
 
-O frontend é **Angular standalone, TypeScript strict e feature-based**. O desktop será iniciado somente na milestone `v0.3.0`; o seguinte é o padrão aprovado, não pastas já implementadas.
+O frontend é **Angular standalone, TypeScript strict e feature-based**. O desktop é desenvolvido na milestone `v0.3.0`; o seguinte é o padrão aprovado. O que já existe em `apps/desktop` está em [`docs/desktop.md`](docs/desktop.md).
 
 | Diretório | Responsabilidade |
 | --- | --- |

@@ -1,0 +1,30 @@
+.shell {
+  display: grid;
+  grid-template-areas:
+    'header header'
+    'nav content';
+  grid-template-columns: 14rem 1fr;
+  grid-template-rows: auto 1fr;
+  min-height: 100vh;
+}
+
+.shell-header {
+  grid-area: header;
+  padding: 0.75rem 1rem;
+}
+
+.shell-title {
+  font-weight: 600;
+}
+
+.shell-nav {
+  grid-area: nav;
+  display: flex;
+  flex-direction: column;
+  padding: 1rem;
+}
+
+.shell-content {
+  grid-area: content;
+  padding: 1rem;
+}

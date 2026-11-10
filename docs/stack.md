@@ -15,10 +15,10 @@
 | Desenvolvimento | Docker Compose com PostgreSQL 17 | Arquivo criado |
 | Integração / E2E | Testcontainers para Rust (PostgreSQL 17, MySQL 8.4 e MongoDB 7.0 efêmeros) | Integração dos adaptadores e E2E da CLI com runners Docker e nativo |
 | Desktop | Tauri | Planejado, v0.3.0 |
-| Frontend | Angular standalone, TypeScript estrito | Escolhido, ainda não criado |
+| Frontend | Angular 22 standalone, TypeScript estrito, PNPM | Esqueleto em `apps/desktop` ([desktop.md](desktop.md)) |
 | Estilos | Tailwind CSS v4 | Escolhido, ainda não configurado |
 | i18n | Transloco, `pt-BR` / `en-US` | Escolhido, ainda não configurado |
-| Frontend testing | Vitest + Angular TestBed | Planejado |
+| Frontend testing | Vitest + Angular TestBed | Configurado (`test:ci`) |
 | Storage local | Arquivo `.partial` + SHA-256 (sha2) + rename atômico, manifesto JSON versionado (serde) | Implementado |
 | Cloud storage | S3 compatível, outros provedores | Futuro |
 | CI / Releases | GitHub Actions (actions fixadas por SHA) | CI em PR/`main`; release manual por `workflow_dispatch` |
