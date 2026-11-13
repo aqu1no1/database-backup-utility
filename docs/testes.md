@@ -12,7 +12,7 @@ As regras sobre **quais** testes escrever (relevância, nível, isolamento, temp
 | Integração e E2E MariaDB | Testcontainers (`mariadb:11.4`) + mysql_async (`crates/database-adapters/tests/integration/mariadb_*.rs`, `apps/cli/tests/integration/mariadb.rs`) | Sim |
 | Integração e E2E MongoDB | Testcontainers (`mongo:7.0`, standalone e replica set) + driver `mongodb` (`crates/database-adapters/tests/integration/mongo_*.rs`, `apps/cli/tests/integration/mongo.rs`) | Sim |
 | Integração e E2E SQLite | `rusqlite` + arquivos em `tempfile` (`crates/database-adapters/tests/integration/sqlite_backup.rs`, `apps/cli/tests/integration/sqlite.rs`) | Não |
-| Angular unit/component (futuro) | Vitest + Angular TestBed | Não |
+| Angular unit/component | Vitest + Angular TestBed (`pnpm --dir apps/desktop run test:ci`) | Não |
 | Desktop completo (futuro) | Ferramenta Tauri compatível | Conforme cenário |
 
 ## Comandos

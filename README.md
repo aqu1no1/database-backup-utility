@@ -46,7 +46,7 @@ flowchart LR
 | `crates/database-adapters` | Conexão, `pg_dump`/`mysqldump`/`mariadb-dump`/`mongodump` e restores, Backup API do SQLite | [Arquitetura](docs/arquitetura.md) |
 | `crates/storage` | Arquivo `.partial`, SHA-256, `rename` atômico e manifesto | [Manifesto](docs/manifesto.md) |
 | `crates/history` | Histórico interno de backups e restores com migrations | [Modelo de dados](docs/diagramas/modelo-de-dados.md) |
-| `apps/desktop` | App Tauri + Angular (planejado para a v0.3.0) | [Releases](docs/RELEASES.md) |
+| `apps/desktop` | App Tauri + Angular (v0.3.0): esqueleto Angular criado, Tauri planejado | [Desktop](docs/desktop.md) |
 
 ## Demonstração
 
