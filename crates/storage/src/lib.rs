@@ -1,6 +1,10 @@
+mod encoding;
+
 use std::fmt::Write as _;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -11,12 +15,18 @@ use time::macros::format_description;
 use tokio::fs::{self, File, OpenOptions};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 
+pub use encoding::{
+    ArtifactEncoding, Compression, Encoding, Encryption, Identities, MAX_KEY_FILE_BYTES,
+    Recipients, StoredContent, WorkDir, generate_identity,
+};
+
 const BUFFER_SIZE: usize = 64 * 1024;
 const PARTIAL_SUFFIX: &str = ".partial";
 pub const METADATA_SUFFIX: &str = ".meta.json";
 pub const MANIFEST_VERSION: u32 = 2;
+pub const ENCODED_MANIFEST_VERSION: u32 = 3;
 pub const ORPHAN_MIN_AGE: Duration = Duration::from_secs(10 * 60);
-const SUPPORTED_MANIFEST_VERSIONS: [u32; 2] = [1, 2];
+const SUPPORTED_MANIFEST_VERSIONS: [u32; 3] = [1, 2, 3];
 
 #[derive(Debug, Error)]
 pub enum StorageError {
@@ -38,6 +48,38 @@ pub enum StorageError {
     UnsafeSource { path: PathBuf, reason: &'static str },
     #[error("{}", unsupported_manifest(*.found))]
     UnsupportedManifest { found: Option<u32> },
+    #[error("o manifesto v3 não descreve o conteúdo comprimido ou criptografado ({0})")]
+    InvalidEncodedManifest(&'static str),
+    #[error("chave pública age inválida: {0}")]
+    InvalidRecipient(String),
+    #[error("arquivo de chave não encontrado: {0}")]
+    KeyFileNotFound(PathBuf),
+    #[error("arquivo de chave recusado ({reason}): {path}")]
+    UnsafeKeyFile { path: PathBuf, reason: &'static str },
+    #[error("arquivo de chave sem nenhuma chave: {0}")]
+    EmptyKeyFile(PathBuf),
+    #[error("arquivo de identidade age inválido: {0}")]
+    InvalidIdentityFile(PathBuf),
+    #[error("falha ao preparar a criptografia age")]
+    Encryption,
+    #[error("o backup é criptografado com age; informe a chave privada com --identity")]
+    MissingIdentity,
+    #[error("nenhuma das chaves de --identity abre este backup")]
+    WrongIdentity,
+    #[error("o conteúdo do backup não pôde ser aberto: está corrompido ou foi alterado")]
+    Unreadable,
+    #[error("{0}; o backup foi alterado ou está corrompido")]
+    ContentMismatch(&'static str),
+    #[error(
+        "checksum divergente: esperado {expected}, calculado {actual}; o arquivo foi alterado ou corrompido"
+    )]
+    ChecksumMismatch { expected: String, actual: String },
+    #[error(
+        "tamanho divergente: o manifesto registra {expected} bytes e o arquivo tem {actual}; o arquivo foi alterado ou está incompleto"
+    )]
+    SizeMismatch { expected: u64, actual: u64 },
+    #[error("operação cancelada")]
+    Canceled,
 }
 
 fn unsupported_manifest(found: Option<u32>) -> String {
@@ -46,7 +88,7 @@ fn unsupported_manifest(found: Option<u32>) -> String {
             "o manifesto não informa manifest_version (esperado {MANIFEST_VERSION}); gere o backup de novo ou use --allow-unverified"
         ),
         Some(version) => format!(
-            "versão {version} do manifesto não é suportada por esta versão do utilitário (suporta 1 e 2)"
+            "versão {version} do manifesto não é suportada por esta versão do utilitário (suporta 1, 2 e 3)"
         ),
     }
 }
@@ -56,6 +98,7 @@ pub struct StoredArtifact {
     pub path: PathBuf,
     pub size_bytes: u64,
     pub sha256: String,
+    pub encoding: Option<ArtifactEncoding>,
 }
 
 #[derive(Debug, Clone)]
@@ -115,6 +158,12 @@ struct Manifest<'a> {
     runner: Option<&'a str>,
     created_at: &'a str,
     execution_id: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    compression: Option<Compression>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    encryption: Option<Encryption>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    content: Option<&'a StoredContent>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -140,6 +189,23 @@ pub struct StoredMetadata {
     pub non_transactional_tables: Option<Vec<String>>,
     pub topology: Option<String>,
     pub created_at: String,
+    #[serde(default)]
+    pub compression: Option<Compression>,
+    #[serde(default)]
+    pub encryption: Option<Encryption>,
+    #[serde(default)]
+    pub content: Option<StoredContent>,
+}
+
+impl StoredMetadata {
+    #[must_use]
+    pub fn encoding(&self) -> Option<ArtifactEncoding> {
+        self.content.as_ref().map(|content| ArtifactEncoding {
+            compression: self.compression,
+            encryption: self.encryption,
+            content: content.clone(),
+        })
+    }
 }
 
 #[derive(Deserialize)]
@@ -319,7 +385,77 @@ impl PendingArtifact {
             path: self.final_path.clone(),
             size_bytes: self.size_bytes,
             sha256,
+            encoding: None,
         })
+    }
+
+    pub async fn commit_encoded(
+        mut self,
+        encoding: &Encoding,
+        cancel: Arc<AtomicBool>,
+    ) -> Result<StoredArtifact, StorageError> {
+        if encoding.is_plain() {
+            return self.commit().await;
+        }
+        self.finish_writing().await?;
+        let plain_name = file_name_of(&self.final_path);
+        let final_path = self
+            .final_path
+            .with_file_name(encoding.file_name(&plain_name));
+        if fs::try_exists(&final_path).await.unwrap_or(false) {
+            return Err(StorageError::AlreadyExists(final_path));
+        }
+        let mut partial = final_path.as_os_str().to_owned();
+        partial.push(PARTIAL_SUFFIX);
+        let partial_path = PathBuf::from(partial);
+        let file = encoding::open_new_private(&partial_path)?;
+        let partial = PartialFile(partial_path);
+        let lock = lock_partial(&partial.0)?;
+        let plain = self.partial_path.clone();
+        let output = partial.0.clone();
+        let compression = encoding.compression();
+        let encryption = encoding.encryption();
+        let encoding = encoding.clone();
+        let (size_bytes, sha256) = tokio::task::spawn_blocking(move || {
+            let _lock = lock;
+            encoding::encode_file(&plain, file, &output, &encoding, &cancel)
+        })
+        .await
+        .map_err(|error| StorageError::Io {
+            path: partial.0.clone(),
+            source: io::Error::other(error),
+        })??;
+        if fs::try_exists(&final_path).await.unwrap_or(false) {
+            return Err(StorageError::AlreadyExists(final_path));
+        }
+        fs::rename(&partial.0, &final_path)
+            .await
+            .map_err(io_error(&final_path))?;
+        std::mem::forget(partial);
+        sync_dir(&final_path).await?;
+        let content = StoredContent {
+            file_name: plain_name,
+            sha256: to_hex(&std::mem::take(&mut self.hasher).finalize()),
+            size_bytes: self.size_bytes,
+        };
+        Ok(StoredArtifact {
+            path: final_path,
+            size_bytes,
+            sha256,
+            encoding: Some(ArtifactEncoding {
+                compression,
+                encryption,
+                content,
+            }),
+        })
+    }
+}
+
+struct PartialFile(PathBuf);
+
+impl Drop for PartialFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
     }
 }
 
@@ -337,12 +473,28 @@ pub async fn write_metadata(
     artifact: &Path,
     metadata: &ArtifactMetadata<'_>,
 ) -> Result<PathBuf, StorageError> {
-    let file_name = artifact
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
+    write_manifest(artifact, metadata, None).await
+}
+
+pub async fn write_artifact_metadata(
+    artifact: &StoredArtifact,
+    metadata: &ArtifactMetadata<'_>,
+) -> Result<PathBuf, StorageError> {
+    write_manifest(&artifact.path, metadata, artifact.encoding.as_ref()).await
+}
+
+async fn write_manifest(
+    artifact: &Path,
+    metadata: &ArtifactMetadata<'_>,
+    encoding: Option<&ArtifactEncoding>,
+) -> Result<PathBuf, StorageError> {
+    let file_name = file_name_of(artifact);
     let manifest = Manifest {
-        manifest_version: MANIFEST_VERSION,
+        manifest_version: if encoding.is_some() {
+            ENCODED_MANIFEST_VERSION
+        } else {
+            MANIFEST_VERSION
+        },
         tool: ManifestTool {
             name: metadata.tool_name,
             version: metadata.tool_version,
@@ -364,6 +516,9 @@ pub async fn write_metadata(
         runner: metadata.runner,
         created_at: metadata.created_at,
         execution_id: metadata.execution_id,
+        compression: encoding.and_then(|encoding| encoding.compression),
+        encryption: encoding.and_then(|encoding| encoding.encryption),
+        content: encoding.map(|encoding| &encoding.content),
     };
     let mut json = serde_json::to_vec_pretty(&manifest).map_err(StorageError::Metadata)?;
     json.push(b'\n');
@@ -461,7 +616,138 @@ fn parse_manifest(bytes: &[u8]) -> Result<StoredMetadata, StorageError> {
             found: probe.manifest_version,
         });
     }
-    serde_json::from_slice(bytes).map_err(StorageError::Metadata)
+    let manifest: StoredMetadata = serde_json::from_slice(bytes).map_err(StorageError::Metadata)?;
+    check_encoded_fields(&manifest)?;
+    Ok(manifest)
+}
+
+fn check_encoded_fields(manifest: &StoredMetadata) -> Result<(), StorageError> {
+    let encoded = manifest.compression.is_some() || manifest.encryption.is_some();
+    match (manifest.manifest_version, &manifest.content) {
+        (ENCODED_MANIFEST_VERSION, None) => Err(StorageError::InvalidEncodedManifest(
+            "falta o campo content",
+        )),
+        (ENCODED_MANIFEST_VERSION, Some(_)) if !encoded => Err(
+            StorageError::InvalidEncodedManifest("sem compression nem encryption"),
+        ),
+        (ENCODED_MANIFEST_VERSION, Some(content)) if !is_bare_file_name(&content.file_name) => {
+            Err(StorageError::InvalidEncodedManifest(
+                "content.file_name não é um nome de arquivo simples",
+            ))
+        }
+        (ENCODED_MANIFEST_VERSION, Some(_)) => Ok(()),
+        (_, Some(_)) => Err(StorageError::InvalidEncodedManifest(
+            "content só existe a partir do manifest_version 3",
+        )),
+        (_, None) if encoded => Err(StorageError::InvalidEncodedManifest(
+            "compression e encryption só existem a partir do manifest_version 3",
+        )),
+        (_, None) => Ok(()),
+    }
+}
+
+fn is_bare_file_name(name: &str) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && !name.contains(['/', '\\', '\0'])
+        && Path::new(name).file_name() == Some(std::ffi::OsStr::new(name))
+}
+
+pub async fn open_encoded(
+    artifact: &Path,
+    manifest: &StoredMetadata,
+    identities: Option<Identities>,
+    work: &WorkDir,
+    cancel: Arc<AtomicBool>,
+) -> Result<PathBuf, StorageError> {
+    let encoding = manifest
+        .encoding()
+        .ok_or(StorageError::InvalidEncodedManifest(
+            "falta o campo content",
+        ))?;
+    if encoding.encryption.is_some() && identities.is_none() {
+        return Err(StorageError::MissingIdentity);
+    }
+    let size = fs::metadata(artifact)
+        .await
+        .map_err(io_error(artifact))?
+        .len();
+    if size != manifest.size_bytes {
+        return Err(StorageError::SizeMismatch {
+            expected: manifest.size_bytes,
+            actual: size,
+        });
+    }
+    let (_, actual) = sha256_file(artifact).await?;
+    if actual != manifest.sha256 {
+        return Err(StorageError::ChecksumMismatch {
+            expected: manifest.sha256.clone(),
+            actual,
+        });
+    }
+    let output = work.path().join(&encoding.content.file_name);
+    let source = artifact.to_owned();
+    let destination = output.clone();
+    let expected = encoding.content.clone();
+    tokio::task::spawn_blocking(move || {
+        encoding::decode_file(
+            &source,
+            &destination,
+            &encoding,
+            identities.as_ref(),
+            &cancel,
+        )
+    })
+    .await
+    .map_err(|error| StorageError::Io {
+        path: output.clone(),
+        source: io::Error::other(error),
+    })
+    .and_then(|decoded| decoded)
+    .and_then(|(size, sha256)| {
+        if size == expected.size_bytes && sha256 == expected.sha256 {
+            Ok(())
+        } else {
+            Err(StorageError::ContentMismatch(
+                "o conteúdo aberto não confere com o checksum do manifesto",
+            ))
+        }
+    })
+    .inspect_err(|_| {
+        let _ = std::fs::remove_file(&output);
+    })?;
+    write_plain_manifest(artifact, &output, &expected).await?;
+    Ok(output)
+}
+
+async fn write_plain_manifest(
+    artifact: &Path,
+    plain: &Path,
+    content: &StoredContent,
+) -> Result<(), StorageError> {
+    let source = metadata_path(artifact);
+    let bytes = fs::read(&source).await.map_err(io_error(&source))?;
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&bytes).map_err(StorageError::Metadata)?;
+    let object = value
+        .as_object_mut()
+        .ok_or(StorageError::InvalidEncodedManifest(
+            "o manifesto não é um objeto",
+        ))?;
+    for key in ["compression", "encryption", "content"] {
+        object.remove(key);
+    }
+    object.insert("manifest_version".to_owned(), MANIFEST_VERSION.into());
+    object.insert("file_name".to_owned(), content.file_name.clone().into());
+    object.insert("sha256".to_owned(), content.sha256.clone().into());
+    object.insert("size_bytes".to_owned(), content.size_bytes.into());
+    let json = serde_json::to_vec_pretty(&value).map_err(StorageError::Metadata)?;
+    let destination = metadata_path(plain);
+    let mut file = encoding::open_new_private(&destination)?;
+    std::io::Write::write_all(&mut file, &json).map_err(io_error(&destination))?;
+    file.sync_all().map_err(io_error(&destination))?;
+    Ok(())
 }
 
 pub async fn sha256_file(path: &Path) -> Result<(u64, String), StorageError> {
@@ -562,6 +848,12 @@ fn remove_orphans(dir: &Path, min_age: Duration) -> Result<PartialCleanup, Stora
     Ok(cleanup)
 }
 
+fn file_name_of(path: &Path) -> String {
+    path.file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
 fn to_hex(bytes: &[u8]) -> String {
     bytes
         .iter()
@@ -596,6 +888,17 @@ pub async fn sync_dir(file: &Path) -> Result<(), StorageError> {
     if let Some(dir) = file.parent() {
         let handle = File::open(dir).await.map_err(io_error(dir))?;
         handle.sync_all().await.map_err(io_error(dir))?;
+    }
+    #[cfg(not(unix))]
+    let _ = file;
+    Ok(())
+}
+
+fn sync_dir_blocking(file: &Path) -> Result<(), StorageError> {
+    #[cfg(unix)]
+    if let Some(dir) = file.parent().filter(|dir| !dir.as_os_str().is_empty()) {
+        let handle = std::fs::File::open(dir).map_err(io_error(dir))?;
+        handle.sync_all().map_err(io_error(dir))?;
     }
     #[cfg(not(unix))]
     let _ = file;
@@ -912,7 +1215,7 @@ mod tests {
         let artifact = target.dir().join("db.dump");
         let cases = [
             (r#"{"sha256":"abc"}"#, None),
-            (r#"{"manifest_version":3,"sha256":"abc"}"#, Some(3)),
+            (r#"{"manifest_version":4,"sha256":"abc"}"#, Some(4)),
         ];
 
         for (body, expected) in cases {
@@ -1096,5 +1399,343 @@ mod tests {
                 path.display()
             );
         }
+    }
+
+    fn sample_metadata<'a>(stored: &'a StoredArtifact) -> ArtifactMetadata<'a> {
+        ArtifactMetadata {
+            tool_name: "database-backup",
+            tool_version: "0.4.0",
+            engine: "sqlite",
+            format: "sqlite-backup-api",
+            sha256: &stored.sha256,
+            size_bytes: stored.size_bytes,
+            database: "db",
+            host: None,
+            port: None,
+            server_version: "3.50.4",
+            pg_dump_version: None,
+            mysqldump_version: None,
+            mongodump_version: None,
+            non_transactional_tables: None,
+            topology: None,
+            runner: None,
+            created_at: "2026-11-10T12:00:00Z",
+            execution_id: "exec-1",
+        }
+    }
+
+    fn plain_dump() -> Vec<u8> {
+        b"INSERT INTO pedidos VALUES (42, 'segredo de cliente');\n".repeat(2_000)
+    }
+
+    fn no_cancel() -> Arc<AtomicBool> {
+        Arc::new(AtomicBool::new(false))
+    }
+
+    struct Keys {
+        _dir: TempDir,
+        identity_path: PathBuf,
+        public: String,
+    }
+
+    fn keys() -> Keys {
+        let dir = TempDir::new().expect("diretório temporário");
+        let identity_path = dir.path().join("backup.key");
+        let public = generate_identity(&identity_path).expect("chave");
+        Keys {
+            _dir: dir,
+            identity_path,
+            public,
+        }
+    }
+
+    async fn store_encoded(
+        target: &LocalTarget,
+        body: &[u8],
+        compression: Option<Compression>,
+        public: Option<&str>,
+    ) -> StoredArtifact {
+        let mut recipients = Recipients::default();
+        if let Some(public) = public {
+            recipients.add_key(public).expect("destinatário");
+        }
+        let encoding = Encoding::new(compression, recipients);
+        let mut pending = target.begin("db.sqlite3").await.expect("início");
+        pending.copy_from(&mut &body[..]).await.expect("cópia");
+        let stored = pending
+            .commit_encoded(&encoding, no_cancel())
+            .await
+            .expect("commit");
+        write_artifact_metadata(&stored, &sample_metadata(&stored))
+            .await
+            .expect("manifesto");
+        stored
+    }
+
+    async fn open_with(
+        stored: &StoredArtifact,
+        identity: Option<&Path>,
+        work: &WorkDir,
+    ) -> Result<PathBuf, StorageError> {
+        let manifest = read_metadata(&stored.path)
+            .await
+            .expect("leitura")
+            .expect("manifesto presente");
+        let identities = identity.map(|path| Identities::read_file(path).expect("identidade"));
+        open_encoded(&stored.path, &manifest, identities, work, no_cancel()).await
+    }
+
+    #[tokio::test]
+    async fn compressed_and_encrypted_backup_opens_only_with_the_key() {
+        let (dir, target) = target().await;
+        let keys = keys();
+        let body = plain_dump();
+
+        let stored =
+            store_encoded(&target, &body, Some(Compression::Zstd), Some(&keys.public)).await;
+
+        assert_eq!(stored.path, target.dir().join("db.sqlite3.zst.age"));
+        assert!(!target.dir().join("db.sqlite3").exists());
+        assert!(!target.dir().join("db.sqlite3.partial").exists());
+        let stored_bytes = std::fs::read(&stored.path).expect("artefato");
+        assert!(stored_bytes.starts_with(b"age-encryption.org/v1\n"));
+        assert!(
+            !stored_bytes
+                .windows(b"segredo de cliente".len())
+                .any(|window| window == b"segredo de cliente")
+        );
+        assert!(
+            stored.size_bytes < body.len() as u64 / 10,
+            "{}",
+            stored.size_bytes
+        );
+        let manifest_text =
+            std::fs::read_to_string(metadata_path(&stored.path)).expect("manifesto");
+        assert!(!manifest_text.contains("AGE-SECRET-KEY"));
+        assert!(!manifest_text.contains(&keys.public));
+        let manifest = read_metadata(&stored.path)
+            .await
+            .expect("leitura")
+            .expect("manifesto presente");
+        assert_eq!(manifest.manifest_version, ENCODED_MANIFEST_VERSION);
+        assert_eq!(manifest.file_name, "db.sqlite3.zst.age");
+        assert_eq!(manifest.sha256, stored.sha256);
+        assert_eq!(manifest.compression, Some(Compression::Zstd));
+        assert_eq!(manifest.encryption, Some(Encryption::Age));
+        let content = manifest.content.expect("content");
+        assert_eq!(content.file_name, "db.sqlite3");
+        assert_eq!(content.size_bytes, body.len() as u64);
+
+        let work = WorkDir::create(&dir.path().join("work")).expect("diretório de trabalho");
+        let opened = open_with(&stored, Some(&keys.identity_path), &work)
+            .await
+            .expect("abertura");
+
+        assert_eq!(std::fs::read(&opened).expect("conteúdo"), body);
+        let plain = read_metadata(&opened)
+            .await
+            .expect("leitura")
+            .expect("manifesto do conteúdo");
+        assert_eq!(plain.manifest_version, MANIFEST_VERSION);
+        assert_eq!(plain.file_name, "db.sqlite3");
+        assert_eq!(plain.sha256, content.sha256);
+        assert_eq!(plain.encoding(), None);
+        let work_path = work.path().to_owned();
+        drop(work);
+        assert!(!work_path.exists());
+    }
+
+    #[tokio::test]
+    async fn encrypted_backup_is_refused_without_or_with_another_key() {
+        let (dir, target) = target().await;
+        let keys = keys();
+        let other = self::keys();
+        let stored = store_encoded(&target, &plain_dump(), None, Some(&keys.public)).await;
+        let work = WorkDir::create(&dir.path().join("work")).expect("diretório de trabalho");
+
+        let without = open_with(&stored, None, &work).await;
+        let wrong = open_with(&stored, Some(&other.identity_path), &work).await;
+
+        assert!(
+            matches!(without, Err(StorageError::MissingIdentity)),
+            "{without:?}"
+        );
+        assert!(
+            matches!(wrong, Err(StorageError::WrongIdentity)),
+            "{wrong:?}"
+        );
+        assert!(!work.path().join("db.sqlite3").exists());
+    }
+
+    #[tokio::test]
+    async fn tampered_ciphertext_is_refused_before_and_after_the_checksum() {
+        let (dir, target) = target().await;
+        let keys = keys();
+        let stored = store_encoded(
+            &target,
+            &plain_dump(),
+            Some(Compression::Zstd),
+            Some(&keys.public),
+        )
+        .await;
+        let mut bytes = std::fs::read(&stored.path).expect("artefato");
+        let middle = bytes.len() - 40;
+        bytes[middle] ^= 0x01;
+        std::fs::write(&stored.path, &bytes).expect("adulteração");
+
+        let work = WorkDir::create(&dir.path().join("work")).expect("diretório de trabalho");
+        let by_checksum = open_with(&stored, Some(&keys.identity_path), &work).await;
+
+        let manifest_path = metadata_path(&stored.path);
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&manifest_path).expect("manifesto"))
+                .expect("json");
+        let (_, forged) = sha256_file(&stored.path).await.expect("checksum");
+        manifest["sha256"] = forged.into();
+        std::fs::write(&manifest_path, manifest.to_string()).expect("manifesto forjado");
+        let work = WorkDir::create(&dir.path().join("work")).expect("diretório de trabalho");
+        let by_age = open_with(&stored, Some(&keys.identity_path), &work).await;
+
+        assert!(
+            matches!(by_checksum, Err(StorageError::ChecksumMismatch { .. })),
+            "{by_checksum:?}"
+        );
+        assert!(
+            matches!(by_age, Err(StorageError::Unreadable)),
+            "{by_age:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn compressed_content_larger_than_the_manifest_is_cut_off() {
+        let (dir, target) = target().await;
+        let body = plain_dump();
+        let stored = store_encoded(&target, &body, Some(Compression::Zstd), None).await;
+        assert_eq!(stored.path, target.dir().join("db.sqlite3.zst"));
+        let manifest_path = metadata_path(&stored.path);
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&manifest_path).expect("manifesto"))
+                .expect("json");
+        manifest["content"]["size_bytes"] = 1024.into();
+        std::fs::write(&manifest_path, manifest.to_string()).expect("manifesto alterado");
+
+        let work = WorkDir::create(&dir.path().join("work")).expect("diretório de trabalho");
+        let result = open_with(&stored, None, &work).await;
+
+        assert!(
+            matches!(result, Err(StorageError::ContentMismatch(_))),
+            "{result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn encoded_manifest_must_describe_a_bare_content_file() {
+        let (_dir, target) = target().await;
+        let artifact = target.dir().join("db.sql.zst");
+        let manifest = |content: &str| {
+            format!(
+                r#"{{"manifest_version":3,"tool":{{"name":"database-backup","version":"0.4.0"}},"engine":"mysql","format":"mysqldump-sql","file_name":"db.sql.zst","sha256":"abc","size_bytes":3,"database":"db","server_version":"8.4","created_at":"2026-11-10T12:00:00Z","compression":"zstd"{content}}}"#
+            )
+        };
+        let cases = [
+            manifest(""),
+            manifest(r#","content":{"file_name":"../db.sql","sha256":"abc","size_bytes":3}"#),
+        ];
+
+        for body in cases {
+            std::fs::write(metadata_path(&artifact), &body).expect("manifesto");
+            let result = read_metadata(&artifact).await;
+            assert!(
+                matches!(result, Err(StorageError::InvalidEncodedManifest(_))),
+                "{body}: {result:?}"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn identity_file_is_private_and_never_overwritten() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let keys = keys();
+        let mode = std::fs::metadata(&keys.identity_path)
+            .expect("chave")
+            .permissions()
+            .mode();
+        let again = generate_identity(&keys.identity_path);
+        let identities = Identities::read_file(&keys.identity_path).expect("identidade");
+        std::fs::set_permissions(&keys.identity_path, std::fs::Permissions::from_mode(0o644))
+            .expect("modo");
+        let shared = Identities::read_file(&keys.identity_path);
+
+        assert_eq!(mode & 0o777, 0o600);
+        assert!(matches!(again, Err(StorageError::AlreadyExists(_))));
+        assert_eq!(identities.public_keys(), vec![keys.public.clone()]);
+        assert!(matches!(shared, Err(StorageError::UnsafeKeyFile { .. })));
+        assert!(!format!("{identities:?}").contains("AGE-SECRET-KEY"));
+    }
+
+    fn private(path: &Path) {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).expect("modo");
+        }
+        #[cfg(not(unix))]
+        let _ = path;
+    }
+
+    #[test]
+    fn recipients_file_accepts_comments_and_rejects_garbage() {
+        let dir = TempDir::new().expect("diretório temporário");
+        let first = keys();
+        let second = keys();
+        let good = dir.path().join("recipients.txt");
+        std::fs::write(
+            &good,
+            format!(
+                "# principal\n{}\n\n# recuperação\n{}\n",
+                first.public, second.public
+            ),
+        )
+        .expect("arquivo");
+        let bad = dir.path().join("bad.txt");
+        std::fs::write(&bad, "age1naoexiste\n").expect("arquivo");
+        let empty = dir.path().join("empty.txt");
+        std::fs::write(&empty, "# nada\n").expect("arquivo");
+        for path in [&good, &bad, &empty] {
+            private(path);
+        }
+
+        let mut recipients = Recipients::default();
+        recipients.add_file(&good).expect("destinatários");
+
+        assert_eq!(recipients.len(), 2);
+        assert!(matches!(
+            Recipients::default().add_file(&bad),
+            Err(StorageError::InvalidRecipient(_))
+        ));
+        assert!(matches!(
+            Recipients::default().add_file(&empty),
+            Err(StorageError::EmptyKeyFile(_))
+        ));
+    }
+
+    #[test]
+    fn work_dir_left_by_a_dead_process_is_removed_and_a_live_one_is_kept() {
+        let dir = TempDir::new().expect("diretório temporário");
+        let base = dir.path().join("work");
+        let live = WorkDir::create(&base).expect("ativo");
+        let orphan = base.join("open-orfao");
+        std::fs::create_dir(&orphan).expect("órfão");
+        std::fs::write(orphan.join(".lock"), b"").expect("lock");
+        std::fs::write(orphan.join("db.sql"), b"texto aberto").expect("conteúdo");
+
+        let next = WorkDir::create(&base).expect("novo");
+
+        assert!(!orphan.exists());
+        assert!(live.path().exists());
+        assert!(next.path().exists());
+        assert_ne!(live.path(), next.path());
     }
 }

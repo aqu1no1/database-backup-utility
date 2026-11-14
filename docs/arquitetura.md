@@ -69,6 +69,13 @@ flowchart TD
   - `archive.rs` lê o archive em streaming, sem restaurar (ver "MongoDB: formato do archive" abaixo).
 - `crates/storage` grava o backup localmente: arquivo `.partial`, SHA-256 em streaming,
   `fsync` e `rename` atômico, além do manifesto versionado `.meta.json` ([`manifesto.md`](manifesto.md)). Destinos em nuvem entram nessa crate.
+- `crates/storage/src/encoding.rs` comprime (zstd) e criptografa (age) o artefato já verificado:
+  `PendingArtifact::commit_encoded` lê o `.partial` em claro, grava `<nome>[.zst][.age].partial` numa
+  tarefa bloqueante (com cancelamento entre blocos), publica com `rename` e apaga o `.partial` em
+  claro. `open_encoded` faz o caminho inverso num `WorkDir` (`<dados>/work/open-*`, `0700`, com lock)
+  e grava ao lado um manifesto v2 do conteúdo aberto, para o resto do `verify`/`restore` seguir igual.
+  Na CLI, `apps/cli/src/sealing.rs` traduz as opções (`--compress`, `--recipient`, `--identity`) e
+  `apps/cli/src/keys.rs` implementa `dbu key`. Ver [`criptografia.md`](criptografia.md).
 - O comando `backup run` da CLI monta as peças: conexão → runner → storage → histórico.
 - O comando `restore run` faz o caminho inverso: checksum (storage/histórico) → `pg_restore --list` →
   estado do destino (`postgres/admin.rs`) → `pg_restore` em um banco novo ou temporário → troca de nomes.

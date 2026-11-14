@@ -26,10 +26,14 @@ O workflow manual rejeita releases sem seção publicada e sem mudanças reais. 
 
 - MariaDB (`--engine mariadb`): teste de conexão, backup com `mariadb-dump`, verificação e restore em banco novo com o cliente `mariadb`, nativos ou pela imagem `mariadb:<major.minor>`. A senha vem de `--password-file`, `DBU_MARIADB_PASSWORD_FILE` ou `DBU_MARIADB_PASSWORD`. O `restore` reconhece o dump pelo cabeçalho `-- MariaDB dump`, e perfis de conexão aceitam `mariadb`.
 
+- Compressão e criptografia opcionais no `backup`: `--compress` aplica zstd ao dump do MySQL/MariaDB, ao archive do MongoDB e à cópia do SQLite (o formato custom do `pg_dump` já é comprimido e não é comprimido de novo); `--recipient age1...` (repetível) e `--recipients-file` criptografam com age. `verify` e `restore` abrem esses backups com `--identity <chave>`. O manifesto desses backups passa para a versão 3 (`compression`, `encryption`, `content`); backups sem compressão nem criptografia continuam na versão 2.
+- `dbu key generate -o <ARQUIVO>` gera uma chave age (privada em `0600`, sem sobrescrever; a pública sai no stdout) e `dbu key public <ARQUIVO>` mostra a chave pública. Geração, guarda, exportação e recuperação de chaves em `docs/criptografia.md`.
+
 ### Changed
 - CI: a integração passa a ter um job por SGBD. MySQL (8.0 e 8.4) e MongoDB (7.0) agora exigem o runner nativo, além do Docker, e uma falha aparece no job do próprio SGBD. A imagem MySQL dos testes pode ser trocada com `DBU_MYSQL_TAG`.
 
 ### Security
+- Backups criptografados: o checksum do arquivo armazenado é conferido antes de decriptar; backup criptografado sem `--identity` sai com código 2 e com a chave errada, alterado ou sem manifesto, com código 10. O conteúdo aberto fica num diretório `0700` da pasta de dados, limitado ao tamanho do manifesto, e é apagado no fim. A chave privada nunca vai para logs, saída, histórico ou manifesto, e o `--identity` recusa arquivo com permissão de grupo ou outros.
 - MySQL e MariaDB nunca se confundem: `--engine mysql` contra um servidor MariaDB (e o contrário) sai com código 2 antes do dump, e o restore de um dump de um com o engine do outro sai com código 10 antes de conectar.
 - A migration do histórico que passa a aceitar `mariadb` roda com as chaves estrangeiras desligadas e verificadas no fim, para não apagar jobs, execuções e artefatos em cascata.
 - `--engine` ou perfil de outro SGBD que não o do arquivo recusa o restore (código 10) antes de qualquer conexão, inclusive em arquivos sem manifesto.

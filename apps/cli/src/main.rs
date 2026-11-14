@@ -3,12 +3,14 @@ mod backup;
 mod credentials;
 mod engines;
 mod guided;
+mod keys;
 mod listing;
 mod mongo;
 mod mysql;
 mod output;
 mod profiles;
 mod restore;
+mod sealing;
 mod sqlite;
 mod verify;
 
@@ -54,6 +56,9 @@ macro_rules! password_note {
   dbu list restores
   dbu test -e mysql -d app -u backup
   dbu engines
+  dbu key generate -o ~/.config/dbu/backup.key
+  dbu backup -e mysql -d app -u backup --compress --recipient age1...
+  dbu restore app-20261021T120000Z.sql.zst.age --to app_copia -u backup --identity ~/.config/dbu/backup.key
 
 Os comandos longos continuam válidos (backup run, backup verify, restore run, connection test...).
 
@@ -134,6 +139,11 @@ enum Commands {
 A mesma matriz está em docs/capacidades.md."
     )]
     Engines,
+    #[command(
+        subcommand,
+        about = "Gera chaves age e mostra a chave pública, para backups criptografados."
+    )]
+    Key(keys::KeyCommand),
 }
 
 const BACKUP_HELP: &str = concat!(
@@ -143,13 +153,18 @@ const BACKUP_HELP: &str = concat!(
     "  dbu backup -e mysql -d app -u backup\n",
     "  dbu backup -e mongodb -d app -u backup --auth-database admin\n",
     "  dbu backup ./app.db\n",
+    "  dbu backup ./app.db --compress --recipient age1... --recipient age1...\n",
     "  dbu backup list\n",
     "  dbu backup            (num terminal: modo guiado, pergunta o que falta)\n\n",
     "Sem os argumentos necessários, num terminal, o backup pergunta o que falta e mostra o comando equivalente.\n",
     "Sem terminal, com --json ou com --no-input, argumento faltando sai com código 2.\n\n",
     "Com --engine sqlite não há servidor, usuário nem senha: o arquivo de origem é aberto só para leitura.\n",
     "No MongoDB o backup é de um banco, sem snapshot de um único instante: escritas durante o backup podem deixar\n",
-    "coleções inconsistentes entre si. Só standalone e o primário de um replica set são aceitos.\n",
+    "coleções inconsistentes entre si. Só standalone e o primário de um replica set são aceitos.\n\n",
+    "--compress aplica zstd no SQL do MySQL/MariaDB, no archive do MongoDB e na cópia do SQLite; o formato custom do\n",
+    "pg_dump já é comprimido e não é comprimido de novo. --recipient/--recipients-file criptografam com age: guarde a\n",
+    "chave privada (dbu key generate) fora da máquina dos backups, porque sem ela o backup não pode ser recuperado.\n",
+    "Use mais de um destinatário (por exemplo uma chave de recuperação offline) para não depender de uma só chave.\n\n",
     password_note!()
 );
 
@@ -158,7 +173,8 @@ const VERIFY_EXAMPLES: &str = "Exemplos:
   dbu verify app-20261021T120000Z.sqlite3
   dbu verify app-20261021T120000Z.sql
   dbu verify app-20261021T120000Z.archive
-  dbu verify externo.dump --allow-unverified --json";
+  dbu verify externo.dump --allow-unverified --json
+  dbu verify app-20261021T120000Z.sql.zst.age --identity ~/.config/dbu/backup.key";
 
 const RESTORE_HELP: &str = concat!(
     "Por padrão só cria um banco novo. Sobrescrever um banco com dados exige --overwrite e confirmação;\n",
@@ -172,6 +188,7 @@ const RESTORE_HELP: &str = concat!(
     "  dbu restore app-20261021T120000Z.sql --to app_copia -u backup\n",
     "  dbu restore app-20261021T120000Z.archive --to app_copia -u backup\n",
     "  dbu restore app-20261021T120000Z.sqlite3 --to ./app_copia.db\n",
+    "  dbu restore app-20261021T120000Z.dump.age --to app_copia -u postgres --identity backup.key\n",
     "  dbu restore list\n\n",
     password_note!()
 );
@@ -247,7 +264,7 @@ enum BackupCommand {
         about = "Gera um backup completo (o mesmo que dbu backup).",
         after_help = BACKUP_HELP
     )]
-    Run(backup::BackupArgs),
+    Run(Box<backup::BackupArgs>),
     #[command(
         about = "Lista os backups registrados no histórico.",
         after_help = "Exemplos:
@@ -353,6 +370,18 @@ impl From<DatabaseEngine> for EngineArg {
     }
 }
 
+impl From<EngineArg> for DatabaseEngine {
+    fn from(engine: EngineArg) -> Self {
+        match engine {
+            EngineArg::Postgres => Self::Postgres,
+            EngineArg::Mysql => Self::Mysql,
+            EngineArg::Mariadb => Self::Mariadb,
+            EngineArg::Mongodb => Self::Mongodb,
+            EngineArg::Sqlite => Self::Sqlite,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum RunnerArg {
     Auto,
@@ -419,7 +448,7 @@ async fn main() -> ExitCode {
     match cli.command {
         Commands::Backup(group) => match group.command {
             None => run_backup(group.run, cli.json, cli.no_input).await,
-            Some(BackupCommand::Run(args)) => run_backup(args, cli.json, cli.no_input).await,
+            Some(BackupCommand::Run(args)) => run_backup(*args, cli.json, cli.no_input).await,
             Some(BackupCommand::List(args)) => listing::backups(&args),
             Some(BackupCommand::Verify(args)) => verify::run(args).await,
         },
@@ -441,6 +470,7 @@ async fn main() -> ExitCode {
         Commands::Connection(ConnectionCommand::List) => profiles::list(),
         Commands::Connection(ConnectionCommand::Remove(args)) => profiles::remove(args),
         Commands::Engines => engines::run(),
+        Commands::Key(command) => keys::run(command),
     }
 }
 

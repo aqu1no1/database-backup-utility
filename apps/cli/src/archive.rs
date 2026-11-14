@@ -86,6 +86,7 @@ async fn starts_with(file: &Path, prefix: &[u8]) -> Result<bool, String> {
 
 pub async fn verify_checksum(
     file: &Path,
+    location: &Path,
     history: &History,
     allow_unverified: bool,
     engine: DatabaseEngine,
@@ -97,7 +98,7 @@ pub async fn verify_checksum(
         check_manifest(file, manifest, engine)?;
     }
     let artifact = history
-        .find_artifact_by_location(&file.display().to_string())
+        .find_artifact_by_location(&location.display().to_string())
         .map_err(|error| describe(&error))?;
     let source_version = metadata
         .as_ref()

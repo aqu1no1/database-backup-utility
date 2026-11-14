@@ -295,6 +295,19 @@ pub fn render(args: &BackupArgs) -> String {
         "--timeout",
         args.timeout.map(|limit| limit.to_string()),
     );
+    if args.encoding.compress {
+        words.push("--compress".to_owned());
+    }
+    for key in &args.encoding.recipients {
+        push_flag(&mut words, "--recipient", Some(key.clone()));
+    }
+    for path in &args.encoding.recipients_file {
+        push_flag(
+            &mut words,
+            "--recipients-file",
+            Some(path.display().to_string()),
+        );
+    }
     shell_words::join(words)
 }
 

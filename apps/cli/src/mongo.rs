@@ -12,15 +12,15 @@ use database_backup_history::{
     ExecutionStatus, History, HistoryError, NewArtifact, NewConnection, NewRestore, RestoreMode,
 };
 use database_backup_storage::{
-    ArtifactMetadata, LocalTarget, StorageError, StoredArtifact, backup_file_name,
-    check_restore_source, write_metadata,
+    ArtifactMetadata, Encoding, StorageError, StoredArtifact, backup_file_name,
+    check_restore_source, write_artifact_metadata,
 };
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 use tracing::{info, warn};
 
 use crate::archive::verify_checksum;
-use crate::backup::{BackupResult, human_size, open_target};
+use crate::backup::{BackupResult, Destination, human_size, open_target};
 use crate::output::{fail, success};
 use crate::restore::RestoreResult;
 use crate::{
@@ -37,6 +37,7 @@ const MAX_LISTED_DIFFERENCES: usize = 5;
 
 pub struct RestoreRequest<'a> {
     pub file: &'a Path,
+    pub source: &'a Path,
     pub host: &'a str,
     pub port: Option<u16>,
     pub target_database: &'a str,
@@ -118,6 +119,7 @@ pub async fn backup(
     output_dir: Option<PathBuf>,
     runner: RunnerArg,
     timeout: Option<u64>,
+    encoding: &Encoding,
 ) -> ExitCode {
     let config = match config_from(&connection) {
         Ok(config) => config,
@@ -177,7 +179,10 @@ pub async fn backup(
         &config,
         &password,
         &tools,
-        &target,
+        &Destination {
+            target: &target,
+            encoding,
+        },
         &execution_id,
         &server,
         timeout.map(Duration::from_secs),
@@ -206,13 +211,17 @@ pub async fn backup(
                 size_bytes = artifact.size_bytes,
                 "backup concluído"
             );
-            let text = format!(
-                "Backup concluído: {} ({}, sha256 {}…) em {:.1}s\n{consistency}",
+            let mut text = format!(
+                "Backup concluído: {} ({}, sha256 {}…) em {:.1}s",
                 artifact.path.display(),
                 human_size(artifact.size_bytes),
                 &artifact.sha256[..12],
                 elapsed.as_secs_f64()
             );
+            if let Some(summary) = crate::sealing::summary(&artifact) {
+                text.push_str(&format!("\n{summary}"));
+            }
+            text.push_str(&format!("\n{consistency}"));
             success(
                 &BackupResult {
                     execution_id: &execution_id,
@@ -223,6 +232,8 @@ pub async fn backup(
                     duration_ms: elapsed.as_millis(),
                     non_transactional_tables: None,
                     topology: Some(server.topology.as_str()),
+                    compression: crate::sealing::compression_name(&artifact),
+                    encryption: crate::sealing::encryption_name(&artifact),
                 },
                 &text,
             )
@@ -247,11 +258,12 @@ async fn execute_backup(
     config: &MongoConnectionConfig,
     password: &Password,
     tools: &MongoTools,
-    target: &LocalTarget,
+    destination: &Destination<'_>,
     execution_id: &str,
     server: &MongoServer,
     timeout: Option<Duration>,
 ) -> Result<StoredArtifact, Failure> {
+    let Destination { target, encoding } = *destination;
     let file_name = backup_file_name(config.database(), OffsetDateTime::now_utc(), EXTENSION);
     let mut pending = target.begin(&file_name).await.map_err(storage_failure)?;
     let mut process = tools.dump(config, password).map_err(tool_failure)?;
@@ -298,7 +310,9 @@ async fn execute_backup(
             config.database()
         )));
     }
-    let artifact = pending.commit().await.map_err(storage_failure)?;
+    let artifact = crate::sealing::commit(pending, encoding)
+        .await
+        .map_err(storage_failure)?;
 
     let created_at = OffsetDateTime::now_utc()
         .format(&Rfc3339)
@@ -324,7 +338,7 @@ async fn execute_backup(
         created_at: &created_at,
         execution_id,
     };
-    if let Err(error) = write_metadata(&artifact.path, &metadata).await {
+    if let Err(error) = write_artifact_metadata(&artifact, &metadata).await {
         let _ = std::fs::remove_file(&artifact.path);
         return Err(storage_failure(error));
     }
@@ -362,7 +376,15 @@ pub async fn restore(request: &RestoreRequest<'_>) -> ExitCode {
         Ok(history) => history,
         Err(error) => return fail(exit::FAILURE, &describe(&error)),
     };
-    let verified = match verify_checksum(&file, &history, request.allow_unverified, ENGINE).await {
+    let verified = match verify_checksum(
+        &file,
+        request.source,
+        &history,
+        request.allow_unverified,
+        ENGINE,
+    )
+    .await
+    {
         Ok(verified) => verified,
         Err(message) => return fail(exit::INVALID_ARCHIVE, &message),
     };
@@ -423,7 +445,7 @@ pub async fn restore(request: &RestoreRequest<'_>) -> ExitCode {
         Err(error) => return fail(exit::RESTORE_FAILED, &error.to_string()),
     }
 
-    let file_location = file.display().to_string();
+    let file_location = request.source.display().to_string();
     let restore_id = match history.start_restore(&NewRestore {
         artifact_id: verified.artifact_id.as_deref(),
         source_location: &file_location,
@@ -758,7 +780,10 @@ fn tool_failure(error: ToolError) -> Failure {
 }
 
 fn storage_failure(error: StorageError) -> Failure {
-    Failure::Error(describe(&error))
+    match error {
+        StorageError::Canceled => Failure::Canceled,
+        error => Failure::Error(describe(&error)),
+    }
 }
 
 #[cfg(test)]

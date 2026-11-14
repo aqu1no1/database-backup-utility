@@ -232,6 +232,9 @@ Tools, executado de dois jeitos:
   escolhe outra. Se `DBU_DATA_DIR` estiver definido, o padrão vira `$DBU_DATA_DIR/backups`.
 - Quando a CLI cria a pasta, ela fica com permissão `0700`; dumps e metadados ficam com `0600`.
 - Um backup nunca sobrescreve um arquivo existente.
+- `verify` e `restore` de um backup comprimido ou criptografado abrem o conteúdo em
+  `<dados>/work/open-*` (`0700`), apagado no fim da operação; deixe espaço livre para o tamanho do
+  dump aberto. Ver [`criptografia.md`](criptografia.md).
 
 ## Restore e permissões
 

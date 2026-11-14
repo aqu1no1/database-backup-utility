@@ -135,6 +135,7 @@ docker compose --env-file .env -f infra/docker/compose.yml up -d postgres
 | [Configuração](docs/configuracao.md) | Variáveis, Docker e credenciais |
 | [Segurança](docs/seguranca.md) | Controles com evidências, riscos aceitos e diferenças por SO |
 | [Manifesto](docs/manifesto.md) | Formato versionado do `.meta.json` e limites do checksum |
+| [Compressão e criptografia](docs/criptografia.md) | zstd por SGBD, age, geração, guarda e recuperação de chaves |
 | [Testes](docs/testes.md) | Testes unitários, integração e comandos |
 | [CI e PRs](docs/CI.md) | Pipelines, proteção da main e contribuições |
 | [Processo de releases](docs/RELEASE_PROCESS.md) | Publicação manual com Run workflow |

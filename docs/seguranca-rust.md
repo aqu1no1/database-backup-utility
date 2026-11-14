@@ -113,7 +113,8 @@ risco*, a proposta deve ser reconsiderada.
 
 - Não crie algoritmos próprios. Hash, criptografia, assinatura e autenticação resolvem problemas diferentes.
 - O SHA-256 do manifesto detecta corrupção, mas **não autentica** (ver `manifesto.md#limites`).
-  Autenticidade fica para o DB-31 (`age`), com gestão e recuperação de chaves definidas antes.
+  A criptografia (DB-31) usa `age` com chaves X25519; gestão e recuperação de chaves estão em
+  `criptografia.md`. O age não assina: não o apresente como prova de autoria.
 - Nunca registre material de chave nem dado descriptografado.
 
 ### 3.6 Concorrência e disponibilidade

@@ -14,6 +14,7 @@ database-backup-core = { path = "crates/core" }
 database-backup-adapters = { path = "crates/database-adapters" }
 database-backup-history = { path = "crates/history" }
 database-backup-storage = { path = "crates/storage" }
+age = { version = "0.11", default-features = false }
 clap = { version = "4.5", features = ["derive"] }
 dialoguer = { version = "0.12", default-features = false }
 directories = "6.0"
@@ -38,6 +39,7 @@ tokio-postgres-rustls = { version = "0.14", features = ["ring"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1.28", features = ["v7"] }
+zstd = { version = "0.14", default-features = false }
 
 [profile.dev]
 debug = "line-tables-only"
