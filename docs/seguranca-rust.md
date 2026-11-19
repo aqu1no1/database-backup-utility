@@ -132,7 +132,7 @@ risco*, a proposta deve ser reconsiderada.
 - Consultas parametrizadas. Identificadores, que não podem ser parâmetros, passam por `quote_ident`.
 - Timeouts de conexão e consulta.
 - HTTP, SSRF, autorização de API e autenticação de usuários **não existem hoje**. Quando o desktop
-  (Tauri, v0.3.0) ou a nuvem (v0.4.0) chegarem, esta seção ganha as regras correspondentes.
+  (Tauri, v0.4.0) ou a nuvem (v0.5.0) chegarem, esta seção ganha as regras correspondentes.
 
 ### 3.8 `unsafe` e FFI
 

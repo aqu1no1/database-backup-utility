@@ -17,9 +17,10 @@ destino. O futuro app desktop vai usar as mesmas crates Rust, sem regra de backu
 **Tecnologias:** CLI `Rust / Clap / Tokio` · Bancos `PostgreSQL / MySQL / MariaDB / MongoDB / SQLite` ·
 Histórico `SQLite` · Desktop (planejado) `Tauri / Angular / Tailwind v4` · Workspace `Cargo`
 
-> **Estado atual (v0.2.0):** backup, verificação e restore de PostgreSQL, MySQL, MongoDB e SQLite
-> pelo binário `dbu`. **Ainda não existem:** desktop, sobrescrita no restore MySQL e MongoDB, backup
-> MongoDB do servidor inteiro com `--oplog`, agendamento, nuvem, compressão extra e criptografia (ver
+> **Estado atual (v0.3.0):** backup, verificação e restore de PostgreSQL, MySQL, MariaDB, MongoDB e
+> SQLite pelo binário `dbu`, com perfis de conexão, modo guiado, compressão zstd e criptografia age
+> opcionais. **Ainda não existem:** desktop, sobrescrita no restore MySQL, MariaDB e MongoDB, backup
+> MongoDB do servidor inteiro com `--oplog`, agendamento e nuvem (ver
 > [`docs/RELEASES.md`](docs/RELEASES.md)).
 
 ## Arquitetura
@@ -46,7 +47,7 @@ flowchart LR
 | `crates/database-adapters` | Conexão, `pg_dump`/`mysqldump`/`mariadb-dump`/`mongodump` e restores, Backup API do SQLite | [Arquitetura](docs/arquitetura.md) |
 | `crates/storage` | Arquivo `.partial`, SHA-256, `rename` atômico e manifesto | [Manifesto](docs/manifesto.md) |
 | `crates/history` | Histórico interno de backups e restores com migrations | [Modelo de dados](docs/diagramas/modelo-de-dados.md) |
-| `apps/desktop` | App Tauri + Angular (v0.3.0): esqueleto Angular criado, Tauri planejado | [Desktop](docs/desktop.md) |
+| `apps/desktop` | App Tauri + Angular (v0.4.0): esqueleto Angular criado, Tauri planejado | [Desktop](docs/desktop.md) |
 
 ## Demonstração
 
@@ -54,17 +55,17 @@ Backup, verificação e restore de um SQLite com o binário de release. O últim
 restore nunca sobrescreve um arquivo sem `--overwrite`:
 
 ```console
-$ dbu backup -e sqlite --source ./app.db -o ./backups
-Backup concluído: ./backups/app-20261028T171404Z.sqlite3 (16.0 KB, sha256 400b880ea07a…) em 0.0s
+$ dbu backup ./app.db -o ./backups
+Backup concluído: ./backups/app-20261119T171230Z.sqlite3 (16.0 KB, sha256 24a7f1d99651…) em 0.0s
 
-$ dbu verify backups/app-20261028T171404Z.sqlite3
-Backup SQLite válido: ~/demo/backups/app-20261028T171404Z.sqlite3 (2 objetos, 2 tabelas; checksum conferido; sha256 400b880ea07a…)
-Manifesto v2: sqlite app.db, criado em 2026-10-28T17:14:04.684587449Z por database-backup 0.2.0
+$ dbu verify backups/app-20261119T171230Z.sqlite3
+Backup SQLite válido: ~/demo/backups/app-20261119T171230Z.sqlite3 (2 objetos, 2 tabelas; checksum conferido; sha256 24a7f1d99651…)
+Manifesto v2: sqlite app.db, criado em 2026-11-19T17:12:30.581746327Z por database-backup 0.3.0
 
-$ dbu restore -e sqlite backups/app-20261028T171404Z.sqlite3 --to ./app_copia.db
+$ dbu restore backups/app-20261119T171230Z.sqlite3 --to ./app_copia.db
 Restore concluído em ~/demo/app_copia.db (2 objetos) em 0.0s
 
-$ dbu restore -e sqlite backups/app-20261028T171404Z.sqlite3 --to ./app.db
+$ dbu restore backups/app-20261119T171230Z.sqlite3 --to ./app.db
 Erro: o arquivo ~/demo/app.db já existe; use --overwrite para substituí-lo (o atual será mantido como ~/demo/app.db.previous-<data>)
 ```
 
@@ -92,7 +93,7 @@ e o tarball também traz `database-backup` como atalho para `dbu`.
 Binário para Linux x86_64 nos [GitHub Releases](https://github.com/aqu1no1/database-backup-utility/releases):
 
 ```bash
-VERSION=v0.2.0
+VERSION=v0.3.0
 curl -LO "https://github.com/aqu1no1/database-backup-utility/releases/download/$VERSION/database-backup-linux-x86_64-$VERSION.tar.gz"
 curl -LO "https://github.com/aqu1no1/database-backup-utility/releases/download/$VERSION/SHA256SUMS.txt"
 sha256sum -c SHA256SUMS.txt                         # precisa mostrar OK

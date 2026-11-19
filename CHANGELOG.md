@@ -18,14 +18,19 @@ Para publicar, mova as entradas para uma nova seção com data real:
 Seção versionada: `[X.Y.Z] - AAAA-MM-DD`
 O workflow manual rejeita releases sem seção publicada e sem mudanças reais. -->
 
+## [0.3.0] - 2026-11-19
+
+CLI mais fácil de usar e mais completa: o SGBD é descoberto pelo arquivo, conexões podem ser salvas
+como perfis sem senha e o `dbu backup` pergunta o que falta no terminal. Chegam o MariaDB e a
+compressão zstd e a criptografia age opcionais. O app desktop continua planejado e não faz parte
+desta versão.
+
 ### Added
 - Perfis de conexão: `dbu connection add <NOME>` salva host, porta, banco, usuário, TLS e SGBD (testa a conexão antes; `--no-test` pula o teste), `dbu connection list [--json]` lista e `dbu connection remove <NOME>` remove com confirmação (ou `-y`). `dbu backup <PERFIL>`, `dbu test <PERFIL>` e `--profile` em backup, test e restore usam o perfil; flags explícitas têm prioridade. Perfil inexistente sai com código 2.
 - `restore` descobre o SGBD pelo manifesto ou pelo cabeçalho do arquivo; `--engine` passa a ser opcional no restore de MySQL, MongoDB e SQLite.
 - `dbu backup ./app.db` faz o backup de um arquivo SQLite sem `-e sqlite --source`. Um nome que é ao mesmo tempo arquivo e perfil sai com código 2.
 - Modo guiado: `dbu backup` sem os argumentos necessários, num terminal, pergunta o que falta (perfil, nova conexão ou arquivo SQLite; SGBD, host, porta, banco, usuário e pasta de saída) e mostra o comando curto equivalente antes de começar. Sem terminal, com `--json` ou com a nova opção global `--no-input`, nada muda: argumento faltando sai com código 2. Esc cancela com código 9.
-
 - MariaDB (`--engine mariadb`): teste de conexão, backup com `mariadb-dump`, verificação e restore em banco novo com o cliente `mariadb`, nativos ou pela imagem `mariadb:<major.minor>`. A senha vem de `--password-file`, `DBU_MARIADB_PASSWORD_FILE` ou `DBU_MARIADB_PASSWORD`. O `restore` reconhece o dump pelo cabeçalho `-- MariaDB dump`, e perfis de conexão aceitam `mariadb`.
-
 - Compressão e criptografia opcionais no `backup`: `--compress` aplica zstd ao dump do MySQL/MariaDB, ao archive do MongoDB e à cópia do SQLite (o formato custom do `pg_dump` já é comprimido e não é comprimido de novo); `--recipient age1...` (repetível) e `--recipients-file` criptografam com age. `verify` e `restore` abrem esses backups com `--identity <chave>`. O manifesto desses backups passa para a versão 3 (`compression`, `encryption`, `content`); backups sem compressão nem criptografia continuam na versão 2.
 - `dbu key generate -o <ARQUIVO>` gera uma chave age (privada em `0600`, sem sobrescrever; a pública sai no stdout) e `dbu key public <ARQUIVO>` mostra a chave pública. Geração, guarda, exportação e recuperação de chaves em `docs/criptografia.md`.
 
@@ -38,6 +43,7 @@ O workflow manual rejeita releases sem seção publicada e sem mudanças reais. 
 - A migration do histórico que passa a aceitar `mariadb` roda com as chaves estrangeiras desligadas e verificadas no fim, para não apagar jobs, execuções e artefatos em cascata.
 - `--engine` ou perfil de outro SGBD que não o do arquivo recusa o restore (código 10) antes de qualquer conexão, inclusive em arquivos sem manifesto.
 - O perfil nunca guarda a senha, só o caminho absoluto do `--password-file`, que segue as regras de permissão a cada uso. Restore com perfil exige `--to`, para nunca restaurar no banco de origem do perfil.
+- `rusqlite` 0.41 (SQLite 3.54.1 embutido) no histórico e no adaptador SQLite, corrigindo a RUSTSEC-2026-0459.
 
 ## [0.2.0] - 2026-10-28
 
