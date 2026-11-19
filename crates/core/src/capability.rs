@@ -104,13 +104,18 @@ const fn entry(operation: Operation, support: Support, note: &'static str) -> Ca
 
 const COMPRESSION: Capability = entry(
     Operation::Compression,
-    Support::Planned { issue: "DB-31" },
-    "compressão opcional planejada para a v0.4.0",
+    Support::Supported,
+    "zstd opcional com --compress",
+);
+const POSTGRES_COMPRESSION: Capability = entry(
+    Operation::Compression,
+    Support::Supported,
+    "o formato custom do pg_dump já é comprimido; --compress não comprime de novo",
 );
 const ENCRYPTION: Capability = entry(
     Operation::Encryption,
-    Support::Planned { issue: "DB-31" },
-    "criptografia age planejada para a v0.4.0",
+    Support::Supported,
+    "age com --recipient ou --recipients-file; verify e restore usam --identity",
 );
 
 const POSTGRES: [Capability; 12] = [
@@ -159,7 +164,7 @@ const POSTGRES: [Capability; 12] = [
         Support::Unsupported,
         "exige backup físico com arquivamento contínuo de WAL",
     ),
-    COMPRESSION,
+    POSTGRES_COMPRESSION,
     ENCRYPTION,
     entry(
         Operation::DockerRunner,
@@ -476,8 +481,6 @@ mod tests {
                 Operation::IncrementalBackup,
                 Operation::DifferentialBackup,
                 Operation::PointInTimeRecovery,
-                Operation::Compression,
-                Operation::Encryption,
             ] {
                 assert_ne!(
                     engine.capability(operation).support,
@@ -501,9 +504,9 @@ mod tests {
             message,
             "teste de conexão não está disponível para SQLite (não suportado): o SQLite é um arquivo local, sem servidor"
         );
-        let planned = DatabaseEngine::Mysql
-            .unsupported_message(Operation::Encryption)
-            .unwrap();
-        assert!(planned.contains("planejado em DB-31"), "{planned}");
+        assert_eq!(
+            DatabaseEngine::Mysql.unsupported_message(Operation::Encryption),
+            None
+        );
     }
 }

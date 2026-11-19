@@ -35,6 +35,7 @@ desta versão.
 - `dbu key generate -o <ARQUIVO>` gera uma chave age (privada em `0600`, sem sobrescrever; a pública sai no stdout) e `dbu key public <ARQUIVO>` mostra a chave pública. Geração, guarda, exportação e recuperação de chaves em `docs/criptografia.md`.
 
 ### Changed
+- `dbu engines` (e `--json`) mostra compressão e criptografia como suportadas em todos os SGBDs, no lugar de "planejado (DB-31)". No PostgreSQL, a compressão é a do próprio formato custom do `pg_dump`.
 - CI: a integração passa a ter um job por SGBD. MySQL (8.0 e 8.4) e MongoDB (7.0) agora exigem o runner nativo, além do Docker, e uma falha aparece no job do próprio SGBD. A imagem MySQL dos testes pode ser trocada com `DBU_MYSQL_TAG`.
 
 ### Security
