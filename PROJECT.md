@@ -2,7 +2,7 @@
 
 > Documento central de visão, decisões, escopo, arquitetura e planejamento.
 >
-> **Status:** v0.1.x (CLI PostgreSQL) publicada e v0.2.0 (MySQL, MongoDB, SQLite e binário `dbu`) implementada, testada e em release. As versões seguintes (desktop, agendamento e nuvem) continuam **planejadas, não implementadas**. Na dúvida, o código e os testes são a fonte de verdade.
+> **Status:** v0.1.x (CLI PostgreSQL) e v0.2.0 (MySQL, MongoDB, SQLite e binário `dbu`) publicadas; v0.3.0 (CLI amigável, MariaDB, compressão e criptografia) implementada, testada e em release. As versões seguintes (desktop, agendamento e nuvem) continuam **planejadas, não implementadas**. Na dúvida, o código e os testes são a fonte de verdade.
 >
 > **Repositório:** `database-backup-utility`  
 > **Desafio de origem:** [roadmap.sh — Database Backup Utility](https://roadmap.sh/projects/database-backup-utility)  
@@ -57,7 +57,7 @@ O objetivo não é criar um formato universal de backup do zero. Cada SGBD terá
 | DEC-012 | Backups completos antes dos incrementais/diferenciais | **Confirmada no planejamento** | Funcionalidades avançadas variam por SGBD. |
 | DEC-013 | `CHANGELOG.md` + SemVer + tags + GitHub Releases | **Confirmada** | Processo de publicação reproduzível. |
 | DEC-014 | GitHub Actions para verificações e releases | **Confirmada** | Automatizar testes, build e publicação autorizada. |
-| DEC-015 | Planejamento de versões no **Linear** | **Confirmada** | Projeto P-DB-1, milestones v0.1.0–v0.4.0, issues DB-5 a DB-34; cada milestone tem um card de release (DB-14, DB-32, DB-33, DB-34). |
+| DEC-015 | Planejamento de versões no **Linear** | **Confirmada** | Projeto P-DB-1, milestones v0.1.0–v0.5.0, issues DB-5 a DB-42; cada milestone tem um card de release (DB-14, DB-32, DB-33, DB-34). |
 | DEC-016 | `AGENTS.md` na raiz para agentes de programação | **Confirmada** | Orientar implementação, revisão, segurança e testes. |
 | DEC-017 | Agendamento independente do processo Tauri | **Confirmada no planejamento** | Backup deve funcionar com a aplicação desktop fechada. |
 | DEC-018 | Primeiro armazenamento local, cloud depois | **Confirmada no planejamento** | Reduzir complexidade da primeira entrega. |
@@ -307,7 +307,7 @@ Não criar uma crate, uma trait ou um padrão de repositório apenas por antecip
 
 ### 5.4 Organização interna do Angular
 
-O frontend é **Angular standalone, TypeScript strict e feature-based**. O desktop é desenvolvido na milestone `v0.3.0`; o seguinte é o padrão aprovado. O que já existe em `apps/desktop` está em [`docs/desktop.md`](docs/desktop.md).
+O frontend é **Angular standalone, TypeScript strict e feature-based**. O desktop é desenvolvido na milestone `v0.4.0`; o seguinte é o padrão aprovado. O que já existe em `apps/desktop` está em [`docs/desktop.md`](docs/desktop.md).
 
 | Diretório | Responsabilidade |
 | --- | --- |
@@ -357,7 +357,7 @@ Criar subpastas somente quando houver arquivos suficientes para justificar. Test
 | Criptografia | Biblioteca madura a selecionar; `age` é candidata | Em avaliação |
 | Cloud | S3 compatível inicialmente; avaliar `object_store` | Futuro |
 | Desktop | Tauri | Confirmada para fase futura |
-| Frontend desktop | **Angular standalone + TypeScript strict + Tailwind CSS v4** | **Confirmada**, implementação planejada para v0.3.0 |
+| Frontend desktop | **Angular standalone + TypeScript strict + Tailwind CSS v4** | **Confirmada**, implementação planejada para v0.4.0 |
 | Testes Rust | `cargo test`, Testcontainers | Confirmados no planejamento |
 | Testes Angular | Vitest + Angular TestBed | **Confirmados no planejamento** |
 | i18n desktop | Transloco (`pt-BR`, `en-US`) | **Confirmada**, com persistência e mudança em tempo de execução |
@@ -569,7 +569,7 @@ Para o desktop Angular, após a criação da aplicação, usar os scripts **efet
 - Testes unitários.
 - Testes de integração com Docker/Testcontainers quando executáveis no runner.
 - Build/checagem da CLI.
-- Na v0.3.0: lint, tipagem estrita, testes Vitest/Angular (inclusive i18n), build Angular e verificações Tauri conforme plataformas suportadas.
+- Na v0.4.0: lint, tipagem estrita, testes Vitest/Angular (inclusive i18n), build Angular e verificações Tauri conforme plataformas suportadas.
 - Revisão focada e sem mudanças alheias ao escopo.
 - Pull Requests para `main`, **Squash & Merge** e checks obrigatórios; sem branch `develop` obrigatória.
 
@@ -591,7 +591,7 @@ Para o desktop Angular, após a criação da aplicação, usar os scripts **efet
 
 ## 14. Roadmap e releases planejadas
 
-> A v0.1.0 e a v0.2.0 estão implementadas (milestones "v0.1.0 — PostgreSQL CLI" e "v0.2.0 — Multi-Database" no Linear). As demais versões são **propostas de escopo futuro** e não indicam releases publicadas. A v1.0.0 e a v2.0.0 ainda não têm milestone nem cards no Linear.
+> A v0.1.0, a v0.2.0 e a v0.3.0 estão implementadas (milestones "v0.1.0 — PostgreSQL CLI", "v0.2.0 — Multi-Database" e "v0.3.0 — CLI amigável" no Linear). As demais versões são **propostas de escopo futuro** e não indicam releases publicadas. A v1.0.0 e a v2.0.0 ainda não têm milestone nem cards no Linear.
 
 ### v0.1.0 — Core Rust + PostgreSQL CLI
 
@@ -612,13 +612,15 @@ Para o desktop Angular, após a criação da aplicação, usar os scripts **efet
 - [x] Definir capacidades suportadas por adaptador.
 - [x] Testar backup e restore reais em ambientes isolados.
 
-### v0.2.1 — CLI amigável
+### v0.3.0 — CLI amigável
 
-- [ ] Inferir o SGBD do arquivo no restore e da origem no backup (DB-40).
-- [ ] Perfis de conexão sem senha (`dbu connection add/list/remove`, DB-41).
+- [x] Inferir o SGBD do arquivo no restore e da origem no backup (DB-40).
+- [x] Perfis de conexão sem senha (`dbu connection add/list/remove`, DB-41).
 - [x] Modo guiado quando faltam argumentos no terminal (DB-42).
+- [x] Adicionar MariaDB (DB-37).
+- [x] Compressão zstd opcional e criptografia age com geração de chaves (DB-31).
 
-### v0.3.0 — Desktop Tauri + Angular
+### v0.4.0 — Desktop Tauri + Angular
 
 - [ ] Inicializar Angular standalone, TypeScript strict, PNPM e Tauri.
 - [ ] Configurar Tailwind CSS v4, tokens semânticos, dark mode padrão e suporte a tema claro.
@@ -629,12 +631,10 @@ Para o desktop Angular, após a criação da aplicação, usar os scripts **efet
 - [ ] Aplicar validações, acessibilidade e confirmação em operações destrutivas.
 - [ ] Criar testes Vitest/Angular TestBed de componentes, estados e idiomas; verificar integração da ponte Tauri.
 
-### v0.4.0 — Agendamento, armazenamento e proteção
+### v0.5.0 — Agendamento e armazenamento
 
 - [ ] Integrar agendadores do sistema operacional.
 - [ ] Adicionar storage S3 compatível.
-- [ ] Permitir compressão configurável sem comprometer compatibilidade do dump.
-- [ ] Adicionar criptografia de arquivos e gerenciamento seguro de chaves.
 - [ ] Implementar retenção e notificações Slack.
 
 ### v1.0.0 — Estabilidade e distribuição

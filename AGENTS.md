@@ -11,7 +11,7 @@ O projeto é uma ferramenta multiplataforma para backup e restauração de banco
 com duas interfaces que compartilham a mesma implementação em Rust:
 
 - **CLI:** aplicação de linha de comando em Rust para operações manuais e automatizadas.
-- **Desktop (planejado para a v0.3.0):** aplicação Tauri com **Angular standalone + TypeScript**,
+- **Desktop (planejado para a v0.4.0):** aplicação Tauri com **Angular standalone + TypeScript**,
   **Tailwind CSS v4** e **Transloco para i18n** (`pt-BR`, `en-US`). React não faz parte deste projeto.
 - **Crates Rust compartilhadas:** lógica de backup, restauração, adaptadores de banco,
   armazenamento e agendamento.
@@ -199,7 +199,7 @@ atualize o `docs/seguranca.md` junto.
 
 **Frontend aprovado:** Angular + TypeScript estrito + Tailwind CSS v4 + Transloco.
 React, Ionic e Capacitor não fazem parte do projeto. O desktop está previsto para a
-v0.3.0, não para o MVP da CLI PostgreSQL.
+v0.4.0, não para o MVP da CLI PostgreSQL.
 
 ### Arquitetura e convenções Angular
 

@@ -21,8 +21,8 @@ Legenda: **sim** (implementado e testado), **planejado** (com card), **não** (n
 | Backup incremental | não | não | não | não | não |
 | Backup diferencial | não | não | não | não | não |
 | Recuperação point-in-time | não | não | não | não | não |
-| Compressão | planejado (DB-31) | planejado (DB-31) | planejado (DB-31) | planejado (DB-31) | planejado (DB-31) |
-| Criptografia | planejado (DB-31) | planejado (DB-31) | planejado (DB-31) | planejado (DB-31) | planejado (DB-31) |
+| Compressão (`--compress`) | sim: o formato custom do `pg_dump` já é comprimido | sim (zstd) | sim (zstd) | sim (zstd) | sim (zstd) |
+| Criptografia age (`--recipient`) | sim | sim | sim | sim | sim |
 | Ferramentas via Docker (`--runner docker`) | sim | sim | sim | sim | não: não usa ferramenta externa |
 
 Incremental, diferencial e point-in-time não dependem só da CLI. Cada um precisa de um mecanismo

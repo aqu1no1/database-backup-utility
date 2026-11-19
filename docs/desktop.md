@@ -3,7 +3,7 @@
 O app desktop fica em `apps/desktop`: Angular 22 standalone, TypeScript estrito, sem SSR,
 gerenciado por PNPM no workspace da raiz (`pnpm-workspace.yaml` e `pnpm-lock.yaml`). Por enquanto
 existe só o esqueleto Angular. Tauri, Tailwind CSS v4 e Transloco entram nos próximos cards do
-milestone v0.3.0 do épico DB-16 (DB-24, DB-25, DB-26).
+milestone v0.4.0 do épico DB-16 (DB-24, DB-25, DB-26).
 
 ## Estrutura
 

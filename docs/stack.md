@@ -14,7 +14,7 @@
 | Histórico | SQLite (rusqlite, bundled) + rusqlite_migration | Implementado: conexões, backups, artefatos e restores (4 migrations) |
 | Desenvolvimento | Docker Compose com PostgreSQL 17 | Arquivo criado |
 | Integração / E2E | Testcontainers para Rust (PostgreSQL 17, MySQL 8.4 e MongoDB 7.0 efêmeros) | Integração dos adaptadores e E2E da CLI com runners Docker e nativo |
-| Desktop | Tauri | Planejado, v0.3.0 |
+| Desktop | Tauri | Planejado, v0.4.0 |
 | Frontend | Angular 22 standalone, TypeScript estrito, PNPM | Esqueleto em `apps/desktop` ([desktop.md](desktop.md)) |
 | Estilos | Tailwind CSS v4 | Escolhido, ainda não configurado |
 | i18n | Transloco, `pt-BR` / `en-US` | Escolhido, ainda não configurado |

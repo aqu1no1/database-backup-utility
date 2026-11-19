@@ -220,7 +220,8 @@ fn engines_lists_every_engine_without_claiming_unimplemented_operations() {
             support("point_in_time_recovery").as_deref(),
             Some("unsupported")
         );
-        assert_eq!(support("encryption").as_deref(), Some("planned"));
+        assert_eq!(support("compression").as_deref(), Some("supported"));
+        assert_eq!(support("encryption").as_deref(), Some("supported"));
     }
 
     let text = cli(&dir, &["engines"]);
