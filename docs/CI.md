@@ -64,7 +64,17 @@ gh api repos/actions/checkout/commits/v7 --jq .sha    # SHA atual da tag
 
 Troque o SHA e a tag do comentário no mesmo commit. O `dtolnay/rust-toolchain` é fixado no SHA da
 branch `stable` e recebe `toolchain: stable` explicitamente, porque fixado por SHA ele não deduz o
-toolchain pelo nome da ref. Dependabot para `github-actions` é uma opção futura; não está configurado.
+toolchain pelo nome da ref. O Dependabot não cobre `github-actions`.
+
+## Dependabot
+
+O `.github/dependabot.yml` cobre Cargo e npm (pnpm) só com **atualizações de segurança**: o
+`open-pull-requests-limit: 0` desliga as atualizações de versão, que continuam manuais. As correções
+vêm agrupadas por ecossistema em PRs para a `main`, que passam pela CI e pela revisão normal; nada é
+mesclado automaticamente. Os alertas e as atualizações de segurança são ligados em **Settings >
+Advanced Security**.
+
+O Dependabot propõe a correção; quem bloqueia o PR continua sendo o `cargo deny check`.
 
 ## Primeira configuração do repositório
 

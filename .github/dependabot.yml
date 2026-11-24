@@ -1,0 +1,28 @@
+version: 2
+
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    commit-message:
+      prefix: fix
+      include: scope
+    groups:
+      cargo-security:
+        applies-to: security-updates
+        patterns: ['*']
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    commit-message:
+      prefix: fix
+      include: scope
+    groups:
+      npm-security:
+        applies-to: security-updates
+        patterns: ['*']
