@@ -77,6 +77,9 @@ Advanced Security**.
 O `package.json` da raiz não tem dependências nem scripts: ele existe porque o Dependabot o exige ao
 lado do `pnpm-lock.yaml`. As dependências do desktop continuam em `apps/desktop/package.json`.
 
+O `package.json` da raiz não tem dependências nem scripts: ele existe porque o Dependabot o exige ao
+lado do `pnpm-lock.yaml`. As dependências do desktop continuam em `apps/desktop/package.json`.
+
 O Dependabot propõe a correção; quem bloqueia o PR continua sendo o `cargo deny check`.
 
 ## Primeira configuração do repositório
