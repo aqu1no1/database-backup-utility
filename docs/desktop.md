@@ -3,8 +3,9 @@
 O app desktop fica em `apps/desktop`: Angular 22 standalone, TypeScript estrito, sem SSR,
 gerenciado por PNPM no workspace da raiz (`pnpm-workspace.yaml` e `pnpm-lock.yaml`). Já existem o
 design system (Tailwind CSS v4, tema escuro e claro, componentes compartilhados) e o shell com a
-sidebar (DB-26). Transloco, o contrato com o backend, o Tauri e as telas entram nos próximos cards
-do milestone v0.4.0 do épico DB-16 (DB-25, DB-52, DB-45, DB-24 e DB-48 a DB-51).
+sidebar (DB-26), o i18n com Transloco (DB-25), o início do contrato com o backend, simulado (DB-52),
+e as telas Configurações, Painel, Histórico e Agendamentos. O Tauri e as demais telas entram nos
+próximos cards do milestone v0.4.0 do épico DB-16 (DB-45, DB-24 e DB-48 a DB-50).
 
 O design de referência fica no repositório de designs, em `database-backup-utility/` (telas em
 `design-source/`, tokens em `angular/`).

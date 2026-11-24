@@ -1,4 +1,11 @@
 {
+  "common": {
+    "retry": "Tentar de novo",
+    "tryAgain": "Verifique e tente de novo."
+  },
+  "comingSoon": {
+    "description": "Esta tela ainda está em construção."
+  },
   "nav": {
     "label": "Navegação principal",
     "language": "Idioma",
@@ -10,6 +17,77 @@
     "schedules": "Agendamentos",
     "history": "Histórico",
     "settings": "Configurações"
+  },
+  "operations": {
+    "kind": {
+      "backup": "Backup full",
+      "restore": "Restauração"
+    },
+    "status": {
+      "running": "Executando",
+      "verified": "Verificado",
+      "completed": "Concluída",
+      "failed": "Falhou"
+    }
+  },
+  "dashboard": {
+    "overline": "Visão geral",
+    "title": "Painel",
+    "restore": "Restaurar",
+    "newBackup": "Novo backup full",
+    "lastBackup": "Último backup",
+    "noBackup": "nenhum backup ainda",
+    "running": "Backups em execução",
+    "noRunning": "nenhum agora",
+    "connections": "Conexões",
+    "noConnections": "nenhuma conexão",
+    "failures": "Falhas recentes",
+    "nothingPublished": "nada foi publicado",
+    "noFailures": "nenhuma falha",
+    "recent": "Atividade recente",
+    "viewHistory": "Ver histórico",
+    "loading": "Carregando o painel…",
+    "loadError": "Não foi possível carregar o painel"
+  },
+  "history": {
+    "overline": "Todas as conexões",
+    "title": "Histórico",
+    "filterLabel": "Filtrar operações",
+    "filters": {
+      "all": "Todos",
+      "backup": "Backups",
+      "restore": "Restaurações"
+    },
+    "columns": {
+      "operation": "Operação",
+      "id": "ID",
+      "engine": "SGBD",
+      "path": "Origem → destino",
+      "startedAt": "Início",
+      "status": "Status"
+    },
+    "loading": "Carregando o histórico…",
+    "empty": "Nenhuma operação por aqui.",
+    "loadError": "Não foi possível ler o histórico"
+  },
+  "schedules": {
+    "planned": "Planejado · v0.5",
+    "title": "Agendamentos",
+    "new": "Novo agendamento",
+    "available": "Disponível na v0.5",
+    "description": "Prévia de como os agendamentos vão aparecer. Na v0.4 esta tela só mostra o plano; nada é agendado.",
+    "preview": "Prévia de um agendamento",
+    "fullBackup": "backup full",
+    "frequency": "exemplo · destino local",
+    "enabled": "Habilitado",
+    "closedApp": {
+      "title": "Funciona com o app fechado",
+      "description": "O agendador do sistema chama a CLI: cron ou timers no Linux, Agendador de Tarefas no Windows, launchd no macOS."
+    },
+    "v05": {
+      "title": "Chega junto na v0.5",
+      "description": "Fila de jobs, armazenamento S3 e retenção."
+    }
   },
   "settings": {
     "overline": "Preferências",
