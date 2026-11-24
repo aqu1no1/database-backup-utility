@@ -184,6 +184,7 @@ banco novo, sonda de `DEFINER` e limpeza do banco criado em falha. O que muda:
 | Controle | Evidência | Status |
 | --- | --- | --- |
 | Advisories conhecidos (RustSec) em todo PR | job `Rust / Supply Chain` (`cargo deny check`); `audit.yml` semanal com `cargo deny check advisories` | corrigido (DB-35) |
+| PR automático para dependência vulnerável | Dependabot security updates para Cargo e npm (`.github/dependabot.yml`) | configurado (DB-54) |
 | Licenças compatíveis com MIT OR Apache-2.0 | `deny.toml` com allowlist das licenças em uso; mutação: tirar `ISC` ou a exceção do `option-ext` faz o check falhar | corrigido (DB-35) |
 | Só crates.io como fonte | `deny.toml` `[sources]`; git ou registry desconhecido falham | corrigido (DB-35) |
 | Sem versões wildcard | `deny.toml` `wildcards = "deny"`; caminhos internos liberados só porque as crates são `publish = false` | corrigido (DB-35) |
