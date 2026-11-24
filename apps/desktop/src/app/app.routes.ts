@@ -6,5 +6,9 @@ export const routes: Routes = [
     path: 'dashboard',
     loadComponent: () => import('./features/dashboard/dashboard-page').then((m) => m.DashboardPage),
   },
+  {
+    path: 'settings',
+    loadComponent: () => import('./features/settings/settings-page').then((m) => m.SettingsPage),
+  },
   { path: '**', redirectTo: 'dashboard' },
 ];

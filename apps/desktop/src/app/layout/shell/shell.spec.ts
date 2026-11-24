@@ -1,6 +1,7 @@
 import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
+import { provideI18nTesting } from '../../core/i18n/i18n.testing';
 import { Shell } from './shell';
 
 @Component({ template: '' })
@@ -11,6 +12,7 @@ describe('Shell', () => {
     TestBed.configureTestingModule({
       imports: [Shell],
       providers: [
+        provideI18nTesting(),
         provideRouter([
           { path: 'dashboard', component: Blank },
           { path: 'backups', component: Blank },

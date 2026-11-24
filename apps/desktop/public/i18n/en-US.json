@@ -1,0 +1,36 @@
+{
+  "nav": {
+    "label": "Main navigation",
+    "language": "Language",
+    "planned": "Planned · {{ version }}",
+    "dashboard": "Dashboard",
+    "connections": "Connections",
+    "backups": "Backups",
+    "restores": "Restores",
+    "schedules": "Schedules",
+    "history": "History",
+    "settings": "Settings"
+  },
+  "settings": {
+    "overline": "Preferences",
+    "title": "Settings",
+    "language": "Language",
+    "languageHelp": "Switches instantly, no restart. Saved locally.",
+    "sample": "Date format: 10/20/2026 · 1,024.5 MB",
+    "theme": "Theme",
+    "themeHelp": "Dark is the default.",
+    "dark": "Dark",
+    "light": "Light",
+    "runner": "Tool runner",
+    "runnerHelp": "Native uses the installed tools (pg_dump, mysqldump, mongodump…); Docker runs the client in a container. SQLite needs no external tool.",
+    "native": "Native",
+    "docker": "Docker",
+    "storage": "Default local storage",
+    "loading": "Loading the settings…",
+    "loadError": "The settings could not be read",
+    "loadErrorHelp": "Check and try again.",
+    "saveError": "The change could not be saved",
+    "saveErrorHelp": "The previous value was kept.",
+    "retry": "Try again"
+  }
+}

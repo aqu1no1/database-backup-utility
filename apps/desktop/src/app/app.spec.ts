@@ -1,13 +1,15 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { App } from './app';
+import { provideBackend } from './core/backend/backend.providers';
+import { provideI18nTesting } from './core/i18n/i18n.testing';
 import { routes } from './app.routes';
 
 describe('App', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [App],
-      providers: [provideRouter(routes)],
+      providers: [provideRouter(routes), provideI18nTesting(), provideBackend()],
     });
   });
 
