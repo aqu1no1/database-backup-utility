@@ -97,8 +97,7 @@ para o i18n (DB-25) entregar as traduções. Estados desabilitados sempre mostra
 | `app-dialog` | Modal sobre o `<dialog>` nativo (foco preso, Esc fecha) |
 | `app-page-header` | Sobretítulo, `h1` e ações da página |
 
-Os pipes `fileSize`, `duration` e `dateTime` formatam pelo `LOCALE_ID`; o DB-25 liga o locale ao
-idioma escolhido. `shortKey` encurta chaves públicas (12 primeiros e 6 últimos caracteres).
+Os pipes `fileSize`, `duration` e `dateTime` formatam pelo idioma do `LanguageService`. `shortKey` encurta chaves públicas (12 primeiros e 6 últimos caracteres).
 
 ## Comandos
 

@@ -1,0 +1,73 @@
+<ng-container *transloco="let t; prefix: 'settings'">
+  <app-page-header [overline]="t('overline')" [title]="t('title')" />
+  <div class="flex max-w-[860px] flex-col gap-4">
+    <section class="card flex flex-wrap items-center gap-5 p-6">
+      <div class="flex flex-[1_1_280px] flex-col gap-1.5">
+        <h2 class="m-0 text-base font-semibold">{{ t('language') }}</h2>
+        <span class="text-sm text-fg-muted">{{ t('languageHelp') }}</span>
+        <span class="font-mono text-[13px] text-fg-subtle">{{ t('sample') }}</span>
+      </div>
+      <app-segmented
+        class="min-w-60"
+        [label]="t('language')"
+        [options]="languages"
+        [value]="languageService.language()"
+        (valueChange)="languageService.set($event)"
+      />
+    </section>
+
+    <section class="card flex flex-wrap items-center gap-5 p-6">
+      <div class="flex flex-[1_1_280px] flex-col gap-1.5">
+        <h2 class="m-0 text-base font-semibold">{{ t('theme') }}</h2>
+        <span class="text-sm text-fg-muted">{{ t('themeHelp') }}</span>
+      </div>
+      <app-segmented
+        class="min-w-60"
+        [label]="t('theme')"
+        [options]="themes(t)"
+        [value]="themeService.theme()"
+        (valueChange)="themeService.set($event)"
+      />
+    </section>
+
+    @if (saveFailed()) {
+      <app-alert tone="danger" [title]="t('saveError')">{{ t('saveErrorHelp') }}</app-alert>
+    }
+
+    @if (settings.hasValue()) {
+      @let current = settings.value();
+      <section class="card flex flex-wrap items-center gap-5 p-6">
+        <div class="flex flex-[1_1_280px] flex-col gap-1.5">
+          <h2 class="m-0 text-base font-semibold">{{ t('runner') }}</h2>
+          <span class="text-sm text-fg-muted">{{ t('runnerHelp') }}</span>
+        </div>
+        <app-segmented
+          class="min-w-60"
+          [label]="t('runner')"
+          [options]="runners(t)"
+          [value]="current.runner"
+          (valueChange)="save(current, { runner: $event })"
+        />
+      </section>
+      <section class="card p-6">
+        <app-field [label]="t('storage')">
+          <input
+            #directory
+            appControl
+            mono
+            type="text"
+            [value]="current.backupDirectory"
+            (change)="save(current, { backupDirectory: directory.value })"
+          />
+        </app-field>
+      </section>
+    } @else if (settings.error()) {
+      <app-alert tone="danger" [title]="t('loadError')">{{ t('loadErrorHelp') }}</app-alert>
+      <button appButton="secondary" type="button" class="self-start" (click)="settings.reload()">
+        {{ t('retry') }}
+      </button>
+    } @else {
+      <p role="status" class="m-0 text-sm text-fg-muted">{{ t('loading') }}</p>
+    }
+  </div>
+</ng-container>

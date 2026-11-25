@@ -1,0 +1,36 @@
+{
+  "nav": {
+    "label": "Navegação principal",
+    "language": "Idioma",
+    "planned": "Planejado · {{ version }}",
+    "dashboard": "Painel",
+    "connections": "Conexões",
+    "backups": "Backups",
+    "restores": "Restaurações",
+    "schedules": "Agendamentos",
+    "history": "Histórico",
+    "settings": "Configurações"
+  },
+  "settings": {
+    "overline": "Preferências",
+    "title": "Configurações",
+    "language": "Idioma",
+    "languageHelp": "Troca na hora, sem reiniciar. Fica salvo localmente.",
+    "sample": "Formato de data: 20/10/2026 · 1.024,5 MB",
+    "theme": "Tema",
+    "themeHelp": "Escuro é o padrão.",
+    "dark": "Escuro",
+    "light": "Claro",
+    "runner": "Executor das ferramentas",
+    "runnerHelp": "Nativo usa as ferramentas instaladas (pg_dump, mysqldump, mongodump…); Docker roda o cliente em um container. O SQLite não usa ferramenta externa.",
+    "native": "Nativo",
+    "docker": "Docker",
+    "storage": "Armazenamento local padrão",
+    "loading": "Carregando as configurações…",
+    "loadError": "Não foi possível ler as configurações",
+    "loadErrorHelp": "Verifique e tente de novo.",
+    "saveError": "Não foi possível salvar",
+    "saveErrorHelp": "O valor anterior foi mantido.",
+    "retry": "Tentar de novo"
+  }
+}
