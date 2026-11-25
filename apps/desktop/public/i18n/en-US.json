@@ -1,7 +1,6 @@
 {
   "common": {
-    "retry": "Try again",
-    "tryAgain": "Check and try again."
+    "retry": "Try again"
   },
   "comingSoon": {
     "description": "This screen is still under construction."
@@ -106,9 +105,71 @@
     "storage": "Default local storage",
     "loading": "Loading the settings…",
     "loadError": "The settings could not be read",
-    "loadErrorHelp": "Check and try again.",
     "saveError": "The change could not be saved",
     "saveErrorHelp": "The previous value was kept.",
     "retry": "Try again"
+  },
+  "errors": {
+    "codeLabel": "error",
+    "auth_failed": {
+      "title": "Authentication failed",
+      "hint": "Check the user and password and test again."
+    },
+    "database_not_found": {
+      "title": "Database not found",
+      "hint": "Check the database name. For SQLite, check that the file exists."
+    },
+    "unreachable": {
+      "title": "Server unreachable",
+      "hint": "Check the host, the port and whether the server is running."
+    },
+    "tls_failed": {
+      "title": "TLS failure",
+      "hint": "Check the server certificate or choose another TLS option in the connection."
+    },
+    "tool_unavailable": {
+      "title": "Tool unavailable",
+      "hint": "Install the database tools or enable Docker in Settings."
+    },
+    "engine_mismatch": {
+      "title": "Unexpected database engine",
+      "hint": "The connection type does not match the server or the backup."
+    },
+    "backup_failed": {
+      "title": "The backup failed",
+      "hint": "Nothing was published."
+    },
+    "cancelled": {
+      "title": "Operation cancelled",
+      "hint": "The operation was interrupted."
+    },
+    "backup_missing": {
+      "title": "Backup not found",
+      "hint": "The backup file is no longer at the destination."
+    },
+    "backup_corrupted": {
+      "title": "Corrupted backup",
+      "hint": "The file content does not match what was expected."
+    },
+    "checksum_missing": {
+      "title": "Backup without checksum",
+      "hint": "The integrity cannot be confirmed."
+    },
+    "backup_incompatible": {
+      "title": "Incompatible backup",
+      "hint": "The backup format or version is not supported."
+    },
+    "age_key_mismatch": {
+      "title": "Invalid age key",
+      "hint": "The private key does not open this backup."
+    },
+    "restore_failed": {
+      "title": "The restore failed",
+      "hint": "Check the history before trying again."
+    },
+    "unknown": {
+      "title": "Unexpected error",
+      "hint": "Try again."
+    }
   }
 }

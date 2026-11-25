@@ -8,7 +8,7 @@
   />
 
   @if (history.error()) {
-    <app-alert tone="danger" [title]="t('history.loadError')">{{ t('common.tryAgain') }}</app-alert>
+    <app-error-alert [title]="t('history.loadError')" [error]="history.error()" />
     <button appButton="secondary" type="button" class="self-start" (click)="history.reload()">
       {{ t('common.retry') }}
     </button>

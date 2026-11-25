@@ -94,6 +94,7 @@ para o i18n (DB-25) entregar as traduções. Estados desabilitados sempre mostra
 | `app-public-key-list` | Lista editável de chaves públicas age, com validação de formato e duplicata |
 | `app-metric-card`, `app-info-card`, `app-note` | Cards de métrica, de informação e nota tracejada |
 | `app-alert` | Erro (`role="alert"`, com o `code` estável) ou atenção |
+| `app-error-alert` | Falha de uma operação: traduz o `code` do `AppError`; outro erro vira mensagem genérica |
 | `app-progress` | Progresso determinado ou indeterminado (texto da etapa e dos bytes gravados) |
 | `app-dialog` | Modal sobre o `<dialog>` nativo (foco preso, Esc fecha) |
 | `app-page-header` | Sobretítulo, `h1` e ações da página |

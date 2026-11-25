@@ -9,21 +9,23 @@ export const ENGINE_LABELS: Record<DatabaseEngine, string> = {
   sqlite: 'SQLite',
 };
 
-export type ErrorCode =
-  | 'auth_failed'
-  | 'database_not_found'
-  | 'unreachable'
-  | 'tls_failed'
-  | 'tool_unavailable'
-  | 'engine_mismatch'
-  | 'backup_failed'
-  | 'cancelled'
-  | 'backup_missing'
-  | 'backup_corrupted'
-  | 'checksum_missing'
-  | 'backup_incompatible'
-  | 'age_key_mismatch'
-  | 'restore_failed';
+export const ERROR_CODES = [
+  'auth_failed',
+  'database_not_found',
+  'unreachable',
+  'tls_failed',
+  'tool_unavailable',
+  'engine_mismatch',
+  'backup_failed',
+  'cancelled',
+  'backup_missing',
+  'backup_corrupted',
+  'checksum_missing',
+  'backup_incompatible',
+  'age_key_mismatch',
+  'restore_failed',
+] as const;
+export type ErrorCode = (typeof ERROR_CODES)[number];
 
 export class AppError extends Error {
   constructor(

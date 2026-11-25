@@ -5,7 +5,7 @@ import { BACKEND } from '../../core/backend/backend';
 import { Settings, ToolRunner } from '../../core/backend/backend.models';
 import { Language, LanguageService } from '../../core/i18n/language.service';
 import { Theme, ThemeService } from '../../core/theme/theme.service';
-import { Alert } from '../../shared/ui/alert/alert';
+import { ErrorAlert } from '../../shared/ui/alert/error-alert';
 import { Button } from '../../shared/ui/button/button';
 import { Control } from '../../shared/ui/field/control';
 import { Field } from '../../shared/ui/field/field';
@@ -20,7 +20,7 @@ type Translate = (key: string) => string;
  */
 @Component({
   selector: 'app-settings-page',
-  imports: [Alert, Button, Control, Field, PageHeader, Segmented, TranslocoDirective],
+  imports: [Button, Control, ErrorAlert, Field, PageHeader, Segmented, TranslocoDirective],
   host: { class: 'flex flex-col gap-7' },
   templateUrl: './settings-page.html',
 })
@@ -31,7 +31,7 @@ export class SettingsPage {
   protected readonly themeService = inject(ThemeService);
 
   protected readonly settings = rxResource({ stream: () => this.backend.getSettings() });
-  protected readonly saveFailed = signal(false);
+  protected readonly saveError = signal<unknown>(null);
 
   protected readonly languages: readonly SegmentedOption<Language>[] = [
     { value: 'pt-BR', label: 'PT-BR' },
@@ -53,7 +53,7 @@ export class SettingsPage {
   }
 
   protected save(current: Settings, change: Partial<Settings>): void {
-    this.saveFailed.set(false);
+    this.saveError.set(null);
     const next = { ...current, ...change };
     this.settings.set(next);
     this.backend
@@ -61,8 +61,8 @@ export class SettingsPage {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (saved) => this.settings.set(saved),
-        error: () => {
-          this.saveFailed.set(true);
+        error: (error: unknown) => {
+          this.saveError.set(error);
           this.settings.set(current);
         },
       });
