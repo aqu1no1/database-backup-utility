@@ -1203,6 +1203,7 @@ dependencies = [
  "database-backup-core",
  "database-backup-history",
  "database-backup-storage",
+ "rusqlite",
  "tempfile",
  "thiserror 2.0.21",
  "time",

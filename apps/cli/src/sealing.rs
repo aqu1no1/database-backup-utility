@@ -7,14 +7,14 @@ use clap::Args;
 use database_backup_core::DatabaseEngine;
 use database_backup_history::History;
 use database_backup_storage::{
-    Compression, Encoding, Identities, PendingArtifact, Recipients, StorageError, StoredArtifact,
-    StoredMetadata, WorkDir, open_encoded, read_metadata,
+    Compression, Encoding, Identities, Recipients, StorageError, StoredArtifact, StoredMetadata,
+    WorkDir, open_encoded, read_metadata,
 };
 use tokio::io::AsyncReadExt;
 use tracing::{info, warn};
 
 use crate::output::fail;
-use crate::{describe, exit, interrupt};
+use crate::{describe, exit};
 
 const AGE_MAGIC: &[u8] = b"age-encryption.org/";
 const AGE_ARMOR_MAGIC: &[u8] = b"-----BEGIN AGE ENCRYPTED FILE-----";
@@ -67,13 +67,6 @@ impl EncodingArgs {
         }
         Ok(Encoding::new(compression, recipients))
     }
-}
-
-pub async fn commit(
-    pending: PendingArtifact,
-    encoding: &Encoding,
-) -> Result<StoredArtifact, StorageError> {
-    database_backup_operations::commit(pending, encoding, &interrupt()).await
 }
 
 #[must_use]
