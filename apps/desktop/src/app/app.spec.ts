@@ -11,14 +11,16 @@ describe('App', () => {
     });
   });
 
-  it('renders the dashboard page inside the shell on the root route', async () => {
+  it('opens the dashboard inside the shell on the root route', async () => {
     const fixture = TestBed.createComponent(App);
-    await TestBed.inject(Router).navigateByUrl('/');
+    const router = TestBed.inject(Router);
+    await router.navigateByUrl('/');
     await fixture.whenStable();
 
     const element = fixture.nativeElement as HTMLElement;
+    expect(router.url).toBe('/dashboard');
     expect(element.querySelector('app-shell main app-dashboard-page h1')?.textContent).toBe(
-      'Dashboard',
+      'Painel',
     );
   });
 
@@ -28,6 +30,6 @@ describe('App', () => {
     await router.navigateByUrl('/does-not-exist');
     await fixture.whenStable();
 
-    expect(router.url).toBe('/');
+    expect(router.url).toBe('/dashboard');
   });
 });

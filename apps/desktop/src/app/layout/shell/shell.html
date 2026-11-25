@@ -1,17 +1,6 @@
-<div class="shell">
-  <header class="shell-header">
-    <span class="shell-title">Database Backup Utility</span>
-  </header>
-  <nav class="shell-nav" aria-label="Principal">
-    <a
-      routerLink="/"
-      routerLinkActive="active"
-      [routerLinkActiveOptions]="{ exact: true }"
-      ariaCurrentWhenActive="page"
-      >Dashboard</a
-    >
-  </nav>
-  <main class="shell-content">
+<div class="flex min-h-screen flex-wrap bg-canvas text-fg">
+  <app-sidebar class="max-w-full flex-[1_1_240px]" />
+  <main class="box-border flex min-w-0 flex-[999_1_560px] flex-col gap-7 px-10 py-8">
     <router-outlet />
   </main>
 </div>

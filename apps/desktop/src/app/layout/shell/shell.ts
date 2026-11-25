@@ -1,10 +1,14 @@
 import { Component } from '@angular/core';
-import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { RouterOutlet } from '@angular/router';
+import { Sidebar } from '../sidebar/sidebar';
 
+/**
+ * Estrutura do desktop: sidebar à esquerda e a página atual à direita. Em janelas estreitas, a
+ * sidebar passa para cima do conteúdo.
+ */
 @Component({
   selector: 'app-shell',
-  imports: [RouterOutlet, RouterLink, RouterLinkActive],
+  imports: [RouterOutlet, Sidebar],
   templateUrl: './shell.html',
-  styleUrl: './shell.css',
 })
 export class Shell {}
