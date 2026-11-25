@@ -1,0 +1,23 @@
+[package]
+name = "database-backup-operations"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+database-backup-adapters.workspace = true
+database-backup-core.workspace = true
+database-backup-history.workspace = true
+database-backup-storage.workspace = true
+thiserror.workspace = true
+time.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

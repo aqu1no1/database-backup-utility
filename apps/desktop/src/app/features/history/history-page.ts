@@ -5,7 +5,7 @@ import { BACKEND } from '../../core/backend/backend';
 import { ENGINE_LABELS, OperationKind } from '../../core/backend/backend.models';
 import { OperationStatusBadge } from '../../shared/operations/operation-status';
 import { DateTimePipe } from '../../shared/pipes/format.pipes';
-import { Alert } from '../../shared/ui/alert/alert';
+import { ErrorAlert } from '../../shared/ui/alert/error-alert';
 import { Tag } from '../../shared/ui/badge/tag';
 import { Button } from '../../shared/ui/button/button';
 import { Note } from '../../shared/ui/card/note';
@@ -22,9 +22,9 @@ type Translate = (key: string) => string;
 @Component({
   selector: 'app-history-page',
   imports: [
-    Alert,
     Button,
     DateTimePipe,
+    ErrorAlert,
     Note,
     OperationStatusBadge,
     PageHeader,

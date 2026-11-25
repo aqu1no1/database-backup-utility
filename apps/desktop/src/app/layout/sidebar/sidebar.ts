@@ -1,6 +1,7 @@
 import { Component, inject } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 import { TranslocoDirective } from '@jsverse/transloco';
+import { ActiveConnectionService } from '../../core/backend/active-connection.service';
 import { Language, LanguageService } from '../../core/i18n/language.service';
 import { Segmented, SegmentedOption } from '../../shared/ui/segmented/segmented';
 
@@ -48,8 +49,8 @@ const LINK =
 const ACTIVE = 'bg-surface font-semibold text-fg-strong';
 
 /**
- * Barra lateral do desktop: marca, navegação principal, idioma e Configurações no rodapé. O item ativo
- * recebe `aria-current="page"`; Agendamentos mostra o selo da versão em que está planejado.
+ * Barra lateral do desktop: marca, navegação principal, idioma, Configurações e conexão ativa no
+ * rodapé. O item ativo recebe `aria-current="page"`; Agendamentos mostra o selo da versão em que está planejado.
  */
 @Component({
   selector: 'app-sidebar',
@@ -159,11 +160,18 @@ const ACTIVE = 'bg-surface font-semibold text-fg-strong';
           </svg>
           <span>{{ t(settings.labelKey) }}</span>
         </a>
+        @if (connection.name(); as name) {
+          <div class="flex flex-col gap-1 rounded-[10px] border border-border-subtle p-3">
+            <span class="text-xs text-fg-subtle">{{ t('nav.activeConnection') }}</span>
+            <span class="truncate font-mono text-[13px] text-fg" [title]="name">{{ name }}</span>
+          </div>
+        }
       </div>
     </ng-container>
   `,
 })
 export class Sidebar {
+  protected readonly connection = inject(ActiveConnectionService);
   protected readonly language = inject(LanguageService);
   protected readonly languages: readonly SegmentedOption<Language>[] = [
     { value: 'pt-BR', label: 'PT-BR' },

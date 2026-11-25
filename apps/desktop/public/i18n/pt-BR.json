@@ -1,13 +1,13 @@
 {
   "common": {
-    "retry": "Tentar de novo",
-    "tryAgain": "Verifique e tente de novo."
+    "retry": "Tentar de novo"
   },
   "comingSoon": {
     "description": "Esta tela ainda está em construção."
   },
   "nav": {
     "label": "Navegação principal",
+    "activeConnection": "Conexão ativa",
     "language": "Idioma",
     "planned": "Planejado · {{ version }}",
     "dashboard": "Painel",
@@ -106,9 +106,71 @@
     "storage": "Armazenamento local padrão",
     "loading": "Carregando as configurações…",
     "loadError": "Não foi possível ler as configurações",
-    "loadErrorHelp": "Verifique e tente de novo.",
     "saveError": "Não foi possível salvar",
     "saveErrorHelp": "O valor anterior foi mantido.",
     "retry": "Tentar de novo"
+  },
+  "errors": {
+    "codeLabel": "erro",
+    "auth_failed": {
+      "title": "Falha na autenticação",
+      "hint": "Confira usuário e senha e teste de novo."
+    },
+    "database_not_found": {
+      "title": "Banco não encontrado",
+      "hint": "Confira o nome do banco. Em SQLite, confira se o arquivo existe."
+    },
+    "unreachable": {
+      "title": "Servidor inacessível",
+      "hint": "Confira host, porta e se o servidor está no ar."
+    },
+    "tls_failed": {
+      "title": "Falha de TLS",
+      "hint": "Confira o certificado do servidor ou escolha outra opção de TLS na conexão."
+    },
+    "tool_unavailable": {
+      "title": "Ferramenta indisponível",
+      "hint": "Instale as ferramentas do SGBD ou ative o Docker em Configurações."
+    },
+    "engine_mismatch": {
+      "title": "SGBD diferente do esperado",
+      "hint": "O tipo da conexão não corresponde ao servidor ou ao backup."
+    },
+    "backup_failed": {
+      "title": "O backup falhou",
+      "hint": "Nada foi publicado."
+    },
+    "cancelled": {
+      "title": "Operação cancelada",
+      "hint": "A operação foi interrompida."
+    },
+    "backup_missing": {
+      "title": "Backup não encontrado",
+      "hint": "O arquivo do backup não está mais no destino."
+    },
+    "backup_corrupted": {
+      "title": "Backup corrompido",
+      "hint": "O conteúdo do arquivo não confere com o esperado."
+    },
+    "checksum_missing": {
+      "title": "Backup sem checksum",
+      "hint": "A integridade não pode ser confirmada."
+    },
+    "backup_incompatible": {
+      "title": "Backup incompatível",
+      "hint": "O formato ou a versão do backup não é suportado."
+    },
+    "age_key_mismatch": {
+      "title": "Chave age inválida",
+      "hint": "A chave privada não abre este backup."
+    },
+    "restore_failed": {
+      "title": "A restauração falhou",
+      "hint": "Veja o histórico antes de tentar de novo."
+    },
+    "unknown": {
+      "title": "Erro inesperado",
+      "hint": "Tente de novo."
+    }
   }
 }

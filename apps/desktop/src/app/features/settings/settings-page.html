@@ -30,8 +30,8 @@
       />
     </section>
 
-    @if (saveFailed()) {
-      <app-alert tone="danger" [title]="t('saveError')">{{ t('saveErrorHelp') }}</app-alert>
+    @if (saveError(); as error) {
+      <app-error-alert [title]="t('saveError')" [error]="error" [note]="t('saveErrorHelp')" />
     }
 
     @if (settings.hasValue()) {
@@ -62,7 +62,7 @@
         </app-field>
       </section>
     } @else if (settings.error()) {
-      <app-alert tone="danger" [title]="t('loadError')">{{ t('loadErrorHelp') }}</app-alert>
+      <app-error-alert [title]="t('loadError')" [error]="settings.error()" />
       <button appButton="secondary" type="button" class="self-start" (click)="settings.reload()">
         {{ t('retry') }}
       </button>

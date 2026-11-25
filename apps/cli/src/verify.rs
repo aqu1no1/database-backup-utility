@@ -5,11 +5,13 @@ use clap::Args;
 use database_backup_adapters::postgres::PgTools;
 use database_backup_core::{DatabaseEngine, Operation};
 use database_backup_history::History;
+use database_backup_operations::archive::{
+    VerifiedSource, detect_engine, read_archive, verify_checksum,
+};
 use database_backup_storage::{Compression, check_restore_source};
 use serde::Serialize;
 use tracing::{info, warn};
 
-use crate::archive::{VerifiedSource, detect_engine, read_archive, verify_checksum};
 use crate::output::{fail, success};
 use crate::{RunnerArg, describe, exit};
 
@@ -94,7 +96,7 @@ pub async fn run(args: VerifyArgs) -> ExitCode {
     let readable = opened.path();
     let engine = match detect_engine(readable).await {
         Ok(engine) => engine.unwrap_or(DatabaseEngine::Postgres),
-        Err(message) => return fail(exit::INVALID_ARCHIVE, &message),
+        Err(error) => return fail(exit::INVALID_ARCHIVE, error.message()),
     };
     if args.runner.is_some() && engine != DatabaseEngine::Postgres {
         return fail(
@@ -113,7 +115,7 @@ pub async fn run(args: VerifyArgs) -> ExitCode {
     let verified =
         match verify_checksum(readable, &file, &history, args.allow_unverified, engine).await {
             Ok(verified) => verified,
-            Err(message) => return fail(exit::INVALID_ARCHIVE, &message),
+            Err(error) => return fail(exit::INVALID_ARCHIVE, error.message()),
         };
     if !verified.matched_reference {
         warn!(
@@ -221,10 +223,10 @@ async fn sqlite_structure(file: &Path) -> Result<Structure, ExitCode> {
 }
 
 async fn mysql_structure(file: &Path, engine: DatabaseEngine) -> Result<Structure, ExitCode> {
-    let dump = crate::mysql::inspect(file)
+    let dump = database_backup_operations::mysql::inspect(file)
         .await
-        .map_err(|message| fail(exit::INVALID_ARCHIVE, &message))?;
-    if crate::mysql::engine(dump.flavor) != engine {
+        .map_err(|error| fail(exit::INVALID_ARCHIVE, error.message()))?;
+    if database_backup_operations::mysql::engine(dump.flavor) != engine {
         return Err(fail(
             exit::INVALID_ARCHIVE,
             &format!(
@@ -244,9 +246,9 @@ async fn mysql_structure(file: &Path, engine: DatabaseEngine) -> Result<Structur
 }
 
 async fn mongo_structure(file: &Path) -> Result<Structure, ExitCode> {
-    let archive = crate::mongo::inspect(file)
+    let archive = database_backup_operations::mongo::inspect(file)
         .await
-        .map_err(|message| fail(exit::INVALID_ARCHIVE, &message))?;
+        .map_err(|error| fail(exit::INVALID_ARCHIVE, error.message()))?;
     Ok(Structure {
         objects: archive.objects(),
         tables: archive.collections(),
@@ -272,7 +274,7 @@ async fn postgres_structure(
         .map_err(|error| fail(exit::TOOLS, &error.to_string()))?;
     let archive = read_archive(&tools, file)
         .await
-        .map_err(|message| fail(exit::INVALID_ARCHIVE, &message))?;
+        .map_err(|error| fail(exit::INVALID_ARCHIVE, error.message()))?;
     Ok(Structure {
         database: archive.database,
         objects: archive.entries,
