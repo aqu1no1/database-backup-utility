@@ -1,4 +1,11 @@
 {
+  "common": {
+    "retry": "Try again",
+    "tryAgain": "Check and try again."
+  },
+  "comingSoon": {
+    "description": "This screen is still under construction."
+  },
   "nav": {
     "label": "Main navigation",
     "language": "Language",
@@ -10,6 +17,77 @@
     "schedules": "Schedules",
     "history": "History",
     "settings": "Settings"
+  },
+  "operations": {
+    "kind": {
+      "backup": "Full backup",
+      "restore": "Restore"
+    },
+    "status": {
+      "running": "Running",
+      "verified": "Verified",
+      "completed": "Completed",
+      "failed": "Failed"
+    }
+  },
+  "dashboard": {
+    "overline": "Overview",
+    "title": "Dashboard",
+    "restore": "Restore",
+    "newBackup": "New full backup",
+    "lastBackup": "Last backup",
+    "noBackup": "no backups yet",
+    "running": "Running backups",
+    "noRunning": "none right now",
+    "connections": "Connections",
+    "noConnections": "no connections",
+    "failures": "Recent failures",
+    "nothingPublished": "nothing was published",
+    "noFailures": "no failures",
+    "recent": "Recent activity",
+    "viewHistory": "View history",
+    "loading": "Loading the dashboard…",
+    "loadError": "The dashboard could not be loaded"
+  },
+  "history": {
+    "overline": "All connections",
+    "title": "History",
+    "filterLabel": "Filter operations",
+    "filters": {
+      "all": "All",
+      "backup": "Backups",
+      "restore": "Restores"
+    },
+    "columns": {
+      "operation": "Operation",
+      "id": "ID",
+      "engine": "Engine",
+      "path": "Source → destination",
+      "startedAt": "Started",
+      "status": "Status"
+    },
+    "loading": "Loading the history…",
+    "empty": "No operations here.",
+    "loadError": "The history could not be read"
+  },
+  "schedules": {
+    "planned": "Planned · v0.5",
+    "title": "Schedules",
+    "new": "New schedule",
+    "available": "Available in v0.5",
+    "description": "Preview of how schedules will look. In v0.4 this screen only shows the plan; nothing is scheduled.",
+    "preview": "Schedule preview",
+    "fullBackup": "full backup",
+    "frequency": "example · local destination",
+    "enabled": "Enabled",
+    "closedApp": {
+      "title": "Works with the app closed",
+      "description": "The system scheduler calls the CLI: cron or timers on Linux, Task Scheduler on Windows, launchd on macOS."
+    },
+    "v05": {
+      "title": "Also coming in v0.5",
+      "description": "Job queue, S3 storage and retention."
+    }
   },
   "settings": {
     "overline": "Preferences",

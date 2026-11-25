@@ -1,0 +1,74 @@
+<ng-container *transloco="let t">
+  <app-page-header [overline]="t('dashboard.overline')" [title]="t('dashboard.title')">
+    <a appButton="secondary" routerLink="/restores">{{ t('dashboard.restore') }}</a>
+    <a appButton="primary" routerLink="/backups">{{ t('dashboard.newBackup') }}</a>
+  </app-page-header>
+
+  @if (summary(); as data) {
+    <div class="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4">
+      <app-metric-card [label]="t('dashboard.lastBackup')">
+        @if (data.lastBackup; as backup) {
+          <app-operation-status [status]="backup.status" />
+        } @else {
+          —
+        }
+        <span detail class="font-mono text-[13px] text-fg-muted">
+          @if (data.lastBackup; as backup) {
+            {{ backup.startedAt | dateTime }}
+          } @else {
+            {{ t('dashboard.noBackup') }}
+          }
+        </span>
+      </app-metric-card>
+      <app-metric-card [label]="t('dashboard.running')">
+        {{ data.running }}
+        <span detail class="text-[13px] text-fg-muted">{{
+          data.runningNames || t('dashboard.noRunning')
+        }}</span>
+      </app-metric-card>
+      <a routerLink="/connections" class="block no-underline">
+        <app-metric-card class="h-full" [label]="t('dashboard.connections')">
+          {{ data.connections }}
+          <span detail class="text-[13px] leading-normal text-fg-muted">{{
+            data.byEngine || t('dashboard.noConnections')
+          }}</span>
+        </app-metric-card>
+      </a>
+      <app-metric-card [label]="t('dashboard.failures')">
+        <span [class.text-danger-fg]="data.failures > 0">{{ data.failures }}</span>
+        <span detail class="text-[13px] text-fg-muted">{{
+          data.failures > 0 ? t('dashboard.nothingPublished') : t('dashboard.noFailures')
+        }}</span>
+      </app-metric-card>
+    </div>
+
+    <section class="card flex flex-col gap-1 p-6">
+      <div class="mb-2 flex items-center justify-between gap-3">
+        <h2 class="m-0 text-base font-semibold">{{ t('dashboard.recent') }}</h2>
+        <a routerLink="/history" class="text-sm font-semibold">{{ t('dashboard.viewHistory') }}</a>
+      </div>
+      @for (item of data.recent; track item.id) {
+        <div class="flex min-h-13 flex-wrap items-center gap-4 border-t border-border-subtle">
+          <app-operation-status [status]="item.status" />
+          <span class="flex-[1_1_200px] text-[15px]">
+            {{ t('operations.kind.' + item.kind) }} ·
+            {{ item.kind === 'backup' ? item.source : item.destination }} ·
+            {{ engines[item.engine] }}
+          </span>
+          <span class="font-mono text-[13px] text-fg-subtle">{{ item.id }}</span>
+        </div>
+      } @empty {
+        <p class="m-0 text-sm text-fg-muted">{{ t('history.empty') }}</p>
+      }
+    </section>
+  } @else if (overview.error()) {
+    <app-alert tone="danger" [title]="t('dashboard.loadError')">{{
+      t('common.tryAgain')
+    }}</app-alert>
+    <button appButton="secondary" type="button" class="self-start" (click)="overview.reload()">
+      {{ t('common.retry') }}
+    </button>
+  } @else {
+    <p role="status" class="m-0 text-sm text-fg-muted">{{ t('dashboard.loading') }}</p>
+  }
+</ng-container>

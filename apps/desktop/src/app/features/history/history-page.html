@@ -1,0 +1,56 @@
+<ng-container *transloco="let t">
+  <app-page-header [overline]="t('history.overline')" [title]="t('history.title')" />
+  <app-segmented
+    appearance="chips"
+    [label]="t('history.filterLabel')"
+    [options]="options(t)"
+    [(value)]="filter"
+  />
+
+  @if (history.error()) {
+    <app-alert tone="danger" [title]="t('history.loadError')">{{ t('common.tryAgain') }}</app-alert>
+    <button appButton="secondary" type="button" class="self-start" (click)="history.reload()">
+      {{ t('common.retry') }}
+    </button>
+  } @else if (history.isLoading()) {
+    <p role="status" class="m-0 text-sm text-fg-muted">{{ t('history.loading') }}</p>
+  } @else if (rows().length === 0) {
+    <app-note>{{ t('history.empty') }}</app-note>
+  } @else {
+    <div class="card overflow-x-auto">
+      <table class="data-table min-w-[860px]">
+        <caption class="sr-only">
+          {{
+            t('history.title')
+          }}
+        </caption>
+        <thead>
+          <tr>
+            <th scope="col">{{ t('history.columns.operation') }}</th>
+            <th scope="col">{{ t('history.columns.id') }}</th>
+            <th scope="col">{{ t('history.columns.engine') }}</th>
+            <th scope="col">{{ t('history.columns.path') }}</th>
+            <th scope="col">{{ t('history.columns.startedAt') }}</th>
+            <th scope="col">{{ t('history.columns.status') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (item of rows(); track item.id) {
+            <tr>
+              <td>{{ t('operations.kind.' + item.kind) }}</td>
+              <td class="font-mono">{{ item.id }}</td>
+              <td>
+                <app-tag>{{ engines[item.engine] }}</app-tag>
+              </td>
+              <td class="font-mono text-[13px] text-fg-muted">
+                {{ item.source }} → {{ item.destination }}
+              </td>
+              <td class="text-fg-muted">{{ item.startedAt | dateTime }}</td>
+              <td><app-operation-status [status]="item.status" /></td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+</ng-container>
