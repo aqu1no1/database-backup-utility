@@ -26,6 +26,7 @@ dist/
 .turbo/
 
 # Desktop / bundlers
+apps/desktop/src-tauri/gen/
 *.AppImage
 *.deb
 *.dmg

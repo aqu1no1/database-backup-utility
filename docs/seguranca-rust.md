@@ -274,9 +274,9 @@ Evitar:
 
 ```bash
 cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo build --workspace --locked
-cargo test --workspace --locked
+cargo clippy --workspace --exclude database-backup-desktop --all-targets --locked -- -D warnings
+cargo build --workspace --exclude database-backup-desktop --locked
+cargo test --workspace --exclude database-backup-desktop --locked
 cargo deny check                       # se o cargo-deny estiver instalado; a CI sempre roda
 cargo tree -i <crate> -e normal        # alcance de uma dependência no binário
 ```

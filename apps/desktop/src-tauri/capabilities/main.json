@@ -1,0 +1,6 @@
+{
+  "identifier": "main",
+  "description": "Janela principal: abrir e salvar arquivos pelo diálogo do sistema.",
+  "windows": ["main"],
+  "permissions": ["dialog:allow-open", "dialog:allow-save"]
+}

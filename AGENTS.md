@@ -370,9 +370,9 @@ Rust, a partir da raiz do repositório:
 
 ```bash
 cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo build --workspace --locked
-cargo test --workspace --locked
+cargo clippy --workspace --exclude database-backup-desktop --all-targets --locked -- -D warnings
+cargo build --workspace --exclude database-backup-desktop --locked
+cargo test --workspace --exclude database-backup-desktop --locked
 cargo deny check          # quando o cargo-deny estiver instalado; a CI sempre roda (Rust / Supply Chain)
 ```
 

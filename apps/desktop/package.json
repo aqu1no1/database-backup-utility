@@ -10,6 +10,7 @@
     "test": "ng test",
     "test:ci": "ng test --watch=false",
     "lint": "ng lint",
+    "tauri": "tauri",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
@@ -32,6 +33,7 @@
     "@angular/compiler-cli": "^22.2.0",
     "@eslint/js": "^10.0.1",
     "@tailwindcss/postcss": "^4.3.5",
+    "@tauri-apps/cli": "^2.12.6",
     "angular-eslint": "^22.6.0",
     "eslint": "^10.14.0",
     "jsdom": "^30.0.0",

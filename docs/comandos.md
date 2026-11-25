@@ -99,8 +99,8 @@ Por padrão só o PostgreSQL sobe. MySQL, MariaDB (porta 3307) e MongoDB ficam n
 ## Testes
 
 ```bash
-cargo test --workspace --lib --bins                                              # unitários, sem Docker
-cargo test --workspace --tests                                                   # tudo, inclui Testcontainers (Docker)
+cargo test --workspace --exclude database-backup-desktop --lib --bins                                              # unitários, sem Docker
+cargo test --workspace --exclude database-backup-desktop --tests                                                   # tudo, inclui Testcontainers (Docker)
 cargo test -p database-backup-adapters --test integration postgres_connection::  # teste de conexão
 cargo test -p database-backup-history                                            # histórico SQLite
 cargo test -p database-backup-adapters --test integration postgres_tools::       # pg_dump/pg_restore (native e Docker)
@@ -121,8 +121,8 @@ Os testes de integração criam PostgreSQL, MySQL, MariaDB e MongoDB temporário
 
 ```bash
 cargo fmt --all                                        # formata
-cargo clippy --workspace --all-targets -- -D warnings  # lint
-cargo build --workspace                                # compila
+cargo clippy --workspace --exclude database-backup-desktop --all-targets -- -D warnings  # lint
+cargo build --workspace --exclude database-backup-desktop                                # compila
 ```
 
 ## Antes de abrir um PR
@@ -131,10 +131,10 @@ Mesmos passos da CI:
 
 ```bash
 cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace --lib --bins
-cargo test --workspace --tests
-cargo build --workspace
+cargo clippy --workspace --exclude database-backup-desktop --all-targets -- -D warnings
+cargo test --workspace --exclude database-backup-desktop --lib --bins
+cargo test --workspace --exclude database-backup-desktop --tests
+cargo build --workspace --exclude database-backup-desktop
 python3 -m unittest discover -s .github/scripts -p 'test_*.py'
 ```
 
