@@ -8,6 +8,8 @@ import { Shell } from './shell';
 class Blank {}
 
 describe('Shell', () => {
+  beforeEach(() => localStorage.clear());
+
   async function renderAt(url: string) {
     TestBed.configureTestingModule({
       imports: [Shell],
