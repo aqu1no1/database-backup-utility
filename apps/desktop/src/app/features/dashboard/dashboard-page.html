@@ -62,9 +62,7 @@
       }
     </section>
   } @else if (overview.error()) {
-    <app-alert tone="danger" [title]="t('dashboard.loadError')">{{
-      t('common.tryAgain')
-    }}</app-alert>
+    <app-error-alert [title]="t('dashboard.loadError')" [error]="overview.error()" />
     <button appButton="secondary" type="button" class="self-start" (click)="overview.reload()">
       {{ t('common.retry') }}
     </button>

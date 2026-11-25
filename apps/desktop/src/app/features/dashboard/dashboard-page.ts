@@ -7,7 +7,7 @@ import { BACKEND } from '../../core/backend/backend';
 import { DATABASE_ENGINES, ENGINE_LABELS } from '../../core/backend/backend.models';
 import { OperationStatusBadge } from '../../shared/operations/operation-status';
 import { DateTimePipe } from '../../shared/pipes/format.pipes';
-import { Alert } from '../../shared/ui/alert/alert';
+import { ErrorAlert } from '../../shared/ui/alert/error-alert';
 import { Button } from '../../shared/ui/button/button';
 import { MetricCard } from '../../shared/ui/card/metric-card';
 import { PageHeader } from '../../shared/ui/page-header/page-header';
@@ -20,9 +20,9 @@ const RECENT_LIMIT = 3;
 @Component({
   selector: 'app-dashboard-page',
   imports: [
-    Alert,
     Button,
     DateTimePipe,
+    ErrorAlert,
     MetricCard,
     OperationStatusBadge,
     PageHeader,
