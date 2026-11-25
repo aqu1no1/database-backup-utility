@@ -5,11 +5,13 @@ use clap::Args;
 use database_backup_adapters::postgres::PgTools;
 use database_backup_core::{DatabaseEngine, Operation};
 use database_backup_history::History;
+use database_backup_operations::archive::{
+    VerifiedSource, detect_engine, read_archive, verify_checksum,
+};
 use database_backup_storage::{Compression, check_restore_source};
 use serde::Serialize;
 use tracing::{info, warn};
 
-use crate::archive::{VerifiedSource, detect_engine, read_archive, verify_checksum};
 use crate::output::{fail, success};
 use crate::{RunnerArg, describe, exit};
 
@@ -94,7 +96,7 @@ pub async fn run(args: VerifyArgs) -> ExitCode {
     let readable = opened.path();
     let engine = match detect_engine(readable).await {
         Ok(engine) => engine.unwrap_or(DatabaseEngine::Postgres),
-        Err(message) => return fail(exit::INVALID_ARCHIVE, &message),
+        Err(error) => return fail(exit::INVALID_ARCHIVE, error.message()),
     };
     if args.runner.is_some() && engine != DatabaseEngine::Postgres {
         return fail(
@@ -113,7 +115,7 @@ pub async fn run(args: VerifyArgs) -> ExitCode {
     let verified =
         match verify_checksum(readable, &file, &history, args.allow_unverified, engine).await {
             Ok(verified) => verified,
-            Err(message) => return fail(exit::INVALID_ARCHIVE, &message),
+            Err(error) => return fail(exit::INVALID_ARCHIVE, error.message()),
         };
     if !verified.matched_reference {
         warn!(
@@ -272,7 +274,7 @@ async fn postgres_structure(
         .map_err(|error| fail(exit::TOOLS, &error.to_string()))?;
     let archive = read_archive(&tools, file)
         .await
-        .map_err(|message| fail(exit::INVALID_ARCHIVE, &message))?;
+        .map_err(|error| fail(exit::INVALID_ARCHIVE, error.message()))?;
     Ok(Structure {
         database: archive.database,
         objects: archive.entries,

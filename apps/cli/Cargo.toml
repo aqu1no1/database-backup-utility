@@ -15,6 +15,7 @@ clap.workspace = true
 database-backup-adapters.workspace = true
 database-backup-core.workspace = true
 database-backup-history.workspace = true
+database-backup-operations.workspace = true
 database-backup-storage.workspace = true
 dialoguer.workspace = true
 rpassword.workspace = true

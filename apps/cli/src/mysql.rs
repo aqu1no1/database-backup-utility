@@ -10,6 +10,7 @@ use database_backup_core::{DatabaseEngine, MysqlConnectionConfig, Operation, Pas
 use database_backup_history::{
     ExecutionStatus, History, HistoryError, NewArtifact, NewConnection, NewRestore, RestoreMode,
 };
+use database_backup_operations::archive::verify_checksum;
 use database_backup_storage::{
     ArtifactMetadata, Encoding, StorageError, StoredArtifact, backup_file_name,
     check_restore_source, write_artifact_metadata,
@@ -18,7 +19,6 @@ use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 use tracing::{info, warn};
 
-use crate::archive::verify_checksum;
 use crate::backup::{BackupResult, Destination, human_size, open_target};
 use crate::output::{fail, success};
 use crate::restore::RestoreResult;
@@ -342,7 +342,7 @@ async fn execute_backup(
         .unwrap_or_default();
     let mysqldump_version = tools.version().to_string();
     let metadata = ArtifactMetadata {
-        tool_name: crate::TOOL_NAME,
+        tool_name: database_backup_operations::TOOL_NAME,
         tool_version: env!("CARGO_PKG_VERSION"),
         engine: engine(tools.flavor()).as_str(),
         format: format(tools.flavor()),
@@ -414,7 +414,7 @@ pub async fn restore(request: &RestoreRequest<'_>) -> ExitCode {
     .await
     {
         Ok(verified) => verified,
-        Err(message) => return fail(exit::INVALID_ARCHIVE, &message),
+        Err(error) => return fail(exit::INVALID_ARCHIVE, error.message()),
     };
     if !verified.matched_reference {
         warn!(

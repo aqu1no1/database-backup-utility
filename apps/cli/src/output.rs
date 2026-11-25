@@ -33,9 +33,9 @@ pub fn init(json: bool, level: Option<LogLevel>) {
     let _ = JSON.set(json);
     let filter = match level {
         Some(level) => EnvFilter::new(format!(
-            "warn,{}={}",
+            "warn,{}={level},database_backup_operations={level}",
             env!("CARGO_CRATE_NAME"),
-            level.as_str()
+            level = level.as_str()
         )),
         None => EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| EnvFilter::new(format!("warn,{}=warn", env!("CARGO_CRATE_NAME")))),

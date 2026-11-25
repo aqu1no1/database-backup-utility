@@ -5,11 +5,11 @@ use database_backup_adapters::mysql::{Flavor, dump_flavor};
 use database_backup_adapters::postgres::{ArchiveInfo, PgTools, PgVersion};
 use database_backup_adapters::sqlite::{SqliteError, check_database_file};
 use database_backup_core::DatabaseEngine;
-use database_backup_history::History;
+use database_backup_history::{ArtifactRecord, History};
 use database_backup_storage::{StoredMetadata, read_metadata, sha256_file};
 use tokio::io::AsyncReadExt;
 
-use crate::describe;
+use crate::{ErrorCode, OperationError};
 
 const SQL_DUMP_HEAD_BYTES: usize = 512;
 const POSTGRES_ARCHIVE_MAGIC: &[u8] = b"PGDMP";
@@ -22,22 +22,22 @@ pub struct VerifiedSource {
     pub manifest: Option<StoredMetadata>,
 }
 
-pub async fn detect_engine(file: &Path) -> Result<Option<DatabaseEngine>, String> {
+pub async fn detect_engine(file: &Path) -> Result<Option<DatabaseEngine>, OperationError> {
     if let Some(manifest) = read_metadata(file)
         .await
-        .map_err(|error| describe(&error))?
+        .map_err(|error| OperationError::source_file(&error))?
     {
         return manifest.engine.parse().map(Some).map_err(|_| {
-            format!(
+            incompatible(format!(
                 "o manifesto descreve um backup de {}, que esta versão não suporta",
                 manifest.engine
-            )
+            ))
         });
     }
     let path = file.to_owned();
     let header = tokio::task::spawn_blocking(move || check_database_file(&path))
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| OperationError::internal(&error))?;
     match header {
         Ok(()) => Ok(Some(DatabaseEngine::Sqlite)),
         Err(SqliteError::NotSqlite(_)) if starts_with(file, POSTGRES_ARCHIVE_MAGIC).await? => {
@@ -55,51 +55,76 @@ pub async fn detect_engine(file: &Path) -> Result<Option<DatabaseEngine>, String
                 }),
             )
         }
-        Err(error) => Err(describe(&error)),
+        Err(error) => Err(OperationError::from_source(
+            ErrorCode::BackupIncompatible,
+            &error,
+        )),
     }
 }
 
-async fn read_head(file: &Path, limit: usize) -> Result<Vec<u8>, String> {
+async fn read_head(file: &Path, limit: usize) -> Result<Vec<u8>, OperationError> {
     let opened = tokio::fs::File::open(file)
         .await
-        .map_err(|error| format!("não foi possível ler {}: {error}", file.display()))?;
+        .map_err(|error| unreadable(file, &error))?;
     let mut head = Vec::with_capacity(limit);
     opened
         .take(limit as u64)
         .read_to_end(&mut head)
         .await
-        .map_err(|error| format!("não foi possível ler {}: {error}", file.display()))?;
+        .map_err(|error| unreadable(file, &error))?;
     Ok(head)
 }
 
-async fn starts_with(file: &Path, prefix: &[u8]) -> Result<bool, String> {
+async fn starts_with(file: &Path, prefix: &[u8]) -> Result<bool, OperationError> {
     let mut head = vec![0_u8; prefix.len()];
     let mut opened = tokio::fs::File::open(file)
         .await
-        .map_err(|error| format!("não foi possível ler {}: {error}", file.display()))?;
+        .map_err(|error| unreadable(file, &error))?;
     match opened.read_exact(&mut head).await {
         Ok(_) => Ok(head == prefix),
         Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => Ok(false),
-        Err(error) => Err(format!("não foi possível ler {}: {error}", file.display())),
+        Err(error) => Err(unreadable(file, &error)),
     }
 }
 
-pub async fn verify_checksum(
-    file: &Path,
+fn incompatible(message: impl Into<String>) -> OperationError {
+    OperationError::new(ErrorCode::BackupIncompatible, message)
+}
+
+fn corrupted(message: impl Into<String>) -> OperationError {
+    OperationError::new(ErrorCode::BackupCorrupted, message)
+}
+
+fn unreadable(file: &Path, error: &std::io::Error) -> OperationError {
+    incompatible(format!("não foi possível ler {}: {error}", file.display()))
+}
+
+pub fn verify_checksum<'a>(
+    file: &'a Path,
     location: &Path,
     history: &History,
     allow_unverified: bool,
     engine: DatabaseEngine,
-) -> Result<VerifiedSource, String> {
+) -> impl Future<Output = Result<VerifiedSource, OperationError>> + Send + use<'a> {
+    let artifact = history
+        .find_artifact_by_location(&location.display().to_string())
+        .map_err(|error| OperationError::from_source(ErrorCode::ChecksumMissing, &error));
+    verify_against(file, artifact, allow_unverified, engine)
+}
+
+async fn verify_against(
+    file: &Path,
+    artifact: Result<Option<ArtifactRecord>, OperationError>,
+    allow_unverified: bool,
+    engine: DatabaseEngine,
+) -> Result<VerifiedSource, OperationError> {
     let metadata = read_metadata(file)
         .await
-        .map_err(|error| describe(&error))?;
+        .map_err(|error| OperationError::source_file(&error))?;
     if let Some(manifest) = &metadata {
         check_manifest(file, manifest, engine)?;
     }
-    let artifact = history
-        .find_artifact_by_location(&location.display().to_string())
-        .map_err(|error| describe(&error))?;
+    let artifact = artifact?;
     let source_version = metadata
         .as_ref()
         .and_then(|metadata| PgVersion::parse(&metadata.server_version))
@@ -114,11 +139,13 @@ pub async fn verify_checksum(
         .map(|metadata| metadata.sha256.clone())
         .or_else(|| artifact.as_ref().and_then(|a| a.checksum_sha256.clone()));
 
-    let (_, actual) = sha256_file(file).await.map_err(|error| describe(&error))?;
+    let (_, actual) = sha256_file(file)
+        .await
+        .map_err(|error| OperationError::source_file(&error))?;
     match expected {
-        Some(expected) if expected != actual => Err(format!(
+        Some(expected) if expected != actual => Err(corrupted(format!(
             "checksum divergente: esperado {expected}, calculado {actual}; o arquivo foi alterado ou corrompido"
-        )),
+        ))),
         Some(_) => Ok(VerifiedSource {
             artifact_id: artifact.map(|a| a.id),
             sha256: actual,
@@ -133,10 +160,10 @@ pub async fn verify_checksum(
             source_version,
             manifest: None,
         }),
-        None => Err(
-            "não há checksum conhecido para este arquivo (.meta.json ou histórico); use --allow-unverified para continuar mesmo assim"
-                .to_owned(),
-        ),
+        None => Err(OperationError::new(
+            ErrorCode::ChecksumMissing,
+            "não há checksum conhecido para este arquivo (.meta.json ou histórico); use --allow-unverified para continuar mesmo assim",
+        )),
     }
 }
 
@@ -144,57 +171,61 @@ fn check_manifest(
     file: &Path,
     manifest: &StoredMetadata,
     engine: DatabaseEngine,
-) -> Result<(), String> {
+) -> Result<(), OperationError> {
     let name = file
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default();
     if manifest.file_name != name {
-        return Err(format!(
+        return Err(incompatible(format!(
             "o manifesto pertence a outro arquivo ({}), não a {name}",
             manifest.file_name
-        ));
+        )));
     }
     if manifest.engine.parse::<DatabaseEngine>() != Ok(engine) {
-        return Err(format!(
-            "o manifesto descreve um backup de {}, não de {}",
-            manifest.engine,
-            engine.display_name()
+        return Err(OperationError::new(
+            ErrorCode::EngineMismatch,
+            format!(
+                "o manifesto descreve um backup de {}, não de {}",
+                manifest.engine,
+                engine.display_name()
+            ),
         ));
     }
     let size = std::fs::metadata(file)
         .map(|metadata| metadata.len())
-        .map_err(|error| format!("não foi possível ler {}: {error}", file.display()))?;
+        .map_err(|error| unreadable(file, &error))?;
     if size != manifest.size_bytes {
-        return Err(format!(
+        return Err(corrupted(format!(
             "tamanho divergente: o manifesto registra {} bytes e o arquivo tem {size}; o arquivo foi alterado ou está incompleto",
             manifest.size_bytes
-        ));
+        )));
     }
     Ok(())
 }
 
-pub async fn read_archive(tools: &PgTools, file: &Path) -> Result<ArchiveInfo, String> {
-    let archive = tools
-        .restore_list(file)
-        .await
-        .map_err(|error| format!("o arquivo não é um backup válido do pg_dump: {error}"))?;
+pub async fn read_archive(tools: &PgTools, file: &Path) -> Result<ArchiveInfo, OperationError> {
+    let archive = tools.restore_list(file).await.map_err(|error| {
+        corrupted(format!(
+            "o arquivo não é um backup válido do pg_dump: {error}"
+        ))
+    })?;
     if let Some(by) = archive.dumped_by
         && by.major > tools.version().major
     {
-        return Err(format!(
+        return Err(incompatible(format!(
             "o backup foi gerado pelo pg_dump {by}, mais novo que o pg_restore {} disponível",
             tools.version()
-        ));
+        )));
     }
     Ok(archive)
 }
 
-pub fn check_target(archive: &ArchiveInfo, target: PgVersion) -> Result<(), String> {
+pub fn check_target(archive: &ArchiveInfo, target: PgVersion) -> Result<(), OperationError> {
     match archive.dumped_from {
-        Some(from) if from.major > target.major => Err(format!(
+        Some(from) if from.major > target.major => Err(incompatible(format!(
             "o backup veio do PostgreSQL {from}, mais novo que o servidor de destino {target}"
-        )),
+        ))),
         _ => Ok(()),
     }
 }

@@ -13,6 +13,8 @@ use database_backup_core::DatabaseEngine;
 use database_backup_history::{
     ExecutionStatus, History, HistoryError, NewArtifact, NewConnection, NewRestore, RestoreMode,
 };
+use database_backup_operations::archive::verify_checksum;
+use database_backup_operations::timestamp;
 use database_backup_storage::{
     ArtifactMetadata, Encoding, LocalTarget, StorageError, StoredArtifact, backup_file_name,
     check_restore_source, sync_dir, write_artifact_metadata,
@@ -21,10 +23,9 @@ use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 use tracing::{info, warn};
 
-use crate::archive::verify_checksum;
 use crate::backup::{BackupResult, human_size, open_target};
 use crate::output::{fail, success};
-use crate::restore::{RestoreResult, confirm_overwrite, timestamp};
+use crate::restore::{RestoreResult, confirm_overwrite};
 use crate::{describe, exit};
 
 const ENGINE: DatabaseEngine = DatabaseEngine::Sqlite;
@@ -253,7 +254,7 @@ async fn execute_backup(
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default();
     let metadata = ArtifactMetadata {
-        tool_name: crate::TOOL_NAME,
+        tool_name: database_backup_operations::TOOL_NAME,
         tool_version: env!("CARGO_PKG_VERSION"),
         engine: ENGINE.as_str(),
         format: FORMAT,
@@ -318,7 +319,7 @@ pub async fn restore(request: &RestoreRequest<'_>) -> ExitCode {
     .await
     {
         Ok(verified) => verified,
-        Err(message) => return fail(exit::INVALID_ARCHIVE, &message),
+        Err(error) => return fail(exit::INVALID_ARCHIVE, error.message()),
     };
     let archive = match inspect(&file).await {
         Ok(info) => info,

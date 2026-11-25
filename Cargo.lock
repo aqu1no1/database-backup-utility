@@ -842,6 +842,7 @@ dependencies = [
  "database-backup-adapters",
  "database-backup-core",
  "database-backup-history",
+ "database-backup-operations",
  "database-backup-storage",
  "dialoguer",
  "mongodb",
@@ -880,6 +881,21 @@ dependencies = [
  "thiserror 2.0.21",
  "time",
  "uuid",
+]
+
+[[package]]
+name = "database-backup-operations"
+version = "0.3.0"
+dependencies = [
+ "database-backup-adapters",
+ "database-backup-core",
+ "database-backup-history",
+ "database-backup-storage",
+ "tempfile",
+ "thiserror 2.0.21",
+ "time",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

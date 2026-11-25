@@ -47,7 +47,7 @@ docker compose --env-file .env -f infra/docker/compose.yml \
 | `DBU_MONGO_PASSWORD` | O mesmo que `DBU_PG_PASSWORD`, para `--engine mongodb`. |
 | `DBU_MONGO_PASSWORD_FILE` | O mesmo que `DBU_PG_PASSWORD_FILE`, para `--engine mongodb`. |
 | `DBU_DATA_DIR` | Diretório do histórico SQLite, no lugar do padrão do sistema. Útil para testes e uso portátil. |
-| `RUST_LOG` | Filtro dos logs no stderr (ex.: `info`, `dbu=debug`) quando `--log-level` não é informado. Padrão: `warn`. |
+| `RUST_LOG` | Filtro dos logs no stderr (ex.: `info`, `dbu=debug,database_backup_operations=debug`) quando `--log-level` não é informado. Padrão: `warn`. |
 
 - A CLI não lê o `.env`; exporte as variáveis no shell ou no agendador.
 

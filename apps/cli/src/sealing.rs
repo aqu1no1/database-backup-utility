@@ -14,7 +14,7 @@ use tokio::io::AsyncReadExt;
 use tracing::{info, warn};
 
 use crate::output::fail;
-use crate::{describe, exit};
+use crate::{describe, exit, interrupt};
 
 const AGE_MAGIC: &[u8] = b"age-encryption.org/";
 const AGE_ARMOR_MAGIC: &[u8] = b"-----BEGIN AGE ENCRYPTED FILE-----";
@@ -73,16 +73,7 @@ pub async fn commit(
     pending: PendingArtifact,
     encoding: &Encoding,
 ) -> Result<StoredArtifact, StorageError> {
-    let cancel = Arc::new(AtomicBool::new(false));
-    let commit = pending.commit_encoded(encoding, Arc::clone(&cancel));
-    tokio::pin!(commit);
-    tokio::select! {
-        result = &mut commit => result,
-        _ = tokio::signal::ctrl_c() => {
-            cancel.store(true, Ordering::Relaxed);
-            commit.await
-        }
-    }
+    database_backup_operations::commit(pending, encoding, &interrupt()).await
 }
 
 #[must_use]
