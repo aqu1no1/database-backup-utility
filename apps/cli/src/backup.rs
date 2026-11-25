@@ -78,11 +78,6 @@ pub struct BackupResult<'a> {
     pub encryption: Option<&'static str>,
 }
 
-pub struct Destination<'a> {
-    pub target: &'a LocalTarget,
-    pub encoding: &'a Encoding,
-}
-
 pub async fn run(args: BackupArgs) -> ExitCode {
     let BackupArgs {
         engine,

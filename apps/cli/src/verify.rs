@@ -223,10 +223,10 @@ async fn sqlite_structure(file: &Path) -> Result<Structure, ExitCode> {
 }
 
 async fn mysql_structure(file: &Path, engine: DatabaseEngine) -> Result<Structure, ExitCode> {
-    let dump = crate::mysql::inspect(file)
+    let dump = database_backup_operations::mysql::inspect(file)
         .await
-        .map_err(|message| fail(exit::INVALID_ARCHIVE, &message))?;
-    if crate::mysql::engine(dump.flavor) != engine {
+        .map_err(|error| fail(exit::INVALID_ARCHIVE, error.message()))?;
+    if database_backup_operations::mysql::engine(dump.flavor) != engine {
         return Err(fail(
             exit::INVALID_ARCHIVE,
             &format!(
@@ -246,9 +246,9 @@ async fn mysql_structure(file: &Path, engine: DatabaseEngine) -> Result<Structur
 }
 
 async fn mongo_structure(file: &Path) -> Result<Structure, ExitCode> {
-    let archive = crate::mongo::inspect(file)
+    let archive = database_backup_operations::mongo::inspect(file)
         .await
-        .map_err(|message| fail(exit::INVALID_ARCHIVE, &message))?;
+        .map_err(|error| fail(exit::INVALID_ARCHIVE, error.message()))?;
     Ok(Structure {
         objects: archive.objects(),
         tables: archive.collections(),
