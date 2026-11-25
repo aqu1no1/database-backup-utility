@@ -32,14 +32,14 @@
     "@angular/compiler-cli": "^22.2.0",
     "@eslint/js": "^10.0.1",
     "@tailwindcss/postcss": "^4.3.5",
-    "angular-eslint": "^22.6.0",
-    "eslint": "^10.14.0",
+    "angular-eslint": "^22.8.0",
+    "eslint": "^10.15.0",
     "jsdom": "^30.0.0",
     "postcss": "^8.5.32",
     "prettier": "^3.8.1",
     "tailwindcss": "^4.3.5",
     "typescript": "~6.0.2",
-    "typescript-eslint": "^8.72.2",
+    "typescript-eslint": "^8.74.0",
     "vitest": "^5.0.0"
   }
 }
