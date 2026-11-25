@@ -7,6 +7,7 @@ import { routes } from './app.routes';
 
 describe('App', () => {
   beforeEach(() => {
+    localStorage.clear();
     TestBed.configureTestingModule({
       imports: [App],
       providers: [provideRouter(routes), provideI18nTesting(), provideBackend()],
