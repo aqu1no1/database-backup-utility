@@ -20,7 +20,7 @@ apps/desktop/
 │   │   ├── core/theme/         # ThemeService: tema escuro (padrão) ou claro, salvo em dbu-theme
 │   │   ├── layout/
 │   │   │   ├── shell/          # Sidebar + <router-outlet>
-│   │   │   └── sidebar/        # Marca, navegação principal e Configurações
+│   │   │   └── sidebar/        # Marca, navegação, idioma, Configurações e conexão ativa
 │   │   ├── features/
 │   │   │   └── dashboard/      # Painel, carregado sob demanda
 │   │   ├── shared/

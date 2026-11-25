@@ -8,6 +8,7 @@
   },
   "nav": {
     "label": "Navegação principal",
+    "activeConnection": "Conexão ativa",
     "language": "Idioma",
     "planned": "Planejado · {{ version }}",
     "dashboard": "Painel",
