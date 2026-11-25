@@ -30,9 +30,9 @@ pode vir depois dela.
 python3 -m unittest discover -s .github/scripts -p 'test_*.py'
 python3 .github/scripts/release_notes.py --version vX.Y.Z      # confere versão de todos os membros do workspace e o changelog
 cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo test --workspace --lib --bins --locked
-cargo test --workspace --tests --locked                         # Docker necessário
+cargo clippy --workspace --exclude database-backup-desktop --all-targets --locked -- -D warnings
+cargo test --workspace --exclude database-backup-desktop --lib --bins --locked
+cargo test --workspace --exclude database-backup-desktop --tests --locked                         # Docker necessário
 cargo build --locked --release -p database-backup-cli --bin dbu
 ./target/release/dbu --version                                  # deve mostrar X.Y.Z
 cargo deny check                                                # se instalado

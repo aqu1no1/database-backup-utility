@@ -27,11 +27,11 @@ jobs:
       - name: Formatação
         run: cargo fmt --all -- --check
       - name: Clippy
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+        run: cargo clippy --workspace --exclude database-backup-desktop --all-targets --locked -- -D warnings
       - name: Testes unitários
-        run: cargo test --workspace --lib --bins --locked
+        run: cargo test --workspace --exclude database-backup-desktop --lib --bins --locked
       - name: Compilação
-        run: cargo build --workspace --locked
+        run: cargo build --workspace --exclude database-backup-desktop --locked
 
   postgres-integration:
     name: Rust / PostgreSQL & CLI Integration
@@ -59,7 +59,7 @@ jobs:
           DBU_E2E_LOG_DIR: ${{ runner.temp }}/e2e-logs
         run: |
           pg_dump --version
-          cargo test --workspace --tests --locked -- --nocapture --skip mysql:: --skip mysql_tools:: --skip mysql_connection:: --skip mongo:: --skip mongo_tools:: --skip mongo_connection:: --skip mariadb:: --skip mariadb_tools:: --skip mariadb_connection::
+          cargo test --workspace --exclude database-backup-desktop --tests --locked -- --nocapture --skip mysql:: --skip mysql_tools:: --skip mysql_connection:: --skip mongo:: --skip mongo_tools:: --skip mongo_connection:: --skip mariadb:: --skip mariadb_tools:: --skip mariadb_connection::
       - name: Logs de diagnóstico do E2E
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -212,3 +212,43 @@ jobs:
       - name: Build Angular
         if: steps.desktop.outputs.present == 'true'
         run: pnpm --dir apps/desktop run build
+
+  tauri:
+    name: Tauri / Build & Smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Toolchain do rust-toolchain.toml
+        run: rustup toolchain install && rustc --version && cargo --version
+      - name: Dependências do sistema (WebKitGTK)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev xvfb dbus-x11
+      - name: Configurar PNPM
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 10
+      - name: Configurar Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Dependências
+        run: pnpm install --frozen-lockfile
+      - name: Build do Tauri
+        run: pnpm --dir apps/desktop tauri build --debug --no-bundle -- --locked
+      - name: Clippy
+        run: cargo clippy -p database-backup-desktop --all-targets --locked -- -D warnings
+      - name: O app sobe e continua aberto
+        run: |
+          status=0
+          xvfb-run -a dbus-run-session -- timeout 20 target/debug/database-backup-desktop || status=$?
+          if [[ "$status" -ne 124 ]]; then
+            echo "O app terminou antes do esperado (código $status)." >&2
+            exit 1
+          fi

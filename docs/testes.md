@@ -5,7 +5,7 @@ As regras sobre **quais** testes escrever (relevância, nível, isolamento, temp
 
 | Tipo | Ferramentas | Requer Docker |
 | --- | --- | --- |
-| Unitários Rust | `cargo test --workspace --lib --bins` | Não |
+| Unitários Rust | `cargo test --workspace --exclude database-backup-desktop --lib --bins` | Não |
 | Integração PostgreSQL | Testcontainers + tokio-postgres | Sim |
 | E2E backup/restore | CLI real, dois servidores PostgreSQL temporários | Sim |
 | Integração e E2E MySQL | Testcontainers (`mysql:8.4`) + mysql_async (`crates/database-adapters/tests/integration/mysql_*.rs`, `apps/cli/tests/integration/mysql.rs`) | Sim |
@@ -19,11 +19,11 @@ As regras sobre **quais** testes escrever (relevância, nível, isolamento, temp
 
 ```bash
 cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace --lib --bins
-cargo test --workspace --tests
+cargo clippy --workspace --exclude database-backup-desktop --all-targets -- -D warnings
+cargo test --workspace --exclude database-backup-desktop --lib --bins
+cargo test --workspace --exclude database-backup-desktop --tests
 cargo test -p database-backup-cli --test e2e
-cargo build --workspace
+cargo build --workspace --exclude database-backup-desktop
 python3 -m unittest discover -s .github/scripts -p 'test_*.py'
 ```
 

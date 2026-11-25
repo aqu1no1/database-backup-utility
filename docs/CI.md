@@ -34,6 +34,9 @@ O job `Rust / Supply Chain` roda `cargo deny check` (advisories, licenças, bans
 possível ou registrar a exceção (ID, motivo, condição de remoção) em `seguranca.md`. Nunca afrouxe o
 `deny.toml` em silêncio.
 
+O job `Tauri / Build & Smoke` compila o app desktop no Linux e confere que ele continua aberto. Os jobs
+de Rust excluem essa crate, que exige o WebKitGTK.
+
 Checks obrigatórios na `main`: `Rust / Quality & Unit`, `Rust / PostgreSQL Integration` e
 `Rust / Supply Chain`. Angular só passa a ser exigido depois de implementado.
 

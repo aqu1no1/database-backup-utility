@@ -46,7 +46,7 @@ apps/desktop/
 | `src/app/core/` | Tema, i18n, configuração global, mapeamento de erros e bridge Tauri | Criado (`theme`); i18n no DB-25, backend no DB-52 |
 | `src/app/shared/` | UI, pipes e funções puras usadas por mais de uma feature | Criado (`ui`, `pipes`, `utils`) |
 | `public/i18n/` | Traduções `pt-BR.json` e `en-US.json` | Criar com o Transloco (DB-25) |
-| `src-tauri/` | App Rust/Tauri, capabilities e comandos | Criar com o Tauri (DB-45) |
+| `src-tauri/` | App Rust/Tauri, capabilities e comandos | Criado (DB-45), ainda sem comandos |
 
 Regras:
 
@@ -101,6 +101,25 @@ para o i18n (DB-25) entregar as traduções. Estados desabilitados sempre mostra
 
 Os pipes `fileSize`, `duration` e `dateTime` formatam pelo idioma do `LanguageService`. `shortKey` encurta chaves públicas (12 primeiros e 6 últimos caracteres).
 
+## Tauri
+
+`src-tauri/` (Tauri 2, crate `database-backup-desktop`) abre o build do Angular numa janela. Ainda não
+há comandos Rust: o app usa o backend simulado até o DB-24, e nenhum instalador é gerado.
+
+- **Capabilities** (`capabilities/main.json`): só `dialog:allow-open` e `dialog:allow-save` na janela
+  `main`. Sem `core:default`, shell ou filesystem. O `tauri-plugin-dialog` depende do
+  `tauri-plugin-fs`, que não é registrado nem tem permissão. A cópia da chave pública (K1) usará
+  `navigator.clipboard`, sem plugin.
+- **CSP:** nenhuma origem externa, script só do app. `style-src` aceita `'unsafe-inline'` porque o
+  Angular insere os estilos dos componentes em execução; `dangerousDisableAssetCspModification` em
+  `style-src` impede o Tauri de acrescentar um nonce, que anularia essa permissão. O `inlineCritical`
+  do Angular fica desligado porque depende de um handler inline, que a CSP bloqueia. A `devCsp`, usada
+  só no `tauri dev`, libera também o script inline e o WebSocket do `ng serve`.
+- **Ícones:** gerados de `icons/icon.svg` do repositório de designs com `pnpm tauri icon`.
+- **Linux:** compilar exige `libwebkit2gtk-4.1-dev` e `libgtk-3-dev`. Por isso os comandos Cargo do
+  workspace usam `--exclude database-backup-desktop`, e a CI compila o app no job `Tauri / Build & Smoke`.
+  Esse job confirma que o processo continua aberto por 20 s; não confere o conteúdo da tela.
+
 ## Comandos
 
 A partir da raiz do repositório:
@@ -108,6 +127,7 @@ A partir da raiz do repositório:
 ```bash
 pnpm install --frozen-lockfile
 pnpm --dir apps/desktop run start         # servidor de desenvolvimento em http://localhost:4200
+pnpm --dir apps/desktop tauri dev            # app Tauri com o servidor de desenvolvimento
 pnpm --dir apps/desktop run lint          # ESLint (angular-eslint), inclusive acessibilidade dos templates
 pnpm --dir apps/desktop run test:ci       # Vitest + TestBed, uma execução
 pnpm --dir apps/desktop run build         # build de produção em apps/desktop/dist

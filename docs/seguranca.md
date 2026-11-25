@@ -7,7 +7,7 @@ ou documento) e o status. As **regras** que guiam estas decisões estão em [`se
 - **corrigido:** ajustado no DB-17.
 - **aceito:** limitação conhecida e documentada.
 
-Todos os testes citados rodam na CI (`cargo test --workspace --tests`, job
+Todos os testes citados rodam na CI (`cargo test --workspace --exclude database-backup-desktop --tests`, job
 `Rust / PostgreSQL Integration`) com os runners `docker` e `native`. **Só o Linux é testado.**
 
 ## Credenciais
@@ -23,6 +23,16 @@ Todos os testes citados rodam na CI (`cargo test --workspace --tests`, job
 | Arquivo de senha com permissão estrita | `read_password_file`; testes `rejects_files_readable_or_writable_by_others`, `rejects_symlinks_directories_and_bad_content` | ok (DB-18) |
 | Prompt sem eco | `rpassword` em `apps/cli/src/credentials.rs` | ok |
 | Modo guiado não pede nem mostra senha, e não abre fora de um terminal | `apps/cli/src/guided.rs` só preenche os mesmos `BackupArgs` (alvo, SGBD, host, porta, banco, usuário, pasta); a senha segue no `rpassword`. O comando equivalente é montado só desses campos, com aspas de shell (`shell-words`). O modo só abre com stdin e stderr num terminal, sem `--json`/`--no-input`; prompts vão para o stderr. Testes `prompts_only_with_both_terminals_and_without_json_or_no_input`, `renders_the_short_command_with_quoting`, `backup_without_a_terminal_never_prompts_and_keeps_exit_code_2` | ok (DB-42) |
+
+## Desktop (Tauri)
+
+| Controle | Evidência | Status |
+| --- | --- | --- |
+| Permissões mínimas | só abrir e salvar pelo diálogo (`apps/desktop/src-tauri/capabilities/main.json`) | ok (DB-45) |
+| CSP sem origem externa e sem script inline | `apps/desktop/src-tauri/tauri.conf.json`; motivos em `desktop.md` | ok (DB-45) |
+| `style-src 'unsafe-inline'` | exigido pelos estilos de componente do Angular | aceito (DB-45) |
+| `glib` 0.18 com RUSTSEC-2024-0429 (`VariantStrIter`), transitivo do GTK3 usado pelo Tauri no Linux | sem versão corrigida na linha 0.18; o código do projeto não chama essa API. Reavaliar quando o Tauri trocar o GTK3 | aceito (DB-45) |
+| Licenças MPL-2.0 de `cssparser`, `cssparser-macros`, `dtoa-short` e `selectors`, transitivas do Tauri | exceções por crate no `deny.toml`; não entram no binário da CLI | aceito (DB-45) |
 
 ## Conexões remotas (TLS)
 
@@ -356,8 +366,8 @@ Nada abaixo foi testado: a CI e os testes rodam só em Linux. Vale para a fase d
 ## Como revalidar
 
 ```bash
-cargo clippy --workspace --all-targets -- -D warnings   # inclui a proibição de unwrap/expect
-cargo test --workspace                                  # Docker necessário para integração e E2E
+cargo clippy --workspace --exclude database-backup-desktop --all-targets -- -D warnings   # inclui a proibição de unwrap/expect
+cargo test --workspace --exclude database-backup-desktop                                  # Docker necessário para integração e E2E
 DBU_REQUIRE_NATIVE=1 cargo test -p database-backup-cli --test e2e   # com pg_dump 17 instalado
 docker run --rm -v "$PWD":/repo -w /repo rhysd/actionlint:latest -no-color
 gh api repos/aqu1no1/database-backup-utility/branches/main/protection   # checks obrigatórios

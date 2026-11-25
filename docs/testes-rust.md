@@ -207,9 +207,9 @@ Os mesmos da verificação obrigatória do `AGENTS.md` (o Clippy já compila tod
 
 ```bash
 cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo build --workspace
-cargo test --workspace                                       # integração e E2E exigem Docker
+cargo clippy --workspace --exclude database-backup-desktop --all-targets -- -D warnings
+cargo build --workspace --exclude database-backup-desktop
+cargo test --workspace --exclude database-backup-desktop                                       # integração e E2E exigem Docker
 ```
 
 Execução direcionada:
@@ -221,7 +221,7 @@ cargo test -p database-backup-cli --test e2e                 # só o E2E
 cargo test -p database-backup-cli --test e2e hostile         # filtro pelo nome
 DBU_REQUIRE_NATIVE=1 cargo test -p database-backup-cli --test e2e   # exige pg_dump 17 nativo
 cargo test -p database-backup-cli --test e2e -- --nocapture  # ver a saída ao diagnosticar
-cargo test --workspace --no-run                              # só compilar os testes
+cargo test --workspace --exclude database-backup-desktop --no-run                              # só compilar os testes
 ```
 
 Logs de diagnóstico do E2E: `target/e2e-logs/<cenário>/` (ou `DBU_E2E_LOG_DIR`), gravados só quando
