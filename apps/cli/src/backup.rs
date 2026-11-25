@@ -1,30 +1,20 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use clap::Args;
 use database_backup_adapters::mysql::Flavor;
-use database_backup_adapters::postgres::{
-    PgTools, PgVersion, Timeouts, ToolError, test_connection,
-};
-use database_backup_core::{DatabaseEngine, Password, PostgresConnectionConfig};
-use database_backup_history::{ExecutionStatus, History, NewArtifact, NewConnection};
-use database_backup_storage::{
-    ArtifactMetadata, Encoding, LocalTarget, ORPHAN_MIN_AGE, StoredArtifact, backup_file_name,
-    write_artifact_metadata,
-};
+use database_backup_core::DatabaseEngine;
+use database_backup_operations::Progress;
+use database_backup_operations::postgres::backup::{BackupRequest, prepare};
+use database_backup_storage::{Encoding, LocalTarget};
 use serde::Serialize;
-use time::OffsetDateTime;
-use time::format_description::well_known::Rfc3339;
-use tracing::{info, warn};
 
 use crate::output::{fail, success};
 use crate::{
-    AUTH_DATABASE_ONLY_MONGODB, ConnectionArgs, EngineArg, RunnerArg, describe, exit,
-    exit_code_for, read_password,
+    AUTH_DATABASE_ONLY_MONGODB, ConnectionArgs, EngineArg, RunnerArg, describe, exit, fail_with,
+    interrupt, read_password,
 };
-
-const FORMAT: &str = "pg_dump-custom";
 
 #[derive(Debug, Default, Args)]
 pub struct BackupArgs {
@@ -86,15 +76,6 @@ pub struct BackupResult<'a> {
     pub compression: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub encryption: Option<&'static str>,
-}
-
-enum Failure {
-    Canceled,
-    Error(String),
-}
-
-struct Completed {
-    artifact: StoredArtifact,
 }
 
 pub struct Destination<'a> {
@@ -262,324 +243,59 @@ async fn run_postgres(
         Err(message) => return fail(exit::INVALID_INPUT, &message),
     };
 
-    let info = match test_connection(&config, &password, Timeouts::default()).await {
-        Ok(info) => info,
-        Err(error) => return fail(exit_code_for(&error), &error.to_string()),
+    let prepared = match prepare(BackupRequest {
+        config,
+        password,
+        secret_ref: source.secret_ref(),
+        output_dir,
+        runner: runner.into(),
+        timeout: timeout.map(Duration::from_secs),
+        encoding: encoding.clone(),
+    })
+    .await
+    {
+        Ok(prepared) => prepared,
+        Err(error) => return fail_with(&error),
     };
-    let Some(server) = PgVersion::parse(&info.server_version) else {
-        return fail(
-            exit::FAILURE,
-            &format!(
-                "versão do servidor não reconhecida: {}",
-                info.server_version
-            ),
-        );
+    let outcome = match prepared.run(&interrupt(), &|_: Progress| {}).await {
+        Ok(outcome) => outcome,
+        Err(error) => return fail_with(&error),
     };
-    let tools = match PgTools::detect(runner.into(), server).await {
-        Ok(tools) => tools,
-        Err(error) => return fail(exit::TOOLS, &error.to_string()),
-    };
-
-    let history_path = match History::default_path() {
-        Ok(path) => path,
-        Err(error) => return fail(exit::FAILURE, &describe(&error)),
-    };
-    let history = match History::open(&history_path) {
-        Ok(history) => history,
-        Err(error) => return fail(exit::FAILURE, &describe(&error)),
-    };
-    let target = match open_target(output_dir, &history_path).await {
-        Ok(target) => target,
-        Err(code) => return code,
-    };
-
-    let execution_id = match start_execution(&history, &config, &source.secret_ref()) {
-        Ok(id) => id,
-        Err(error) => return fail(exit::FAILURE, &describe(&error)),
-    };
-
-    info!(
-        operation = "backup.run",
-        execution_id = %execution_id,
-        source = %config,
-        runner = tools.kind().as_str(),
-        status = "running",
-        "backup iniciado"
+    let artifact = &outcome.artifact;
+    let mut text = format!(
+        "Backup concluído: {} ({}, sha256 {}…) em {:.1}s",
+        artifact.path.display(),
+        human_size(artifact.size_bytes),
+        &artifact.sha256[..12],
+        outcome.elapsed.as_secs_f64()
     );
-    let started = Instant::now();
-    let timeout = timeout.map(Duration::from_secs);
-    let outcome = execute(
-        &config,
-        &password,
-        &tools,
-        &Destination {
-            target: &target,
-            encoding,
-        },
-        &execution_id,
-        &info.server_version,
-        timeout,
-    )
-    .await;
-
-    match outcome {
-        Ok(Completed { artifact }) => {
-            let recorded = record_success(&history, &execution_id, &artifact, &tools);
-            if let Err(error) = recorded {
-                return fail(
-                    exit::FAILURE,
-                    &format!(
-                        "backup salvo em {}, mas o histórico não foi atualizado: {}",
-                        artifact.path.display(),
-                        describe(&error)
-                    ),
-                );
-            }
-            let elapsed = started.elapsed();
-            info!(
-                operation = "backup.run",
-                execution_id = %execution_id,
-                status = "succeeded",
-                duration_ms = elapsed.as_millis() as u64,
-                size_bytes = artifact.size_bytes,
-                "backup concluído"
-            );
-            let mut text = format!(
-                "Backup concluído: {} ({}, sha256 {}…) em {:.1}s",
-                artifact.path.display(),
-                human_size(artifact.size_bytes),
-                &artifact.sha256[..12],
-                elapsed.as_secs_f64()
-            );
-            if let Some(summary) = crate::sealing::summary(&artifact) {
-                text.push_str(&format!("\n{summary}"));
-            }
-            success(
-                &BackupResult {
-                    execution_id: &execution_id,
-                    database: config.database(),
-                    file: artifact.path.display().to_string(),
-                    size_bytes: artifact.size_bytes,
-                    sha256: &artifact.sha256,
-                    duration_ms: elapsed.as_millis(),
-                    non_transactional_tables: None,
-                    topology: None,
-                    compression: crate::sealing::compression_name(&artifact),
-                    encryption: crate::sealing::encryption_name(&artifact),
-                },
-                &text,
-            )
-        }
-        Err(Failure::Canceled) => {
-            let message = "backup cancelado pelo usuário";
-            let _ =
-                history.finish_execution(&execution_id, ExecutionStatus::Canceled, Some(message));
-            info!(operation = "backup.run", execution_id = %execution_id, status = "canceled", "backup cancelado");
-            fail(exit::CANCELED, message)
-        }
-        Err(Failure::Error(message)) => {
-            let _ =
-                history.finish_execution(&execution_id, ExecutionStatus::Failed, Some(&message));
-            info!(operation = "backup.run", execution_id = %execution_id, status = "failed", "backup falhou");
-            fail(exit::BACKUP_FAILED, &message)
-        }
+    if let Some(summary) = crate::sealing::summary(artifact) {
+        text.push_str(&format!("\n{summary}"));
     }
-}
-
-async fn execute(
-    config: &PostgresConnectionConfig,
-    password: &Password,
-    tools: &PgTools,
-    destination: &Destination<'_>,
-    execution_id: &str,
-    server_version: &str,
-    timeout: Option<Duration>,
-) -> Result<Completed, Failure> {
-    let Destination { target, encoding } = *destination;
-    let file_name = backup_file_name(config.database(), OffsetDateTime::now_utc(), "dump");
-    let mut pending = target.begin(&file_name).await.map_err(storage_failure)?;
-    let mut process = tools.dump(config, password).map_err(tool_failure)?;
-    let mut stdout = process
-        .take_stdout()
-        .ok_or_else(|| Failure::Error("pg_dump não forneceu a saída".to_owned()))?;
-
-    enum Copy {
-        Done(Result<u64, database_backup_storage::StorageError>),
-        Interrupted,
-        TimedOut,
-    }
-
-    let deadline = async {
-        match timeout {
-            Some(limit) => tokio::time::sleep(limit).await,
-            None => std::future::pending().await,
-        }
-    };
-    let copy = tokio::select! {
-        result = pending.copy_from(&mut stdout) => Copy::Done(result),
-        _ = tokio::signal::ctrl_c() => Copy::Interrupted,
-        () = deadline => Copy::TimedOut,
-    };
-    drop(stdout);
-
-    match copy {
-        Copy::Done(Ok(_)) => {}
-        Copy::Done(Err(error)) => {
-            process.cancel().await;
-            return Err(storage_failure(error));
-        }
-        Copy::Interrupted => {
-            process.cancel().await;
-            return Err(Failure::Canceled);
-        }
-        Copy::TimedOut => {
-            process.cancel().await;
-            return Err(Failure::Error(format!(
-                "tempo esgotado após {}s",
-                timeout.map_or(0, |limit| limit.as_secs())
-            )));
-        }
-    }
-
-    process.wait().await.map_err(tool_failure)?;
-    pending.finish_writing().await.map_err(storage_failure)?;
-    tools
-        .restore_list(pending.partial_path())
-        .await
-        .map_err(|error| {
-            Failure::Error(format!("o arquivo gerado não é um archive válido: {error}"))
-        })?;
-    let artifact = crate::sealing::commit(pending, encoding)
-        .await
-        .map_err(storage_failure)?;
-
-    let created_at = OffsetDateTime::now_utc()
-        .format(&Rfc3339)
-        .unwrap_or_default();
-    let pg_dump_version = tools.version().to_string();
-    let metadata = ArtifactMetadata {
-        tool_name: crate::TOOL_NAME,
-        tool_version: env!("CARGO_PKG_VERSION"),
-        engine: DatabaseEngine::Postgres.as_str(),
-        format: FORMAT,
-        sha256: &artifact.sha256,
-        size_bytes: artifact.size_bytes,
-        database: config.database(),
-        host: Some(config.host()),
-        port: Some(config.port()),
-        server_version,
-        pg_dump_version: Some(&pg_dump_version),
-        mysqldump_version: None,
-        mongodump_version: None,
-        non_transactional_tables: None,
-        topology: None,
-        runner: Some(tools.kind().as_str()),
-        created_at: &created_at,
-        execution_id,
-    };
-    if let Err(error) = write_artifact_metadata(&artifact, &metadata).await {
-        let _ = std::fs::remove_file(&artifact.path);
-        return Err(storage_failure(error));
-    }
-    Ok(Completed { artifact })
-}
-
-fn start_execution(
-    history: &History,
-    config: &PostgresConnectionConfig,
-    secret_ref: &str,
-) -> Result<String, database_backup_history::HistoryError> {
-    let display_name = config.to_string();
-    let connection_id = history.upsert_connection(&NewConnection {
-        display_name: &display_name,
-        engine: DatabaseEngine::Postgres.as_str(),
-        host: Some(config.host()),
-        port: Some(config.port()),
-        database_name: config.database(),
-        username: Some(config.user()),
-        secret_ref: Some(secret_ref),
-    })?;
-    let job_id = history.create_job(&connection_id, &format!("{}-full", config.database()))?;
-    history.start_execution(&job_id)
-}
-
-fn record_success(
-    history: &History,
-    execution_id: &str,
-    artifact: &StoredArtifact,
-    tools: &PgTools,
-) -> Result<(), database_backup_history::HistoryError> {
-    let location = artifact.path.display().to_string();
-    let tool_version = format!("pg_dump {} ({})", tools.version(), tools.kind().as_str());
-    history.add_artifact(
-        execution_id,
-        &NewArtifact {
-            location: &location,
-            format: FORMAT,
+    success(
+        &BackupResult {
+            execution_id: &outcome.execution_id,
+            database: &outcome.database,
+            file: artifact.path.display().to_string(),
             size_bytes: artifact.size_bytes,
-            checksum_sha256: Some(&artifact.sha256),
-            tool_version: Some(&tool_version),
+            sha256: &artifact.sha256,
+            duration_ms: outcome.elapsed.as_millis(),
+            non_transactional_tables: None,
+            topology: None,
+            compression: crate::sealing::compression_name(artifact),
+            encryption: crate::sealing::encryption_name(artifact),
         },
-    )?;
-    history.finish_execution(execution_id, ExecutionStatus::Succeeded, None)
+        &text,
+    )
 }
 
 pub async fn open_target(
     output_dir: Option<PathBuf>,
     history_path: &Path,
 ) -> Result<LocalTarget, ExitCode> {
-    let output_dir = output_dir.unwrap_or_else(|| default_output_dir(history_path));
-    let target = LocalTarget::new(output_dir)
+    database_backup_operations::open_target(output_dir, history_path)
         .await
-        .map_err(|error| fail(exit::FAILURE, &describe(&error)))?;
-    if target.is_shared().await.unwrap_or(false) {
-        warn!(
-            operation = "backup.run",
-            dir = %target.dir().display(),
-            "o diretório de saída é acessível por grupo ou outros usuários; os backups ficam com permissão 0600, mas os nomes dos arquivos ficam visíveis (use chmod 700)"
-        );
-    }
-    match target.remove_orphan_partials(ORPHAN_MIN_AGE).await {
-        Ok(cleanup) => {
-            for path in &cleanup.removed {
-                warn!(
-                    operation = "backup.run",
-                    file = %path.display(),
-                    "removido arquivo .partial de um backup interrompido"
-                );
-            }
-            if !cleanup.in_use.is_empty() {
-                info!(
-                    operation = "backup.run",
-                    count = cleanup.in_use.len(),
-                    "há outros backups em andamento neste diretório"
-                );
-            }
-        }
-        Err(error) => warn!(
-            operation = "backup.run",
-            error = %describe(&error),
-            "não foi possível verificar arquivos .partial antigos"
-        ),
-    }
-    Ok(target)
-}
-
-fn default_output_dir(history_path: &Path) -> PathBuf {
-    history_path
-        .parent()
-        .map_or_else(|| PathBuf::from("backups"), |dir| dir.join("backups"))
-}
-
-fn tool_failure(error: ToolError) -> Failure {
-    Failure::Error(error.to_string())
-}
-
-fn storage_failure(error: database_backup_storage::StorageError) -> Failure {
-    match error {
-        database_backup_storage::StorageError::Canceled => Failure::Canceled,
-        error => Failure::Error(describe(&error)),
-    }
+        .map_err(|error| fail(exit::FAILURE, &describe(&error)))
 }
 
 pub fn human_size(bytes: u64) -> String {

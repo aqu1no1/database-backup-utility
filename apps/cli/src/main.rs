@@ -1,4 +1,3 @@
-mod archive;
 mod backup;
 mod credentials;
 mod engines;
@@ -14,7 +13,6 @@ mod sealing;
 mod sqlite;
 mod verify;
 
-use std::error::Error;
 use std::fmt;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -29,6 +27,7 @@ use database_backup_core::{
     DatabaseEngine, Operation, Password, PostgresConnectionConfig, SecretProvider, SecretSource,
     TlsMode,
 };
+use database_backup_operations::{Cancellation, ErrorCode, OperationError, describe};
 use serde::Serialize;
 use tracing::info;
 
@@ -416,8 +415,6 @@ impl From<TlsArg> for TlsMode {
     }
 }
 
-pub const TOOL_NAME: &str = "database-backup";
-
 mod exit {
     pub const FAILURE: u8 = 1;
     pub const INVALID_INPUT: u8 = 2;
@@ -595,13 +592,38 @@ fn exit_code_for(error: &ConnectionError) -> u8 {
     }
 }
 
-fn describe(error: &dyn Error) -> String {
-    let mut message = error.to_string();
-    let mut source = error.source();
-    while let Some(cause) = source {
-        message.push_str(": ");
-        message.push_str(&cause.to_string());
-        source = cause.source();
+fn interrupt() -> Cancellation {
+    let cancellation = Cancellation::new();
+    let trigger = cancellation.clone();
+    tokio::spawn(async move {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            trigger.cancel();
+        }
+    });
+    cancellation
+}
+
+fn fail_with(error: &OperationError) -> ExitCode {
+    fail(exit_code(error.code()), error.message())
+}
+
+fn exit_code(code: ErrorCode) -> u8 {
+    match code {
+        ErrorCode::Internal => exit::FAILURE,
+        ErrorCode::InvalidInput => exit::INVALID_INPUT,
+        ErrorCode::AuthFailed => exit::AUTHENTICATION,
+        ErrorCode::DatabaseNotFound => exit::DATABASE_NOT_FOUND,
+        ErrorCode::Unreachable => exit::UNREACHABLE,
+        ErrorCode::TlsFailed => exit::TLS,
+        ErrorCode::ToolUnavailable => exit::TOOLS,
+        ErrorCode::BackupFailed => exit::BACKUP_FAILED,
+        ErrorCode::Canceled => exit::CANCELED,
+        ErrorCode::EngineMismatch
+        | ErrorCode::BackupMissing
+        | ErrorCode::BackupCorrupted
+        | ErrorCode::ChecksumMissing
+        | ErrorCode::BackupIncompatible => exit::INVALID_ARCHIVE,
+        ErrorCode::RestoreFailed => exit::RESTORE_FAILED,
+        ErrorCode::ConfirmationRequired => exit::CONFIRMATION_REQUIRED,
     }
-    message
 }
