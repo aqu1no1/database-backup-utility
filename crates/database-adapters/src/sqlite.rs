@@ -1,7 +1,7 @@
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -13,6 +13,8 @@ const MAGIC: &[u8] = b"SQLite format 3\0";
 const HEADER_LEN: usize = 20;
 const WRITE_VERSION: usize = 18;
 const READ_VERSION: usize = 19;
+const PAGE_SIZE: usize = 16;
+const LARGEST_PAGE: u64 = 65_536;
 const ROLLBACK_JOURNAL: u8 = 1;
 const PAGES_PER_STEP: i32 = 256;
 const ALL_PAGES: i32 = -1;
@@ -72,14 +74,27 @@ pub fn copy_database(
     cancel: &AtomicBool,
     busy_limit: Duration,
 ) -> Result<(), SqliteError> {
-    check_database_file(source)?;
+    copy_database_with_progress(source, destination, cancel, busy_limit, &AtomicU64::new(0))
+}
+
+pub fn copy_database_with_progress(
+    source: &Path,
+    destination: &Path,
+    cancel: &AtomicBool,
+    busy_limit: Duration,
+    copied: &AtomicU64,
+) -> Result<(), SqliteError> {
+    let page_size = page_size(&read_header(source)?);
     let from = open(source, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     let mut to = open(destination, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
     to.pragma_update(None, "journal_mode", "OFF")
         .map_err(sqlite_error(destination))?;
     to.pragma_update(None, "synchronous", "OFF")
         .map_err(sqlite_error(destination))?;
-    run_backup(&from, &mut to, source, cancel, busy_limit)?;
+    let report = |pages: u64| {
+        copied.fetch_max(pages * page_size, Ordering::Relaxed);
+    };
+    run_backup(&from, &mut to, source, cancel, busy_limit, &report)?;
     to.pragma_update(None, "journal_mode", "DELETE")
         .map_err(sqlite_error(destination))?;
     to.close()
@@ -225,6 +240,13 @@ fn read_header(path: &Path) -> Result<[u8; HEADER_LEN], SqliteError> {
     Ok(header)
 }
 
+fn page_size(header: &[u8; HEADER_LEN]) -> u64 {
+    match u16::from_be_bytes([header[PAGE_SIZE], header[PAGE_SIZE + 1]]) {
+        1 => LARGEST_PAGE,
+        size => u64::from(size),
+    }
+}
+
 fn open(path: &Path, mode: OpenFlags) -> Result<Connection, SqliteError> {
     Connection::open_with_flags(path, mode | OpenFlags::SQLITE_OPEN_NO_MUTEX)
         .map_err(sqlite_error(path))
@@ -236,6 +258,7 @@ fn run_backup(
     source: &Path,
     cancel: &AtomicBool,
     busy_limit: Duration,
+    report: &dyn Fn(u64),
 ) -> Result<(), SqliteError> {
     let backup = Backup::new(from, to).map_err(sqlite_error(source))?;
     let mut pages = PAGES_PER_STEP;
@@ -245,11 +268,14 @@ fn run_backup(
         if cancel.load(Ordering::Relaxed) {
             return Err(SqliteError::Canceled);
         }
-        match backup.step(pages).map_err(sqlite_error(source))? {
+        let step = backup.step(pages).map_err(sqlite_error(source))?;
+        let progress = backup.progress();
+        report(u64::try_from(progress.pagecount - progress.remaining).unwrap_or(0));
+        match step {
             StepResult::Done => return Ok(()),
             StepResult::More => {
                 blocked_since = None;
-                let remaining = backup.progress().remaining;
+                let remaining = progress.remaining;
                 if previous_remaining.is_some_and(|before| remaining > before) {
                     pages = ALL_PAGES;
                 }

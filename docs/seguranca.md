@@ -106,7 +106,7 @@ Detalhes e procedimento de chaves em [`criptografia.md`](criptografia.md).
 | Controle | Evidência | Status |
 | --- | --- | --- |
 | Origem aberta só para leitura, arquivo regular com cabeçalho SQLite | `check_database_file`; `unsafe_or_foreign_sources_are_rejected_before_any_copy`, `symlinked_source_is_rejected` | ok (DB-22) |
-| Histórico interno nunca é origem nem destino | `same_file` em `apps/cli/src/sqlite.rs`; `invalid_sources_and_mixed_engine_arguments_are_rejected` | ok (DB-22) |
+| Histórico interno nunca é origem nem destino | `same_file` em `crates/operations/src/sqlite.rs`; `invalid_sources_and_mixed_engine_arguments_are_rejected` | ok (DB-22) |
 | Cópia consistente com escritor ativo, sem livelock | Online Backup API com reinício detectado; `copy_of_wal_database_under_concurrent_writes_is_a_consistent_snapshot` (mutação manual: sem o fallback, o teste falha por prazo) | ok (DB-22) |
 | Origem corrompida não vira backup | `integrity_check` antes do `commit`; `damaged_sources_fail_without_publishing_a_backup` (truncada e com índice inconsistente; mutação manual: sem a checagem, o teste falha) | ok (DB-22) |
 | Artefato sem `-journal`/`-wal`/`-shm` | `journal_mode=OFF` na cópia e `DELETE` no fim; `inspect_backup` recusa artefato em WAL; mutação manual: sem o `DELETE`, 3 testes falham | ok (DB-22) |

@@ -210,9 +210,9 @@ pub async fn run(args: VerifyArgs) -> ExitCode {
 }
 
 async fn sqlite_structure(file: &Path) -> Result<Structure, ExitCode> {
-    let info = crate::sqlite::inspect(file)
+    let info = database_backup_operations::sqlite::inspect(file)
         .await
-        .map_err(|message| fail(exit::INVALID_ARCHIVE, &message))?;
+        .map_err(|error| fail(exit::INVALID_ARCHIVE, error.message()))?;
     Ok(Structure {
         database: None,
         objects: info.objects,

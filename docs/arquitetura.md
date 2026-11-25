@@ -27,12 +27,12 @@ flowchart TD
   `apps/cli/src/credentials.rs` (flag, variáveis, prompt). O desktop e um futuro adaptador de keyring
   entram como outras implementações. Ver [`configuracao.md`](configuracao.md#credenciais).
 - `crates/operations` orquestra as operações para qualquer interface, sem `clap` nem terminal. Hoje tem
-  o backup e o restore de PostgreSQL, MySQL, MariaDB e MongoDB e a conferência de arquivos (`archive.rs`); o SQLite, o
+  o backup e o restore de PostgreSQL, MySQL, MariaDB, MongoDB e SQLite e a conferência de arquivos (`archive.rs`); o
   verify completo, os perfis e as chaves age continuam na CLI. `prepare` valida, conecta e escolhe as ferramentas; `run`
   grava o histórico e executa, com cancelamento (`Cancellation`) e, no backup, progresso
-  (`ProgressSink`: etapas e bytes lidos do dump). A CLI pede a senha, a confirmação e liga o Ctrl-C ao
-  cancelamento. No restore, `run` confere de novo o destino (o MySQL e o MariaDB falham no `CREATE DATABASE` se o banco existir) e, no PostgreSQL, o nome confirmado antes de sobrescrever um banco com
-  dados. Os erros levam um `ErrorCode` estável, que a CLI converte em exit code e o desktop vai traduzir.
+  (`ProgressSink`: etapas e bytes lidos do dump, ou copiados no SQLite). A CLI pede a senha, a confirmação e liga o Ctrl-C ao
+  cancelamento. No restore, `run` confere de novo o destino (o MySQL e o MariaDB falham no `CREATE DATABASE` se o banco existir) e, no PostgreSQL e no SQLite, o nome confirmado antes de sobrescrever um banco com
+  dados ou um arquivo. Os erros levam um `ErrorCode` estável, que a CLI converte em exit code e o desktop vai traduzir.
 - `crates/database-adapters/src/postgres/tools.rs` executa `pg_dump`/`pg_restore` em modo `native`
   ou `docker`, sempre com argumentos estruturados e a senha num `.pgpass` temporário. O banco vai
   em `--dbname dbname='<nome escapado>'`: um valor de `--dbname` com `=` seria lido pelo libpq como
@@ -132,8 +132,7 @@ flowchart TD
 | `engines.rs` | Comando `engines`: imprime a matriz de `DatabaseEngine::capabilities` em texto ou JSON. |
 | `output.rs` | Único ponto de saída. `success` imprime o texto ou `{"status":"ok",...}`; `fail` escreve `Erro: ...` no stderr e, com `--json`, `{"status":"error","code":N,"error":"..."}` no stdout. Também configura o `tracing`. |
 | `backup.rs`, `restore.rs`, `verify.rs`, `listing.rs` | Um comando (ou par de `list`) por arquivo. `backup.rs` e `restore.rs` escolhem o fluxo pelo `--engine`. |
-| `mysql.rs`, `mongo.rs` | Argumentos, senha e saída dos fluxos; a orquestração fica em `crates/operations`. |
-| `sqlite.rs` | Fluxos de backup e restore do SQLite: chama o adaptador em `spawn_blocking`, repassa Ctrl+C e `--timeout` pela flag de cancelamento e publica o resultado com o storage e o histórico. |
+| `mysql.rs`, `mongo.rs`, `sqlite.rs` | Argumentos, senha (menos no SQLite), confirmação e saída dos fluxos; a orquestração fica em `crates/operations`. |
 
 Regras da saída:
 

@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
 
@@ -7,13 +7,13 @@ use database_backup_adapters::mysql::Flavor;
 use database_backup_core::DatabaseEngine;
 use database_backup_operations::Progress;
 use database_backup_operations::postgres::backup::{BackupRequest, prepare};
-use database_backup_storage::{Encoding, LocalTarget};
+use database_backup_storage::Encoding;
 use serde::Serialize;
 
 use crate::output::{fail, success};
 use crate::{
-    AUTH_DATABASE_ONLY_MONGODB, ConnectionArgs, EngineArg, RunnerArg, describe, exit, fail_with,
-    interrupt, read_password,
+    AUTH_DATABASE_ONLY_MONGODB, ConnectionArgs, EngineArg, RunnerArg, exit, fail_with, interrupt,
+    read_password,
 };
 
 #[derive(Debug, Default, Args)]
@@ -282,15 +282,6 @@ async fn run_postgres(
         },
         &text,
     )
-}
-
-pub async fn open_target(
-    output_dir: Option<PathBuf>,
-    history_path: &Path,
-) -> Result<LocalTarget, ExitCode> {
-    database_backup_operations::open_target(output_dir, history_path)
-        .await
-        .map_err(|error| fail(exit::FAILURE, &describe(&error)))
 }
 
 pub fn human_size(bytes: u64) -> String {

@@ -7,6 +7,7 @@ pub mod archive;
 pub mod mongo;
 pub mod mysql;
 pub mod postgres;
+pub mod sqlite;
 
 pub use cancellation::Cancellation;
 pub use error::{ErrorCode, OperationError, describe};
