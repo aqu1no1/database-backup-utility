@@ -142,7 +142,12 @@ impl PreparedRestore {
         cancellation: &Cancellation,
     ) -> Result<RestoreOutcome, OperationError> {
         let stamp = timestamp();
-        let plan = plan_target(self.state, self.target.database(), confirmation, &stamp)?;
+        let state = self
+            .admin
+            .database_state(self.target.database())
+            .await
+            .map_err(|error| OperationError::from_source(ErrorCode::RestoreFailed, &error))?;
+        let plan = plan_target(state, self.target.database(), confirmation, &stamp)?;
         let file_location = self.request.source.display().to_string();
         let restore_id = self
             .history

@@ -9,6 +9,7 @@ const REPORT_EVERY_BYTES: u64 = 1024 * 1024;
 pub enum Stage {
     ConnectionValidated,
     Dump,
+    Compression,
     Encryption,
     Checksum,
     Published,
@@ -20,6 +21,7 @@ impl Stage {
         match self {
             Self::ConnectionValidated => "connection_validated",
             Self::Dump => "dump",
+            Self::Compression => "compression",
             Self::Encryption => "encryption",
             Self::Checksum => "checksum",
             Self::Published => "published",

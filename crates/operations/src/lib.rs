@@ -4,6 +4,8 @@ mod output;
 mod progress;
 
 pub mod archive;
+pub mod mongo;
+pub mod mysql;
 pub mod postgres;
 
 pub use cancellation::Cancellation;

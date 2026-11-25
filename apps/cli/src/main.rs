@@ -610,7 +610,7 @@ fn fail_with(error: &OperationError) -> ExitCode {
 fn exit_code(code: ErrorCode) -> u8 {
     match code {
         ErrorCode::Internal => exit::FAILURE,
-        ErrorCode::InvalidInput => exit::INVALID_INPUT,
+        ErrorCode::InvalidInput | ErrorCode::ServerMismatch => exit::INVALID_INPUT,
         ErrorCode::AuthFailed => exit::AUTHENTICATION,
         ErrorCode::DatabaseNotFound => exit::DATABASE_NOT_FOUND,
         ErrorCode::Unreachable => exit::UNREACHABLE,

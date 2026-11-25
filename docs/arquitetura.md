@@ -27,11 +27,11 @@ flowchart TD
   `apps/cli/src/credentials.rs` (flag, variáveis, prompt). O desktop e um futuro adaptador de keyring
   entram como outras implementações. Ver [`configuracao.md`](configuracao.md#credenciais).
 - `crates/operations` orquestra as operações para qualquer interface, sem `clap` nem terminal. Hoje tem
-  o backup e o restore do PostgreSQL e a conferência de arquivos (`archive.rs`); os outros SGBDs, o
+  o backup e o restore de PostgreSQL, MySQL, MariaDB e MongoDB e a conferência de arquivos (`archive.rs`); o SQLite, o
   verify completo, os perfis e as chaves age continuam na CLI. `prepare` valida, conecta e escolhe as ferramentas; `run`
   grava o histórico e executa, com cancelamento (`Cancellation`) e, no backup, progresso
   (`ProgressSink`: etapas e bytes lidos do dump). A CLI pede a senha, a confirmação e liga o Ctrl-C ao
-  cancelamento. No restore, `run` confere de novo o nome confirmado antes de sobrescrever um banco com
+  cancelamento. No restore, `run` confere de novo o destino (o MySQL e o MariaDB falham no `CREATE DATABASE` se o banco existir) e, no PostgreSQL, o nome confirmado antes de sobrescrever um banco com
   dados. Os erros levam um `ErrorCode` estável, que a CLI converte em exit code e o desktop vai traduzir.
 - `crates/database-adapters/src/postgres/tools.rs` executa `pg_dump`/`pg_restore` em modo `native`
   ou `docker`, sempre com argumentos estruturados e a senha num `.pgpass` temporário. O banco vai
@@ -132,7 +132,7 @@ flowchart TD
 | `engines.rs` | Comando `engines`: imprime a matriz de `DatabaseEngine::capabilities` em texto ou JSON. |
 | `output.rs` | Único ponto de saída. `success` imprime o texto ou `{"status":"ok",...}`; `fail` escreve `Erro: ...` no stderr e, com `--json`, `{"status":"error","code":N,"error":"..."}` no stdout. Também configura o `tracing`. |
 | `backup.rs`, `restore.rs`, `verify.rs`, `listing.rs` | Um comando (ou par de `list`) por arquivo. `backup.rs` e `restore.rs` escolhem o fluxo pelo `--engine`. |
-| `mongo.rs` | Fluxos do MongoDB: valida a topologia (recusa sharded e secundário), roda o `mongodump`, confere o archive antes de publicar e, no restore, só cria bancos novos, compara a contagem de documentos de cada coleção com a do archive e apaga o banco criado em falha ou cancelamento. |
+| `mysql.rs`, `mongo.rs` | Argumentos, senha e saída dos fluxos; a orquestração fica em `crates/operations`. |
 | `sqlite.rs` | Fluxos de backup e restore do SQLite: chama o adaptador em `spawn_blocking`, repassa Ctrl+C e `--timeout` pela flag de cancelamento e publica o resultado com o storage e o histórico. |
 
 Regras da saída:
@@ -154,13 +154,13 @@ sem `mysql` nem Docker. O mesmo vale para MongoDB: o `verify` lê o archive em R
 (`mongo/archive.rs`), sem `mongodump`, `mongorestore` nem Docker.
 
 O restore MySQL não tem troca atômica: o MySQL não tem `RENAME DATABASE`, e um `RENAME TABLE` não
-leva views, rotinas nem triggers. Por isso ele só cria um banco novo (`apps/cli/src/mysql.rs`):
+leva views, rotinas nem triggers. Por isso ele só cria um banco novo (`crates/operations/src/mysql.rs`):
 confere que o destino não existe, cria, aplica o dump, compara a contagem de tabelas com o dump e,
 em falha ou cancelamento, apaga só o banco que ele mesmo criou.
 
 O restore MongoDB também não tem troca atômica: não existe `RENAME DATABASE`, nem um `CREATE DATABASE`
 que falhe quando o banco já existe (o banco nasce na primeira escrita). Por isso ele só cria um banco
-novo (`apps/cli/src/mongo.rs`): confere que o destino não tem nenhuma coleção, restaura o archive
+novo (`crates/operations/src/mongo.rs`): confere que o destino não tem nenhuma coleção, restaura o archive
 com o `mongorestore` (renomeando só o banco de origem, com `--nsInclude/--nsFrom/--nsTo`), compara a
 contagem de documentos de cada coleção e a lista de views do destino com as do archive e, em falha ou
 cancelamento, apaga o banco inteiro. Entre a checagem e a primeira escrita há uma janela em que outro
