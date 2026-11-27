@@ -24,6 +24,7 @@ export const ERROR_CODES = [
   'backup_incompatible',
   'age_key_mismatch',
   'restore_failed',
+  'keychain_unavailable',
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 

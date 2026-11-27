@@ -168,6 +168,10 @@
       "title": "The restore failed",
       "hint": "Check the history before trying again."
     },
+    "keychain_unavailable": {
+      "title": "Keychain unavailable",
+      "hint": "The system keychain could not be reached. Use a password file."
+    },
     "unknown": {
       "title": "Unexpected error",
       "hint": "Try again."

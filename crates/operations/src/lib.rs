@@ -4,6 +4,7 @@ mod output;
 mod progress;
 
 pub mod archive;
+pub mod keychain;
 pub mod mongo;
 pub mod mysql;
 pub mod postgres;

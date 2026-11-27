@@ -1,6 +1,7 @@
 use std::error::Error;
 
 use database_backup_adapters::postgres::ConnectionError;
+use database_backup_core::SecretError;
 use database_backup_storage::StorageError;
 use thiserror::Error;
 
@@ -22,6 +23,7 @@ pub enum ErrorCode {
     BackupIncompatible,
     RestoreFailed,
     ConfirmationRequired,
+    KeychainUnavailable,
     Internal,
 }
 
@@ -44,6 +46,7 @@ impl ErrorCode {
             Self::BackupIncompatible => "backup_incompatible",
             Self::RestoreFailed => "restore_failed",
             Self::ConfirmationRequired => "confirmation_required",
+            Self::KeychainUnavailable => "keychain_unavailable",
             Self::Internal => "internal",
         }
     }
@@ -73,6 +76,15 @@ impl OperationError {
     #[must_use]
     pub fn message(&self) -> &str {
         &self.message
+    }
+
+    #[must_use]
+    pub fn secret(error: &SecretError) -> Self {
+        let code = match error {
+            SecretError::KeychainUnavailable(_) => ErrorCode::KeychainUnavailable,
+            _ => ErrorCode::InvalidInput,
+        };
+        Self::new(code, error.to_string())
     }
 
     pub(crate) fn from_source(code: ErrorCode, error: &dyn Error) -> Self {
@@ -119,4 +131,20 @@ pub fn describe(error: &dyn Error) -> String {
         source = cause.source();
     }
     message
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_an_unreachable_keychain_gets_its_own_code() {
+        let offline =
+            OperationError::secret(&SecretError::KeychainUnavailable("sem D-Bus".to_owned()));
+        assert_eq!(offline.code().as_str(), "keychain_unavailable");
+        assert!(offline.message().contains("--password-file"));
+
+        let missing = OperationError::secret(&SecretError::KeychainMissing("prod".to_owned()));
+        assert_eq!(missing.code(), ErrorCode::InvalidInput);
+    }
 }

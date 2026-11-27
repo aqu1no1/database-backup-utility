@@ -10,6 +10,6 @@ pub use connection::{
 };
 pub use engine::{DatabaseEngine, UnknownEngine};
 pub use secret::{
-    MAX_PASSWORD_FILE_BYTES, SecretError, SecretProvider, SecretSource, read_env,
-    read_password_file,
+    CredentialStore, MAX_PASSWORD_FILE_BYTES, SecretError, SecretProvider, SecretSource, read_env,
+    read_keyring, read_password_file,
 };

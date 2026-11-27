@@ -347,3 +347,61 @@ async fn tested_profile_drives_backup_test_and_restore_without_using_its_databas
     }
     Ok(())
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn save_password_without_a_keychain_fails_clearly_and_saves_nothing() {
+    let dir = TempDir::new().unwrap();
+    let secret = "s3nh@-sem-keychain";
+    let output = cli(&dir)
+        .env(
+            "DBUS_SESSION_BUS_ADDRESS",
+            format!("unix:path={}", dir.path().join("sem-dbus").display()),
+        )
+        .env("DBU_PG_PASSWORD", secret)
+        .args([
+            "connection",
+            "add",
+            "dev",
+            "-d",
+            "app",
+            "-u",
+            "backup",
+            "--no-test",
+            "--save-password",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    let body = check(&output, 2);
+    let error = body["error"].as_str().unwrap();
+    assert!(error.contains("keychain"), "{error}");
+    assert!(error.contains("--password-file"), "{error}");
+    assert!(!String::from_utf8_lossy(&output.stdout).contains(secret));
+    assert!(!String::from_utf8_lossy(&output.stderr).contains(secret));
+
+    let list = cli(&dir)
+        .args(["connection", "list", "--json"])
+        .output()
+        .unwrap();
+    assert_eq!(check(&list, 0)["profiles"], serde_json::json!([]));
+
+    let conflict = cli(&dir)
+        .args([
+            "connection",
+            "add",
+            "dev",
+            "-d",
+            "app",
+            "-u",
+            "backup",
+            "--password-file",
+            "/secrets/pg.pass",
+            "--save-password",
+            "--no-test",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(conflict.status.code(), Some(2), "{conflict:?}");
+}

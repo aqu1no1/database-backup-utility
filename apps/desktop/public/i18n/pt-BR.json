@@ -168,6 +168,10 @@
       "title": "A restauração falhou",
       "hint": "Veja o histórico antes de tentar de novo."
     },
+    "keychain_unavailable": {
+      "title": "Keychain indisponível",
+      "hint": "Não foi possível acessar o keychain do sistema. Use um arquivo de senha."
+    },
     "unknown": {
       "title": "Erro inesperado",
       "hint": "Tente de novo."
