@@ -29,6 +29,10 @@ Todos os testes citados rodam na CI (`cargo test --workspace --exclude database-
 | Controle | Evidência | Status |
 | --- | --- | --- |
 | Permissões mínimas | só abrir e salvar pelo diálogo (`apps/desktop/src-tauri/capabilities/main.json`) | ok (DB-45) |
+| Só os comandos declarados chegam ao Rust | `build.rs` lista `history_list`, `connections_list`, `settings_get` e `settings_set` no `AppManifest`; cada um precisa do `allow-*` na capability `main` | ok (DB-24) |
+| Comandos não devolvem senha, caminho de arquivo de senha nem mensagem técnica | os DTOs de `crates/operations/src/desktop.rs` não têm esses campos; erros só com `code` e `params`; `history_lists_backups_and_restores_from_the_real_history_newest_first` confere que a origem da senha não aparece | ok (DB-24) |
+| Configurações validadas no Rust | `save_settings` exige caminho absoluto, sem NUL e com até 4096 bytes; a tabela `settings` só aceita as duas chaves conhecidas; campos extras no JSON são recusados (`deny_unknown_fields`); `settings_default_to_native_and_the_backups_folder_and_reject_relative_paths` | ok (DB-24) |
+| Backend simulado fora do build de produção | `fileReplacements` troca `backend.providers.ts` por `backend.providers.production.ts`; passo `Build de produção sem o backend simulado` na CI | ok (DB-24) |
 | CSP sem origem externa e sem script inline | `apps/desktop/src-tauri/tauri.conf.json`; motivos em `desktop.md` | ok (DB-45) |
 | `style-src 'unsafe-inline'` | exigido pelos estilos de componente do Angular | aceito (DB-45) |
 | `glib` 0.18 com RUSTSEC-2024-0429 (`VariantStrIter`), transitivo do GTK3 usado pelo Tauri no Linux | sem versão corrigida na linha 0.18; o código do projeto não chama essa API. Reavaliar quando o Tauri trocar o GTK3 | aceito (DB-45) |

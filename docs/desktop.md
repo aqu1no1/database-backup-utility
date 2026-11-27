@@ -46,7 +46,7 @@ apps/desktop/
 | `src/app/core/` | Tema, i18n, configuração global, mapeamento de erros e bridge Tauri | Criado (`theme`); i18n no DB-25, backend no DB-52 |
 | `src/app/shared/` | UI, pipes e funções puras usadas por mais de uma feature | Criado (`ui`, `pipes`, `utils`) |
 | `public/i18n/` | Traduções `pt-BR.json` e `en-US.json` | Criar com o Transloco (DB-25) |
-| `src-tauri/` | App Rust/Tauri, capabilities e comandos | Criado (DB-45), ainda sem comandos |
+| `src-tauri/` | App Rust/Tauri, capabilities e comandos | Criado (DB-45); comandos de leitura e configurações no DB-24 |
 
 Regras:
 
@@ -103,11 +103,13 @@ Os pipes `fileSize`, `duration` e `dateTime` formatam pelo idioma do `LanguageSe
 
 ## Tauri
 
-`src-tauri/` (Tauri 2, crate `database-backup-desktop`) abre o build do Angular numa janela. Ainda não
-há comandos Rust: o app usa o backend simulado até o DB-24, e nenhum instalador é gerado.
+`src-tauri/` (Tauri 2, crate `database-backup-desktop`) abre o build do Angular numa janela. Nenhum
+instalador é gerado.
 
-- **Capabilities** (`capabilities/main.json`): só `dialog:allow-open` e `dialog:allow-save` na janela
-  `main`. Sem `core:default`, shell ou filesystem. O `tauri-plugin-dialog` depende do
+- **Capabilities** (`capabilities/main.json`): `dialog:allow-open`, `dialog:allow-save` e os quatro
+  comandos do app (`allow-history-list`, `allow-connections-list`, `allow-settings-get` e
+  `allow-settings-set`) na janela `main`. O `build.rs` declara os comandos no `AppManifest`, então um
+  comando novo só funciona depois de entrar na capability. Sem `core:default`, shell ou filesystem. O `tauri-plugin-dialog` depende do
   `tauri-plugin-fs`, que não é registrado nem tem permissão. A cópia da chave pública (K1) usará
   `navigator.clipboard`, sem plugin.
 - **CSP:** nenhuma origem externa, script só do app. `style-src` aceita `'unsafe-inline'` porque o
@@ -119,6 +121,34 @@ há comandos Rust: o app usa o backend simulado até o DB-24, e nenhum instalado
 - **Linux:** compilar exige `libwebkit2gtk-4.1-dev` e `libgtk-3-dev`. Por isso os comandos Cargo do
   workspace usam `--exclude database-backup-desktop`, e a CI compila o app no job `Tauri / Build & Smoke`.
   Esse job confirma que o processo continua aberto por 20 s; não confere o conteúdo da tela.
+
+## Bridge Angular ↔ Rust (DB-24)
+
+| Comando Tauri | Método do `Backend` | O que faz |
+| --- | --- | --- |
+| `history_list` | `listHistory()` | Backups e restaurações do histórico local, do mais novo ao mais antigo (até 200) |
+| `connections_list` | `listConnections()` | Perfis salvos pela CLI (`dbu connection add`) |
+| `settings_get` | `getSettings()` | Executor (`native` ou `docker`) e pasta padrão de backups; sem nada salvo, `native` e `backups/` na pasta de dados |
+| `settings_set` | `saveSettings()` | Grava as duas configurações na tabela `settings` do histórico (migration `0007_settings.sql`); a pasta precisa ser um caminho absoluto |
+
+- A conversão do histórico para o formato da interface fica em `crates/operations/src/desktop.rs`. Os
+  comandos em `src-tauri/src/commands.rs` só abrem o histórico numa thread de bloqueio
+  (`spawn_blocking`) e chamam essas funções.
+- O SGBD sai como `postgresql` (nome usado pela interface), e não `postgres`. Backup com checksum
+  aparece como `verified`, sem checksum como `completed`, restauração concluída como `completed` e
+  operação cancelada como `cancelled`, com o código de erro `cancelled`.
+- Erros chegam como `{ code, params }`, sem mensagem técnica nem caminho: falha ao abrir ou ler o
+  histórico vira `internal`, e dado inválido vira `invalid_input` com o campo em `params.field`.
+- **Contrato:** os arquivos em `src/app/core/tauri/contract/` são lidos pelos dois lados. Os testes de
+  `desktop.rs` conferem que o Rust gera exatamente esse JSON e que todo `ErrorCode` está em
+  `error-codes.json`; o `tauri-backend.spec.ts` confere que o Angular aceita os mesmos arquivos e que
+  `ERROR_CODES` é igual à lista.
+- O `TauriBackend` (`src/app/core/tauri/`) valida cada resposta antes de entregá-la à tela; resposta
+  fora do formato vira `AppError('internal')`.
+- **Backend simulado fora da produção:** `provideBackend()` usa o `TauriBackend` dentro do Tauri e o
+  `MockBackend` no navegador (`ng serve` e testes). O build de produção troca esse arquivo por
+  `backend.providers.production.ts` (`fileReplacements` no `angular.json`), que só conhece o
+  `TauriBackend`, e a CI falha se um dado do mock aparecer em `apps/desktop/dist`.
 
 ## Comandos
 
