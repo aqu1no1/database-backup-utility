@@ -1,0 +1,32 @@
+[
+  {
+    "id": "bkp-1",
+    "kind": "backup",
+    "engine": "postgresql",
+    "source": "app",
+    "destination": "/srv/backups/app.dump",
+    "startedAt": "2026-11-20T14:25:00Z",
+    "status": "verified",
+    "errorCode": null
+  },
+  {
+    "id": "bkp-1",
+    "kind": "backup",
+    "engine": "postgresql",
+    "source": "app",
+    "destination": "/srv/backups/app.dump",
+    "startedAt": "2026-11-20T14:25:00Z",
+    "status": "completed",
+    "errorCode": null
+  },
+  {
+    "id": "rst-1",
+    "kind": "restore",
+    "engine": "mariadb",
+    "source": "/srv/backups/blog.sql",
+    "destination": "blog_copy",
+    "startedAt": "2026-11-21T09:00:00Z",
+    "status": "cancelled",
+    "errorCode": "cancelled"
+  }
+]

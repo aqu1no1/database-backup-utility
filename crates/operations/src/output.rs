@@ -50,7 +50,8 @@ pub async fn open_target(
     Ok(target)
 }
 
-fn default_output_dir(history_path: &Path) -> PathBuf {
+#[must_use]
+pub fn default_output_dir(history_path: &Path) -> PathBuf {
     history_path
         .parent()
         .map_or_else(|| PathBuf::from("backups"), |dir| dir.join("backups"))

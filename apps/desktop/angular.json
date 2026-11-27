@@ -29,6 +29,12 @@
           },
           "configurations": {
             "production": {
+              "fileReplacements": [
+                {
+                  "replace": "src/app/core/backend/backend.providers.ts",
+                  "with": "src/app/core/backend/backend.providers.production.ts"
+                }
+              ],
               "optimization": {
                 "scripts": true,
                 "styles": { "minify": true, "inlineCritical": false },
