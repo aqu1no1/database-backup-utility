@@ -27,7 +27,8 @@
       "running": "Executando",
       "verified": "Verificado",
       "completed": "Concluída",
-      "failed": "Falhou"
+      "failed": "Falhou",
+      "cancelled": "Cancelada"
     }
   },
   "dashboard": {
@@ -167,6 +168,18 @@
     "restore_failed": {
       "title": "A restauração falhou",
       "hint": "Veja o histórico antes de tentar de novo."
+    },
+    "invalid_input": {
+      "title": "Dados inválidos",
+      "hint": "Confira os campos e tente de novo."
+    },
+    "confirmation_required": {
+      "title": "Confirmação necessária",
+      "hint": "Confirme a operação para continuar."
+    },
+    "internal": {
+      "title": "Erro interno",
+      "hint": "Não foi possível ler os dados locais. Tente de novo."
     },
     "unknown": {
       "title": "Erro inesperado",

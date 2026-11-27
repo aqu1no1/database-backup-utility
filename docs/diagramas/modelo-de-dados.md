@@ -1,7 +1,7 @@
 # Modelo do histórico interno
 
 Schema aplicado pelas migrations `crates/history/migrations/0001_initial.sql`, `0002_restores.sql`,
-`0003_restore_checksum_verified.sql`, `0004_restore_targets.sql` e `0005_profiles.sql`. Datas em UTC no formato RFC 3339 e IDs UUID v7.
+`0003_restore_checksum_verified.sql`, `0004_restore_targets.sql`, `0005_profiles.sql`, `0006_mariadb.sql` e `0007_settings.sql`. Datas em UTC no formato RFC 3339 e IDs UUID v7.
 
 ```mermaid
 erDiagram
@@ -75,6 +75,10 @@ erDiagram
         text auth_database
         text password_file
     }
+    SETTINGS {
+        text key PK
+        text value
+    }
 ```
 
 | Tabela | Guarda |
@@ -85,6 +89,7 @@ erDiagram
 | `backup_artifacts` | Arquivos gerados: local, formato, tamanho, SHA-256 e versão da ferramenta. |
 | `restore_executions` | Cada restore: arquivo de origem (e o artefato, quando conhecido), se o checksum foi conferido com uma referência (`checksum_verified = 0` quando veio de `--allow-unverified`), destino sem senha, modo `create`/`overwrite`, banco anterior mantido, status, duração e erro saneado. |
 | `profiles` | Perfis de conexão do `dbu connection add`, sem relação com as outras tabelas. `password_file` é só o caminho do arquivo de senha; `auth_database` só existe no MongoDB. |
+| `settings` | Configurações do desktop (`runner` e `backup_directory`), uma linha por chave; outras chaves são recusadas. |
 
 - Tabelas `STRICT`, chaves estrangeiras ativas e `ON DELETE CASCADE`.
 - Nenhuma coluna guarda senha ou token; um teste verifica isso (`profiles.password_file` é um caminho, a única exceção ao nome).

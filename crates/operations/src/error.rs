@@ -26,6 +26,26 @@ pub enum ErrorCode {
 }
 
 impl ErrorCode {
+    pub const ALL: [Self; 17] = [
+        Self::InvalidInput,
+        Self::AuthFailed,
+        Self::DatabaseNotFound,
+        Self::Unreachable,
+        Self::TlsFailed,
+        Self::ToolUnavailable,
+        Self::EngineMismatch,
+        Self::ServerMismatch,
+        Self::BackupFailed,
+        Self::Canceled,
+        Self::BackupMissing,
+        Self::BackupCorrupted,
+        Self::ChecksumMissing,
+        Self::BackupIncompatible,
+        Self::RestoreFailed,
+        Self::ConfirmationRequired,
+        Self::Internal,
+    ];
+
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
@@ -119,4 +139,38 @@ pub fn describe(error: &dyn Error) -> String {
         source = cause.source();
     }
     message
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn position(code: ErrorCode) -> usize {
+        match code {
+            ErrorCode::InvalidInput => 0,
+            ErrorCode::AuthFailed => 1,
+            ErrorCode::DatabaseNotFound => 2,
+            ErrorCode::Unreachable => 3,
+            ErrorCode::TlsFailed => 4,
+            ErrorCode::ToolUnavailable => 5,
+            ErrorCode::EngineMismatch => 6,
+            ErrorCode::ServerMismatch => 7,
+            ErrorCode::BackupFailed => 8,
+            ErrorCode::Canceled => 9,
+            ErrorCode::BackupMissing => 10,
+            ErrorCode::BackupCorrupted => 11,
+            ErrorCode::ChecksumMissing => 12,
+            ErrorCode::BackupIncompatible => 13,
+            ErrorCode::RestoreFailed => 14,
+            ErrorCode::ConfirmationRequired => 15,
+            ErrorCode::Internal => 16,
+        }
+    }
+
+    #[test]
+    fn all_lists_every_code_exactly_once() {
+        for (index, code) in ErrorCode::ALL.into_iter().enumerate() {
+            assert_eq!(position(code), index, "{}", code.as_str());
+        }
+    }
 }

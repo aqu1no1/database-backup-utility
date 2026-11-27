@@ -1,6 +1,13 @@
 {
   "identifier": "main",
-  "description": "Janela principal: abrir e salvar arquivos pelo diálogo do sistema.",
+  "description": "Janela principal: abrir e salvar arquivos pelo diálogo do sistema e ler o histórico, as conexões e as configurações.",
   "windows": ["main"],
-  "permissions": ["dialog:allow-open", "dialog:allow-save"]
+  "permissions": [
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "allow-history-list",
+    "allow-connections-list",
+    "allow-settings-get",
+    "allow-settings-set"
+  ]
 }

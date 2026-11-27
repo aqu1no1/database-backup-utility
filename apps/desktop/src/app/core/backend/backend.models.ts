@@ -24,6 +24,9 @@ export const ERROR_CODES = [
   'backup_incompatible',
   'age_key_mismatch',
   'restore_failed',
+  'invalid_input',
+  'confirmation_required',
+  'internal',
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
@@ -55,7 +58,7 @@ export interface SqliteConnection {
 export type Connection = ServerConnection | SqliteConnection;
 
 export type OperationKind = 'backup' | 'restore';
-export type OperationStatus = 'running' | 'verified' | 'completed' | 'failed';
+export type OperationStatus = 'running' | 'verified' | 'completed' | 'failed' | 'cancelled';
 
 export interface HistoryItem {
   readonly id: string;

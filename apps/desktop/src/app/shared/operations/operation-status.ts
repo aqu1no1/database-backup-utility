@@ -8,6 +8,7 @@ const TONES: Record<OperationStatus, StatusTone> = {
   verified: 'success',
   completed: 'success',
   failed: 'danger',
+  cancelled: 'warning',
 };
 
 /** Status traduzido de um backup ou de uma restauração. */

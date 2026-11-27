@@ -10,6 +10,8 @@ publish.workspace = true
 tauri-build.workspace = true
 
 [dependencies]
+database-backup-history.workspace = true
+database-backup-operations.workspace = true
 tauri.workspace = true
 tauri-plugin-dialog.workspace = true
 

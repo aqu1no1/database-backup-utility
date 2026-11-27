@@ -1177,6 +1177,8 @@ dependencies = [
 name = "database-backup-desktop"
 version = "0.3.0"
 dependencies = [
+ "database-backup-history",
+ "database-backup-operations",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
@@ -1203,6 +1205,8 @@ dependencies = [
  "database-backup-core",
  "database-backup-history",
  "database-backup-storage",
+ "serde",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.21",
  "time",

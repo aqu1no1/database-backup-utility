@@ -212,6 +212,13 @@ jobs:
       - name: Build Angular
         if: steps.desktop.outputs.present == 'true'
         run: pnpm --dir apps/desktop run build
+      - name: Build de produção sem o backend simulado
+        if: steps.desktop.outputs.present == 'true'
+        run: |
+          if grep -rq "bkp_01JC7T5N9P" apps/desktop/dist; then
+            echo "::error::o build de produção contém o MockBackend"
+            exit 1
+          fi
 
   tauri:
     name: Tauri / Build & Smoke

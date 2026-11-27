@@ -27,7 +27,8 @@
       "running": "Running",
       "verified": "Verified",
       "completed": "Completed",
-      "failed": "Failed"
+      "failed": "Failed",
+      "cancelled": "Cancelled"
     }
   },
   "dashboard": {
@@ -167,6 +168,18 @@
     "restore_failed": {
       "title": "The restore failed",
       "hint": "Check the history before trying again."
+    },
+    "invalid_input": {
+      "title": "Invalid data",
+      "hint": "Check the fields and try again."
+    },
+    "confirmation_required": {
+      "title": "Confirmation required",
+      "hint": "Confirm the operation to continue."
+    },
+    "internal": {
+      "title": "Internal error",
+      "hint": "The local data could not be read. Try again."
     },
     "unknown": {
       "title": "Unexpected error",

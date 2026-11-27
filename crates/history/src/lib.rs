@@ -22,6 +22,7 @@ const MIGRATIONS: &[M<'static>] = &[
     M::up(include_str!("../migrations/0004_restore_targets.sql")),
     M::up(include_str!("../migrations/0005_profiles.sql")),
     M::up(include_str!("../migrations/0006_mariadb.sql")).foreign_key_check(),
+    M::up(include_str!("../migrations/0007_settings.sql")),
 ];
 
 #[derive(Debug, Error)]
@@ -156,6 +157,7 @@ pub struct NewRestore<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RestoreRecord {
     pub id: String,
+    pub engine: String,
     pub artifact_id: Option<String>,
     pub source_location: String,
     pub checksum_verified: bool,
@@ -171,6 +173,7 @@ pub struct RestoreRecord {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BackupSummary {
     pub execution_id: String,
+    pub engine: String,
     pub database: String,
     pub host: Option<String>,
     pub port: Option<u16>,
@@ -293,6 +296,27 @@ impl History {
             .conn
             .execute("DELETE FROM profiles WHERE name = ?1", [name])?
             != 0)
+    }
+
+    pub fn settings(&self) -> Result<Vec<(String, String)>, HistoryError> {
+        let mut statement = self
+            .conn
+            .prepare("SELECT key, value FROM settings ORDER BY key")?;
+        let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    pub fn save_settings(&self, entries: &[(&str, &str)]) -> Result<(), HistoryError> {
+        let transaction = self.conn.unchecked_transaction()?;
+        for (key, value) in entries {
+            transaction.execute(
+                "INSERT INTO settings (key, value) VALUES (?1, ?2)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params![key, value],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(())
     }
 
     pub fn upsert_connection(
@@ -518,7 +542,7 @@ impl History {
     pub fn list_restores(&self, limit: u32) -> Result<Vec<RestoreRecord>, HistoryError> {
         let mut statement = self.conn.prepare(
             "SELECT id, artifact_id, source_location, checksum_verified, target_database, mode,
-                    previous_database, status, started_at, duration_ms, error_message
+                    previous_database, status, started_at, duration_ms, error_message, engine
              FROM restore_executions ORDER BY started_at DESC, id DESC LIMIT ?1",
         )?;
         let rows = statement.query_map([limit], |row| {
@@ -534,12 +558,14 @@ impl History {
                 started_at: row.get(8)?,
                 duration_ms: row.get(9)?,
                 error_message: row.get(10)?,
+                engine: row.get(11)?,
             })
         })?;
         rows.map(|row| {
             let raw = row?;
             Ok(RestoreRecord {
                 id: raw.id,
+                engine: raw.engine,
                 artifact_id: raw.artifact_id,
                 source_location: raw.source_location,
                 checksum_verified: raw.checksum_verified,
@@ -562,7 +588,7 @@ impl History {
     ) -> Result<Vec<BackupSummary>, HistoryError> {
         let mut statement = self.conn.prepare(
             "SELECT e.id, c.database_name, c.host, c.port, e.status, e.started_at, e.duration_ms,
-                    e.error_message, a.location, a.size_bytes, a.checksum_sha256
+                    e.error_message, a.location, a.size_bytes, a.checksum_sha256, c.engine
              FROM backup_executions e
              JOIN backup_jobs j ON j.id = e.job_id
              JOIN connections c ON c.id = j.connection_id
@@ -583,12 +609,14 @@ impl History {
                 location: row.get(8)?,
                 size_bytes: row.get(9)?,
                 checksum_sha256: row.get(10)?,
+                engine: row.get(11)?,
             })
         })?;
         rows.map(|row| {
             let raw = row?;
             Ok(BackupSummary {
                 execution_id: raw.execution_id,
+                engine: raw.engine,
                 database: raw.database,
                 host: raw.host,
                 port: raw.port,
@@ -621,6 +649,7 @@ fn profile_from_row(row: &Row<'_>) -> rusqlite::Result<ConnectionProfile> {
 
 struct RawRestore {
     id: String,
+    engine: String,
     artifact_id: Option<String>,
     source_location: String,
     checksum_verified: bool,
@@ -635,6 +664,7 @@ struct RawRestore {
 
 struct RawBackupSummary {
     execution_id: String,
+    engine: String,
     database: String,
     host: Option<String>,
     port: Option<u16>,
@@ -1278,6 +1308,29 @@ mod tests {
         let reopened = History::open(&path).unwrap();
         assert!(reopened.list_profiles().unwrap().is_empty());
         assert_eq!(reopened.list_backups(10, None).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn settings_are_saved_together_and_unknown_keys_change_nothing() {
+        let (_dir, path, history) = temp_history();
+        assert!(history.settings().unwrap().is_empty());
+        history
+            .save_settings(&[("runner", "docker"), ("backup_directory", "/srv/backups")])
+            .unwrap();
+        history.save_settings(&[("runner", "native")]).unwrap();
+
+        let invalid = history.save_settings(&[("backup_directory", "/tmp"), ("token", "x")]);
+        assert!(matches!(invalid, Err(HistoryError::Sqlite(_))));
+        drop(history);
+
+        let reopened = History::open(&path).unwrap();
+        assert_eq!(
+            reopened.settings().unwrap(),
+            [
+                ("backup_directory".to_owned(), "/srv/backups".to_owned()),
+                ("runner".to_owned(), "native".to_owned()),
+            ]
+        );
     }
 
     #[test]
