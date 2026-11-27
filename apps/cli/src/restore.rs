@@ -126,6 +126,8 @@ pub struct RestoreArgs {
     identity: Option<PathBuf>,
     #[arg(skip)]
     source: Option<PathBuf>,
+    #[arg(skip)]
+    keyring: Option<String>,
 }
 
 impl RestoreArgs {
@@ -206,6 +208,7 @@ pub async fn run(mut args: RestoreArgs) -> ExitCode {
         args.tls = Some(connection.tls);
         args.auth_database = connection.auth_database;
         args.password_file = connection.password_file;
+        args.keyring = connection.keyring;
     }
     if engine != EngineArg::Mongodb && args.auth_database.is_some() {
         return fail(exit::INVALID_INPUT, AUTH_DATABASE_ONLY_MONGODB);
@@ -250,6 +253,7 @@ pub async fn run(mut args: RestoreArgs) -> ExitCode {
                     allow_unverified: args.allow_unverified,
                     timeout: args.timeout,
                     password_file: args.password_file.clone(),
+                    keyring: args.keyring.clone(),
                 })
                 .await
             }
@@ -279,6 +283,7 @@ pub async fn run(mut args: RestoreArgs) -> ExitCode {
                         allow_unverified: args.allow_unverified,
                         timeout: args.timeout,
                         password_file: args.password_file.clone(),
+                        keyring: args.keyring.clone(),
                     })
                     .await
                 }
@@ -372,6 +377,7 @@ async fn run_postgres(args: &RestoreArgs, target_database: &str, user: &str) -> 
     };
     let secrets = CliSecrets {
         password_file: args.password_file.clone(),
+        keyring: args.keyring.clone(),
         engine: DatabaseEngine::Postgres,
     };
     let prepared = match prepare(

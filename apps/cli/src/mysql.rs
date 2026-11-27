@@ -35,6 +35,7 @@ pub struct RestoreRequest<'a> {
     pub allow_unverified: bool,
     pub timeout: Option<u64>,
     pub password_file: Option<PathBuf>,
+    pub keyring: Option<String>,
 }
 
 pub async fn test(
@@ -48,7 +49,12 @@ pub async fn test(
         Ok(config) => config,
         Err(code) => return code,
     };
-    let password = match read_password(engine, &config, connection.password_file.clone()) {
+    let password = match read_password(
+        engine,
+        &config,
+        connection.password_file.clone(),
+        connection.keyring.clone(),
+    ) {
         Ok((password, _)) => password,
         Err(message) => return fail(exit::INVALID_INPUT, &message),
     };
@@ -100,8 +106,12 @@ pub async fn backup(
         Ok(config) => config,
         Err(code) => return code,
     };
-    let (password, source) = match read_password(engine, &config, connection.password_file.clone())
-    {
+    let (password, source) = match read_password(
+        engine,
+        &config,
+        connection.password_file.clone(),
+        connection.keyring.clone(),
+    ) {
         Ok(value) => value,
         Err(message) => return fail(exit::INVALID_INPUT, &message),
     };
@@ -179,6 +189,7 @@ pub async fn restore(request: &RestoreRequest<'_>) -> ExitCode {
     };
     let secrets = CliSecrets {
         password_file: request.password_file.clone(),
+        keyring: request.keyring.clone(),
         engine,
     };
     let prepared = match prepare_restore(

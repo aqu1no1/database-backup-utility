@@ -3,8 +3,12 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Args, ValueEnum};
-use database_backup_core::{MongoConnectionConfig, MysqlConnectionConfig, read_password_file};
+use database_backup_core::{
+    CredentialStore, DatabaseEngine, MongoConnectionConfig, MysqlConnectionConfig, SecretError,
+    read_password_file,
+};
 use database_backup_history::{ConnectionProfile, History, HistoryError};
+use database_backup_operations::keychain::Keychain;
 use serde::Serialize;
 
 use crate::output::{fail, success};
@@ -77,6 +81,10 @@ impl ConnectionOptions {
             .tls
             .or(profile.map(profile_tls).transpose()?)
             .unwrap_or(TlsArg::Auto);
+        let keyring = match (&self.password_file, profile) {
+            (None, Some(profile)) if profile.keyring => Some(profile.name.clone()),
+            _ => None,
+        };
         let connection = ConnectionArgs {
             host: self
                 .host
@@ -92,6 +100,7 @@ impl ConnectionOptions {
             password_file: self
                 .password_file
                 .or_else(|| profile.and_then(|p| p.password_file.as_ref().map(PathBuf::from))),
+            keyring,
         };
         validate(engine, &connection)?;
         Ok((engine, connection))
@@ -204,6 +213,12 @@ pub struct AddArgs {
     connection: ConnectionOptions,
     #[arg(long, help = "Salva sem testar a conexão; mantém a validação local")]
     no_test: bool,
+    #[arg(
+        long,
+        conflicts_with = "password_file",
+        help = "Pede a senha e a guarda no keychain do sistema, nunca em arquivo"
+    )]
+    save_password: bool,
     #[arg(long, default_value_t = 10, value_parser = clap::value_parser!(u64).range(1..=300))]
     timeout: u64,
 }
@@ -255,6 +270,13 @@ pub async fn add(args: AddArgs) -> ExitCode {
         None => None,
     };
     connection.password_file = password_file.as_ref().map(PathBuf::from);
+    let keychain = Keychain::system();
+    if args.save_password {
+        if let Err(message) = save_password(&keychain, engine.into(), &args.name) {
+            return fail(exit::INVALID_INPUT, &message);
+        }
+        connection.keyring = Some(args.name.clone());
+    }
     let profile = ConnectionProfile {
         name: args.name,
         engine: match engine {
@@ -282,14 +304,17 @@ pub async fn add(args: AddArgs) -> ExitCode {
         .to_owned(),
         auth_database: connection.auth_database.clone(),
         password_file,
+        keyring: args.save_password,
     };
     if !args.no_test {
         let code = crate::test_resolved(engine, connection, args.timeout, false).await;
         if code != ExitCode::SUCCESS {
+            discard_password(&keychain, &profile);
             return code;
         }
     }
     if let Err(error) = history.add_profile(&profile) {
+        discard_password(&keychain, &profile);
         let code = if matches!(error, HistoryError::ProfileExists(_)) {
             exit::INVALID_INPUT
         } else {
@@ -305,6 +330,31 @@ pub async fn add(args: AddArgs) -> ExitCode {
     )
 }
 
+fn save_password(
+    keychain: &dyn CredentialStore,
+    engine: DatabaseEngine,
+    name: &str,
+) -> Result<(), String> {
+    let (password, _) = crate::read_password(engine, &format!("o perfil {name}"), None, None)?;
+    keychain
+        .set(name, &password)
+        .map_err(|error| describe(&error))
+}
+
+fn discard_password(keychain: &dyn CredentialStore, profile: &ConnectionProfile) {
+    let _ = forget_password(keychain, profile);
+}
+
+fn forget_password(
+    keychain: &dyn CredentialStore,
+    profile: &ConnectionProfile,
+) -> Result<(), SecretError> {
+    if profile.keyring {
+        keychain.delete(&profile.name)?;
+    }
+    Ok(())
+}
+
 #[derive(Serialize)]
 struct ProfileView<'a> {
     name: &'a str,
@@ -316,6 +366,7 @@ struct ProfileView<'a> {
     tls: &'a str,
     auth_database: Option<&'a str>,
     password_file: Option<&'a str>,
+    keyring: bool,
 }
 
 #[derive(Serialize)]
@@ -358,6 +409,7 @@ pub fn list() -> ExitCode {
             tls: &p.tls,
             auth_database: p.auth_database.as_deref(),
             password_file: p.password_file.as_deref(),
+            keyring: p.keyring,
         })
         .collect();
     success(&ProfileList { profiles: views }, &text)
@@ -379,11 +431,11 @@ pub fn remove(args: RemoveArgs) -> ExitCode {
         Ok(history) => history,
         Err(code) => return code,
     };
-    match history.get_profile(&args.name) {
-        Ok(Some(_)) => {}
+    let profile = match history.get_profile(&args.name) {
+        Ok(Some(profile)) => profile,
         Ok(None) => return not_found(&args.name),
         Err(error) => return fail(exit::FAILURE, &describe(&error)),
-    }
+    };
     if !args.yes {
         if !std::io::stdin().is_terminal() {
             return fail(
@@ -403,10 +455,20 @@ pub fn remove(args: RemoveArgs) -> ExitCode {
         }
     }
     match history.remove_profile(&args.name) {
-        Ok(true) => success(
-            &ProfileName { name: &args.name },
-            &format!("Perfil {} removido.", args.name),
-        ),
+        Ok(true) => match forget_password(&Keychain::system(), &profile) {
+            Ok(()) => success(
+                &ProfileName { name: &args.name },
+                &format!("Perfil {} removido.", args.name),
+            ),
+            Err(error) => fail(
+                exit::FAILURE,
+                &format!(
+                    "perfil {} removido, mas a senha continua no keychain: {}",
+                    args.name,
+                    describe(&error)
+                ),
+            ),
+        },
         Ok(false) => not_found(&args.name),
         Err(error) => fail(exit::FAILURE, &describe(&error)),
     }
@@ -431,7 +493,70 @@ mod tests {
             tls: "verify-full".to_owned(),
             auth_database: None,
             password_file: Some("/secrets/profile.pass".to_owned()),
+            keyring: false,
         }
+    }
+
+    fn keyring_profile() -> ConnectionProfile {
+        ConnectionProfile {
+            password_file: None,
+            keyring: true,
+            ..profile()
+        }
+    }
+
+    #[derive(Default)]
+    struct DeletedAccounts(std::cell::RefCell<Vec<String>>);
+
+    impl CredentialStore for DeletedAccounts {
+        fn get(&self, _: &str) -> Result<Option<database_backup_core::Password>, SecretError> {
+            Ok(None)
+        }
+
+        fn set(&self, _: &str, _: &database_backup_core::Password) -> Result<(), SecretError> {
+            Ok(())
+        }
+
+        fn delete(&self, account: &str) -> Result<bool, SecretError> {
+            self.0.borrow_mut().push(account.to_owned());
+            Ok(true)
+        }
+    }
+
+    #[test]
+    fn keyring_profile_uses_the_keychain_unless_a_password_file_is_given() {
+        let saved = keyring_profile();
+        let (_, inherited) = ConnectionOptions::default()
+            .resolve(None, Some(&saved))
+            .unwrap();
+        assert_eq!(inherited.keyring.as_deref(), Some("dev"));
+        assert_eq!(inherited.password_file, None);
+
+        let options = ConnectionOptions {
+            password_file: Some(PathBuf::from("/secrets/override.pass")),
+            ..Default::default()
+        };
+        let (_, explicit) = options.resolve(None, Some(&saved)).unwrap();
+        assert_eq!(explicit.keyring, None);
+        assert_eq!(
+            explicit.password_file,
+            Some(PathBuf::from("/secrets/override.pass"))
+        );
+
+        let (_, file_profile) = ConnectionOptions::default()
+            .resolve(None, Some(&profile()))
+            .unwrap();
+        assert_eq!(file_profile.keyring, None);
+    }
+
+    #[test]
+    fn removing_a_profile_deletes_only_passwords_it_saved_in_the_keychain() {
+        let keychain = DeletedAccounts::default();
+        forget_password(&keychain, &profile()).unwrap();
+        assert!(keychain.0.borrow().is_empty());
+
+        forget_password(&keychain, &keyring_profile()).unwrap();
+        assert_eq!(*keychain.0.borrow(), ["dev"]);
     }
 
     #[test]

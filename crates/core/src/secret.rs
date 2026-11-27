@@ -13,6 +13,7 @@ pub enum SecretSource {
     Prompt,
     Env(&'static str),
     File(PathBuf),
+    Keyring(String),
 }
 
 impl SecretSource {
@@ -22,6 +23,7 @@ impl SecretSource {
             Self::Prompt => "prompt".to_owned(),
             Self::Env(name) => format!("env:{name}"),
             Self::File(path) => format!("file:{}", path.display()),
+            Self::Keyring(profile) => format!("keyring:{profile}"),
         }
     }
 }
@@ -56,10 +58,32 @@ pub enum SecretError {
     },
     #[error("não foi possível ler a senha do terminal")]
     Prompt,
+    #[error("keychain do sistema indisponível ({0}); use --password-file")]
+    KeychainUnavailable(String),
+    #[error("senha do perfil {0} não encontrada no keychain do sistema")]
+    KeychainMissing(String),
+    #[error("o keychain do sistema recusou a operação: {0}")]
+    Keychain(String),
 }
 
 pub trait SecretProvider {
     fn password(&self, target: &dyn fmt::Display) -> Result<(Password, SecretSource), SecretError>;
+}
+
+pub trait CredentialStore {
+    fn get(&self, account: &str) -> Result<Option<Password>, SecretError>;
+    fn set(&self, account: &str, password: &Password) -> Result<(), SecretError>;
+    fn delete(&self, account: &str) -> Result<bool, SecretError>;
+}
+
+pub fn read_keyring(
+    store: &dyn CredentialStore,
+    profile: &str,
+) -> Result<(Password, SecretSource), SecretError> {
+    let password = store
+        .get(profile)?
+        .ok_or_else(|| SecretError::KeychainMissing(profile.to_owned()))?;
+    Ok((password, SecretSource::Keyring(profile.to_owned())))
 }
 
 #[must_use]
@@ -209,6 +233,44 @@ mod tests {
         ));
     }
 
+    struct OneEntry(Option<&'static str>);
+
+    impl CredentialStore for OneEntry {
+        fn get(&self, account: &str) -> Result<Option<Password>, SecretError> {
+            if account == "offline" {
+                return Err(SecretError::KeychainUnavailable(
+                    "sem Secret Service".into(),
+                ));
+            }
+            Ok(self.0.map(|value| Password::new(value.to_owned())))
+        }
+
+        fn set(&self, _: &str, _: &Password) -> Result<(), SecretError> {
+            Ok(())
+        }
+
+        fn delete(&self, _: &str) -> Result<bool, SecretError> {
+            Ok(false)
+        }
+    }
+
+    #[test]
+    fn keyring_password_is_tagged_with_the_profile_and_never_exposed_in_errors() {
+        let (password, source) = read_keyring(&OneEntry(Some(SECRET)), "prod").expect("senha");
+        assert_eq!(password.expose(), SECRET);
+        assert_eq!(source.secret_ref(), "keyring:prod");
+
+        let missing = read_keyring(&OneEntry(None), "prod").expect_err("sem senha");
+        assert!(matches!(missing, SecretError::KeychainMissing(ref name) if name == "prod"));
+
+        let offline = read_keyring(&OneEntry(Some(SECRET)), "offline").expect_err("sem keychain");
+        assert!(matches!(offline, SecretError::KeychainUnavailable(_)));
+        assert!(offline.to_string().contains("--password-file"));
+        for error in [missing, offline] {
+            assert!(!error.to_string().contains(SECRET));
+        }
+    }
+
     #[test]
     fn source_reference_never_contains_the_secret() {
         let file = SecretSource::File(PathBuf::from("/etc/dbu/pg.pass"));
@@ -218,6 +280,10 @@ mod tests {
             "env:DBU_PG_PASSWORD"
         );
         assert_eq!(file.secret_ref(), "file:/etc/dbu/pg.pass");
+        assert_eq!(
+            SecretSource::Keyring("prod".to_owned()).secret_ref(),
+            "keyring:prod"
+        );
         let ambiguous =
             SecretError::Ambiguous(vec!["--password-file".into(), "DBU_PG_PASSWORD".into()]);
         assert_eq!(

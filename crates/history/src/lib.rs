@@ -22,6 +22,7 @@ const MIGRATIONS: &[M<'static>] = &[
     M::up(include_str!("../migrations/0004_restore_targets.sql")),
     M::up(include_str!("../migrations/0005_profiles.sql")),
     M::up(include_str!("../migrations/0006_mariadb.sql")).foreign_key_check(),
+    M::up(include_str!("../migrations/0007_profile_keyring.sql")),
 ];
 
 #[derive(Debug, Error)]
@@ -61,6 +62,7 @@ pub struct ConnectionProfile {
     pub tls: String,
     pub auth_database: Option<String>,
     pub password_file: Option<String>,
+    pub keyring: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -251,8 +253,9 @@ impl History {
     pub fn add_profile(&self, profile: &ConnectionProfile) -> Result<(), HistoryError> {
         let inserted = self.conn.execute(
             "INSERT INTO profiles
-             (name, engine, host, port, database_name, username, tls, auth_database, password_file)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+             (name, engine, host, port, database_name, username, tls, auth_database, password_file,
+              keyring)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
              ON CONFLICT(name) DO NOTHING",
             params![
                 profile.name,
@@ -263,7 +266,8 @@ impl History {
                 profile.username,
                 profile.tls,
                 profile.auth_database,
-                profile.password_file
+                profile.password_file,
+                profile.keyring
             ],
         )?;
         if inserted == 0 {
@@ -274,14 +278,16 @@ impl History {
 
     pub fn get_profile(&self, name: &str) -> Result<Option<ConnectionProfile>, HistoryError> {
         Ok(self.conn.query_row(
-            "SELECT name, engine, host, port, database_name, username, tls, auth_database, password_file
+            "SELECT name, engine, host, port, database_name, username, tls, auth_database, password_file,
+                    keyring
              FROM profiles WHERE name = ?1", [name], profile_from_row,
         ).optional()?)
     }
 
     pub fn list_profiles(&self) -> Result<Vec<ConnectionProfile>, HistoryError> {
         let mut statement = self.conn.prepare(
-            "SELECT name, engine, host, port, database_name, username, tls, auth_database, password_file
+            "SELECT name, engine, host, port, database_name, username, tls, auth_database, password_file,
+                    keyring
              FROM profiles ORDER BY name",
         )?;
         let rows = statement.query_map([], profile_from_row)?;
@@ -616,6 +622,7 @@ fn profile_from_row(row: &Row<'_>) -> rusqlite::Result<ConnectionProfile> {
         tls: row.get(6)?,
         auth_database: row.get(7)?,
         password_file: row.get(8)?,
+        keyring: row.get(9)?,
     })
 }
 
@@ -1147,8 +1154,17 @@ mod tests {
             tls: "auto".to_owned(),
             auth_database: None,
             password_file: None,
+            keyring: false,
         };
-        before.add_profile(&profile).expect("perfil");
+        before
+            .conn
+            .execute(
+                "INSERT INTO profiles
+                 (name, engine, host, port, database_name, username, tls, auth_database, password_file)
+                 VALUES ('prod', 'mysql', 'localhost', 3306, 'app', 'backup', 'auto', NULL, NULL)",
+                [],
+            )
+            .expect("perfil");
         drop(before);
 
         let after = History::open(&path).expect("migrar para v6");
@@ -1197,6 +1213,7 @@ mod tests {
                 tls: "auto".to_owned(),
                 auth_database: None,
                 password_file: None,
+                keyring: false,
             })
             .expect("perfil MariaDB");
 
@@ -1258,6 +1275,7 @@ mod tests {
             tls: "auto".to_owned(),
             auth_database: None,
             password_file: Some("/secrets/pg.pass".to_owned()),
+            keyring: false,
         };
         history.add_profile(&profile).unwrap();
         let duplicate = ConnectionProfile {
@@ -1278,6 +1296,36 @@ mod tests {
         let reopened = History::open(&path).unwrap();
         assert!(reopened.list_profiles().unwrap().is_empty());
         assert_eq!(reopened.list_backups(10, None).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn keyring_profiles_store_only_the_flag_and_never_mix_with_a_password_file() {
+        let (_dir, _path, history) = temp_history();
+        let profile = ConnectionProfile {
+            name: "prod".to_owned(),
+            engine: "postgres".to_owned(),
+            host: "db.example.org".to_owned(),
+            port: 5432,
+            database_name: "app".to_owned(),
+            username: "backup".to_owned(),
+            tls: "verify-full".to_owned(),
+            auth_database: None,
+            password_file: None,
+            keyring: true,
+        };
+        history.add_profile(&profile).unwrap();
+        assert_eq!(history.get_profile("prod").unwrap(), Some(profile.clone()));
+
+        let both = ConnectionProfile {
+            name: "both".to_owned(),
+            password_file: Some("/secrets/pg.pass".to_owned()),
+            ..profile
+        };
+        assert!(matches!(
+            history.add_profile(&both),
+            Err(HistoryError::Sqlite(_))
+        ));
+        assert!(history.get_profile("both").unwrap().is_none());
     }
 
     #[test]

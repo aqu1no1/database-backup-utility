@@ -46,6 +46,7 @@ describe('MockBackend', () => {
     'backup_incompatible',
     'age_key_mismatch',
     'restore_failed',
+    'keychain_unavailable',
   ])('fails with %s when asked to and recovers afterwards', async (code) => {
     backend.failWith('listHistory', code);
 

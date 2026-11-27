@@ -16,9 +16,11 @@ database-backup-history = { path = "crates/history" }
 database-backup-operations = { path = "crates/operations" }
 database-backup-storage = { path = "crates/storage" }
 age = { version = "0.11", default-features = false }
+apple-native-keyring-store = { version = "1.0", features = ["keychain"] }
 clap = { version = "4.5", features = ["derive"] }
 dialoguer = { version = "0.12", default-features = false }
 directories = "6.0"
+keyring-core = "1.1"
 mongodb = { version = "3.9", default-features = false, features = ["compat-3-3-0", "bson-3", "rustls-tls"] }
 mysql_async = { version = "0.37", default-features = false, features = ["minimal-rust", "rustls-tls", "ring", "tls12"] }
 rpassword = "7.5"
@@ -43,6 +45,8 @@ tokio-postgres-rustls = { version = "0.14", features = ["ring"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1.28", features = ["v7"] }
+windows-native-keyring-store = { version = "1.1", default-features = false }
+zbus-secret-service-keyring-store = { version = "1.0", features = ["rt-async-io-crypto-rust"] }
 zstd = { version = "0.14", default-features = false }
 
 [profile.dev]

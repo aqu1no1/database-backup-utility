@@ -303,6 +303,7 @@ struct ConnectionArgs {
     tls: TlsArg,
     auth_database: Option<String>,
     password_file: Option<PathBuf>,
+    keyring: Option<String>,
 }
 
 impl ConnectionArgs {
@@ -519,6 +520,7 @@ async fn test_resolved(
         DatabaseEngine::Postgres,
         &config,
         connection.password_file.clone(),
+        connection.keyring.clone(),
     ) {
         Ok((password, _)) => password,
         Err(message) => return fail(exit::INVALID_INPUT, &message),
@@ -573,9 +575,11 @@ fn read_password(
     engine: DatabaseEngine,
     target: &dyn fmt::Display,
     password_file: Option<PathBuf>,
+    keyring: Option<String>,
 ) -> Result<(Password, SecretSource), String> {
     credentials::CliSecrets {
         password_file,
+        keyring,
         engine,
     }
     .password(target)
@@ -610,7 +614,9 @@ fn fail_with(error: &OperationError) -> ExitCode {
 fn exit_code(code: ErrorCode) -> u8 {
     match code {
         ErrorCode::Internal => exit::FAILURE,
-        ErrorCode::InvalidInput | ErrorCode::ServerMismatch => exit::INVALID_INPUT,
+        ErrorCode::InvalidInput | ErrorCode::ServerMismatch | ErrorCode::KeychainUnavailable => {
+            exit::INVALID_INPUT
+        }
         ErrorCode::AuthFailed => exit::AUTHENTICATION,
         ErrorCode::DatabaseNotFound => exit::DATABASE_NOT_FOUND,
         ErrorCode::Unreachable => exit::UNREACHABLE,

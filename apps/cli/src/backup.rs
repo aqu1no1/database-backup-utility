@@ -233,6 +233,7 @@ async fn run_postgres(
         DatabaseEngine::Postgres,
         &config,
         connection.password_file.clone(),
+        connection.keyring.clone(),
     ) {
         Ok(value) => value,
         Err(message) => return fail(exit::INVALID_INPUT, &message),
