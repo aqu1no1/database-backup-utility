@@ -62,6 +62,7 @@ um SGBD são ignoradas com `--engine` de outro):
 | `--password-file <ARQUIVO>` | Agendadores e scripts. |
 | `DBU_PG_PASSWORD_FILE` | O mesmo que a flag, via ambiente (ex.: unit do systemd). |
 | `DBU_PG_PASSWORD` | Scripts curtos. Fica visível em `/proc/<pid>/environ` para o próprio usuário e o root. |
+| Keychain do sistema | Perfil salvo com `connection add --save-password` (ver [Perfis de conexão](#perfis-de-conexão)). |
 | Prompt sem eco | Uso interativo, quando nenhuma das anteriores está definida e o stdin é um terminal. |
 
 - **Mais de uma fonte definida é erro** (exit 2), e a mensagem lista quais foram encontradas. Isso
@@ -125,8 +126,19 @@ dbu restore app-2026-11-05.dump --profile prod --to app_copia
 dbu connection remove prod                        # pede o nome de novo; -y confirma sem perguntar
 ```
 
-- **A senha nunca é salva.** O perfil guarda só o **caminho** do `--password-file`, convertido em
-  absoluto. Sem caminho no perfil, a senha vem das fontes de sempre (variáveis ou prompt).
+- **A senha nunca é salva no histórico.** O perfil guarda só o **caminho** do `--password-file`,
+  convertido em absoluto, ou a marca de que a senha está no keychain. Sem nenhum dos dois, a senha vem
+  das fontes de sempre (variáveis ou prompt).
+- **Keychain do sistema (DB-46).** `connection add --save-password` pede a senha (ou lê
+  `DBU_*_PASSWORD`) e a guarda no keychain: Secret Service (GNOME Keyring, KWallet) no Linux, Keychain
+  no macOS e Credential Manager no Windows. O item fica no serviço
+  `dev.aqu1no1.database-backup-utility`, com o nome do perfil como conta. Backup, restore e test com o
+  perfil leem a senha de lá; `--password-file` na linha de comando tem prioridade. Definir também
+  `DBU_*_PASSWORD` ou `DBU_*_PASSWORD_FILE` é conflito (exit 2). `connection remove` apaga a senha do
+  keychain junto com o perfil. Não dá para usar `--save-password` com `--password-file`.
+- **Sem keychain disponível** (servidor sem sessão D-Bus, por exemplo), `--save-password` sai com
+  exit 2, sugere `--password-file` e nada é salvo. Se o teste da conexão falhar, a senha recém-salva é
+  apagada do keychain.
 - O arquivo de senha do perfil é mais uma fonte e segue as mesmas regras de `read_password_file`
   (permissão `600`/`400`, sem symlink, até 4 KiB). Ele é conferido no `add` e de novo a cada uso.
   Definir também `DBU_*_PASSWORD` ou `DBU_*_PASSWORD_FILE` é conflito (exit 2), como com a flag.

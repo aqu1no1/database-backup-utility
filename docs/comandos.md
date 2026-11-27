@@ -43,7 +43,7 @@ cargo run -p database-backup-cli -- connection remove dev -y
 ```
 
 Perfis (`connection add/list/remove`) guardam a conexão sem a senha, só o caminho do
-`--password-file`. Veja [`configuracao.md`](configuracao.md#perfis-de-conexão).
+`--password-file`; com `--save-password`, a senha vai para o keychain do sistema. Veja [`configuracao.md`](configuracao.md#perfis-de-conexão).
 
 `--engine` vale `postgres` (padrão), `mysql`, `mariadb`, `mongodb` ou `sqlite`. Com `sqlite` não há servidor nem senha: `--source`
 (backup) e `--target` (restore) indicam os arquivos, e as opções de conexão do PostgreSQL são recusadas.

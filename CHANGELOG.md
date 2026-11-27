@@ -18,6 +18,9 @@ Para publicar, mova as entradas para uma nova seção com data real:
 Seção versionada: `[X.Y.Z] - AAAA-MM-DD`
 O workflow manual rejeita releases sem seção publicada e sem mudanças reais. -->
 
+### Added
+- `dbu connection add <NOME> --save-password` guarda a senha do perfil no keychain do sistema (Secret Service no Linux, Keychain no macOS e Credential Manager no Windows). Backup, restore e test com o perfil leem a senha de lá, e `dbu connection remove` a apaga. Sem keychain disponível, o comando sai com código 2, sugere `--password-file` e não salva nada.
+
 ## [0.3.0] - 2026-11-19
 
 CLI mais fácil de usar e mais completa: o SGBD é descoberto pelo arquivo, conexões podem ser salvas

@@ -100,6 +100,10 @@ Detalhes e procedimento de chaves em [`criptografia.md`](criptografia.md).
 | Nome duplicado não sobrescreve perfil | `ON CONFLICT DO NOTHING` + exit 2; `profiles_upgrade_without_changing_history_and_duplicate_names_never_replace_data` | ok (DB-41) |
 | Restore com perfil exige destino explícito | `--to` obrigatório com `--profile`; `tested_profile_drives_backup_test_and_restore_without_using_its_database_as_target` | ok (DB-41) |
 | Remoção exige confirmação | nome repetido no terminal ou `-y`; sem terminal → exit 12; não apaga backups nem o arquivo de senha; `profiles_are_persistent_unique_and_removal_requires_confirmation` | ok (DB-41) |
+| Senha do perfil no keychain do sistema, nunca em arquivo ou no histórico | `connection add --save-password` grava pelo `CredentialStore` (`crates/core/src/secret.rs`), implementado em `crates/operations/src/keychain.rs` (`keyring-core`, Secret Service via zbus no Linux, Keychain no macOS, Credential Manager no Windows); o histórico guarda só `profiles.keyring` (migration `0007_profile_keyring.sql`, que recusa keychain e arquivo juntos); testes `saves_reads_and_deletes_the_password_of_one_profile`, `keyring_profiles_store_only_the_flag_and_never_mix_with_a_password_file`, `keyring_profile_reads_the_saved_password_without_prompting` | código pronto (DB-46); o keychain real não roda na CI |
+| Keychain conta como uma fonte de senha | `CliSecrets` recusa keychain junto com `--password-file` ou `DBU_*_PASSWORD*` (exit 2); `--password-file` explícito substitui o keychain do perfil; testes `keyring_and_password_file_together_are_ambiguous`, `keyring_profile_uses_the_keychain_unless_a_password_file_is_given` | ok (DB-46) |
+| Sem keychain, erro claro e nada salvo | falha de acesso vira `SecretError::KeychainUnavailable` (código `keychain_unavailable`, exit 2) com a dica `--password-file`; mensagens do keychain nunca incluem o valor salvo; testes `storage_failures_become_unavailable_without_leaking_the_password`, `save_password_without_a_keychain_fails_clearly_and_saves_nothing` | ok (DB-46) |
+| Remover o perfil apaga a senha do keychain | `connection remove` chama `forget_password` depois de remover o perfil; se o keychain falhar, sai com exit 1 avisando que a senha ficou lá; teste `removing_a_profile_deletes_only_passwords_it_saved_in_the_keychain`. Teste do connection add que falha apaga a senha recém-salva | ok (DB-46) |
 
 ## SQLite (DB-22)
 
@@ -245,6 +249,13 @@ deixar de depender do `crypto-bigint` afetado.
 - **`DBU_PG_PASSWORD` é visível** em `/proc/<pid>/environ` para o próprio usuário e o root.
   Prefira `--password-file`.
 - **Dono do arquivo de senha não é conferido.** Só as permissões são.
+- **Keychain desbloqueado é acessível ao mesmo usuário (DB-46).** Qualquer processo do usuário com a
+  sessão desbloqueada lê a senha salva pelo `--save-password`. No Linux, um Secret Service bloqueado
+  pode pedir a senha da sessão; sem sessão D-Bus, o recurso não funciona e o caminho é o
+  `--password-file`. A CI não tem Secret Service, então só o armazenamento falso (`keyring-core`
+  mock) e o caminho sem keychain são testados.
+- **A senha do keychain passa por uma `String` da `keyring-core`** antes de virar `Password`, e essa
+  cópia não é zerada.
 - **Sem manifesto, arquivo desconhecido segue o `--engine` ou o perfil.** O restore e o verify reconhecem
   PostgreSQL, SQLite, MySQL e MongoDB pelo cabeçalho; um arquivo que não bate com nenhum deles segue o
   `--engine` (ou o perfil) e, sem eles, o caminho do PostgreSQL. Quem recusa o arquivo é a checagem do
@@ -360,7 +371,7 @@ Nada abaixo foi testado: a CI e os testes rodam só em Linux. Vale para a fase d
 | Permissões de backup e arquivo de senha | `0700`/`0600` aplicados e conferidos | mesmo modelo POSIX, esperado igual | sem modo POSIX: a CLI não confere permissões; proteger por ACL |
 | Cancelamento | SIGINT (Ctrl+C) | SIGINT | Ctrl+C via console; sem `kill -INT` |
 | Runner Docker com TLS | monta `/etc/ssl/certs` | Docker Desktop; caminho de certificados diferente | Docker Desktop; montagem de certificados não suportada hoje |
-| Cofre de credenciais | arquivo de senha (Secret Service futuro) | Keychain (futuro) | Credential Manager (futuro) |
+| Cofre de credenciais | arquivo de senha ou Secret Service (zbus, sem libdbus) | Keychain | Credential Manager |
 | `--network host` | suportado | limitado no Docker Desktop | limitado no Docker Desktop |
 
 ## Como revalidar
